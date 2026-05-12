@@ -1,0 +1,17 @@
+djangorestframework
+requests
+pydantic
+ddgs
+django-cors-headers
+google-genai
+langchain
+langchain-core
+langchain-community
+langchain-text-splitters
+langchain-google-genai
+langgraph
+langchain-chroma
+chromadb
+redis
+mcp
+python-dotenv
