@@ -1,1363 +1,1294 @@
 /* eslint-disable prettier/prettier */
-import React, { useEffect, useMemo, useState } from "react";
+/**
+ * ProspectAgent — Agent de prospection conversationnel
+ * Design : Light, rouge industriel, style ChatGPT
+ * Architecture : Chat-first, résultats inline, sidebar stats simplifiée
+ * Features : Google Maps intégré pour chaque carte
+ */
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import L from "leaflet";
-import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import {
-  Alert,
-  Box,
-  Card,
-  CardContent,
-  CircularProgress,
-  Container,
-  Divider,
-  FormControl,
-  Grid,
-  InputLabel,
-  MenuItem,
-  Paper,
-  Select,
-  Slider,
-  Snackbar,
-  Stack,
-  TextField,
-  Typography,
-} from "@mui/material";
-import {
-  AcUnit as ColdIcon,
-  Business as BusinessIcon,
-  Email as EmailIcon,
-  Facebook as FacebookIcon,
-  Instagram as InstagramIcon,
-  Language as WebsiteIcon,
-  LinkedIn as LinkedInIcon,
-  Map as MapIcon,
-  People as PeopleIcon,
-  Place as PlaceIcon,
-  Phone as PhoneIcon,
-  Search as SearchIcon,
-  Settings as SettingsIcon,
-  Storefront as StoreIcon,
-  Whatshot as HotIcon,
-  FlashOn as WarmIcon,
-} from "@mui/icons-material";
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
-import { useTrackActivity } from "../pages/superadmin/Marketingwidgets";
 import { importProspectionResult, searchProspectsAgent } from "../services/prospectAgentApi";
 
-const SECTEURS = [
-  "restaurant",
-  "cafe",
-  "hotel",
-  "it",
-  "informatique",
-  "startup",
-  "marketing",
-  "agence",
-  "clinique",
-  "pharmacie",
-  "medecin",
-  "dentiste",
-  "supermarche",
-  "banque",
-  "coiffeur",
-  "gym",
-  "garage",
-  "boulangerie",
-];
+// Google Maps API Key (depuis .env)
+const GOOGLE_MAPS_API_KEY = process.env.REACT_APP_GOOGLE_MAPS_API_KEY || "AIzaSyCmPiP8lvIaxxcOZVjrxKNdAWyqYo5f94M";
 
-const VILLES = [
-  "tunis",
-  "sfax",
-  "sousse",
-  "kairouan",
-  "bizerte",
-  "gabes",
-  "ariana",
-  "gafsa",
-  "monastir",
-  "nabeul",
-  "ben arous",
-  "la marsa",
-  "la goulette",
-  "hammamet",
-  "mahdia",
-  "djerba",
-];
-
-const CITY_CENTER = {
-  tunis: [36.8189, 10.1658],
-  sfax: [34.7406, 10.7603],
-  sousse: [35.8245, 10.6346],
-  kairouan: [35.6781, 10.0964],
-  bizerte: [37.2746, 9.8739],
-  gabes: [33.8815, 10.0982],
-  ariana: [36.8663, 10.1647],
-  gafsa: [34.425, 8.7842],
-  monastir: [35.7643, 10.8113],
-  nabeul: [36.4561, 10.7376],
-  "ben arous": [36.7533, 10.2281],
-  "la marsa": [36.8784, 10.3249],
-  "la goulette": [36.818, 10.305],
-  hammamet: [36.4, 10.6167],
-  mahdia: [35.5047, 11.0622],
-  djerba: [33.8076, 10.8451],
+// ─── Design tokens ────────────────────────────────────────────────────────────
+const T = {
+  red:         "#C8102E",
+  redDeep:     "#9B0D22",
+  redLight:    "#FDEEF1",
+  redMid:      "#F5C6CE",
+  bg:          "#F7F8FA",
+  white:       "#FFFFFF",
+  surface:     "#FFFFFF",
+  surfaceAlt:  "#F0F2F5",
+  border:      "#E4E7ED",
+  borderFocus: "#C8102E",
+  text:        "#111827",
+  textSub:     "#4B5563",
+  textMuted:   "#9CA3AF",
+  green:       "#059669",
+  greenBg:     "#ECFDF5",
+  amber:       "#D97706",
+  amberBg:     "#FFFBEB",
+  blue:        "#2563EB",
+  blueBg:      "#EFF6FF",
+  shadow:      "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)",
+  shadowMd:    "0 4px 12px rgba(0,0,0,0.08)",
+  shadowLg:    "0 8px 24px rgba(0,0,0,0.12)",
 };
 
-const C = {
-  red: "#dc2626",
-  redDark: "#b91c1c",
-  redSoft: "#fef2f2",
-  white: "#ffffff",
-  text: "#262626",
-  muted: "#737373",
-  line: "#e5e5e5",
-  soft: "#f5f5f5",
-  green: "#10b981",
-  blue: "#2563eb",
-  amber: "#f59e0b",
-  slate: "#64748b",
-  grad: "linear-gradient(135deg, #dc2626 0%, #991b1b 100%)",
-};
+// ─── Static styles ─────────────────────────────────────────────────────────────
+const STYLE_ID = "pa-styles-v4";
+if (!document.getElementById(STYLE_ID)) {
+  const el = document.createElement("style");
+  el.id = STYLE_ID;
+  el.textContent = `
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
-const EVAL = {
-  hot: { label: "Hot", color: "#ef4444", bg: "#fef2f2", icon: HotIcon },
-  warm: { label: "Warm", color: "#f59e0b", bg: "#fffbeb", icon: WarmIcon },
-  cold: { label: "Cold", color: "#64748b", bg: "#f8fafc", icon: ColdIcon },
-};
-
-const SOURCE_OPTIONS = [
-  { id: "osm", label: "OSM", icon: StoreIcon },
-  { id: "website", label: "Web", icon: WebsiteIcon },
-  { id: "facebook", label: "Facebook", icon: FacebookIcon },
-  { id: "instagram", label: "Instagram", icon: InstagramIcon },
-  { id: "linkedin", label: "LinkedIn", icon: LinkedInIcon },
-];
-
-const SEARCH_MODES = [
-  { id: "company", label: "Entreprises", icon: BusinessIcon },
-  { id: "prospect", label: "Prospects", icon: PeopleIcon },
-];
-
-const SENIORITY_OPTIONS = [
-  { value: "", label: "Tous niveaux" },
-  { value: "manager", label: "Manager" },
-  { value: "director", label: "Directeur" },
-  { value: "head", label: "Head / Lead" },
-  { value: "executive", label: "C-level" },
-];
-
-function NativeButton({ children, disabled, onClick, fullWidth, variant }) {
-  const ghost = variant === "ghost";
-  return (
-    <Box
-      component="button"
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      sx={{
-        width: fullWidth ? "100%" : "auto",
-        minHeight: 38,
-        px: 2,
-        py: 1,
-        border: ghost ? `1px solid ${C.line}` : "none",
-        borderRadius: 2,
-        background: disabled ? "#d4d4d4" : ghost ? C.white : C.grad,
-        color: disabled ? C.muted : ghost ? C.red : C.white,
-        cursor: disabled ? "not-allowed" : "pointer",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 0.75,
-        fontFamily: "inherit",
-        fontWeight: 800,
-        fontSize: "0.875rem",
-        lineHeight: 1,
-        transition: "all 0.15s ease",
-        "&:hover": {
-          background: disabled ? "#d4d4d4" : ghost ? C.redSoft : C.redDark,
-          borderColor: ghost ? C.red : "rgba(0,0,0,0)",
-        },
-      }}
-    >
-      {children}
-    </Box>
-  );
-}
-
-NativeButton.defaultProps = {
-  disabled: false,
-  fullWidth: false,
-  onClick: undefined,
-  variant: "solid",
-};
-
-NativeButton.propTypes = {
-  children: PropTypes.node.isRequired,
-  disabled: PropTypes.bool,
-  fullWidth: PropTypes.bool,
-  onClick: PropTypes.func,
-  variant: PropTypes.oneOf(["solid", "ghost"]),
-};
-
-function Pill({ active, children, onClick }) {
-  return (
-    <Box
-      component="button"
-      type="button"
-      onClick={onClick}
-      sx={{
-        border: `1px solid ${active ? C.red : C.line}`,
-        borderRadius: "999px",
-        background: active ? C.red : C.soft,
-        color: active ? C.white : C.muted,
-        cursor: "pointer",
-        px: 1.4,
-        py: 0.65,
-        fontFamily: "inherit",
-        fontWeight: active ? 800 : 700,
-        fontSize: "0.8125rem",
-      }}
-    >
-      {children}
-    </Box>
-  );
-}
-
-Pill.propTypes = {
-  active: PropTypes.bool.isRequired,
-  children: PropTypes.node.isRequired,
-  onClick: PropTypes.func.isRequired,
-};
-
-function EvaluationBadge({ value }) {
-  const config = EVAL[value] || EVAL.cold;
-  const Icon = config.icon;
-  return (
-    <Box
-      component="span"
-      sx={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 0.5,
-        px: 1,
-        py: 0.45,
-        borderRadius: "999px",
-        background: config.bg,
-        color: config.color,
-        fontWeight: 900,
-        fontSize: "0.75rem",
-      }}
-    >
-      <Icon sx={{ fontSize: 14 }} />
-      {config.label}
-    </Box>
-  );
-}
-
-EvaluationBadge.defaultProps = {
-  value: "cold",
-};
-
-EvaluationBadge.propTypes = {
-  value: PropTypes.string,
-};
-
-function SocialLink({ type, url }) {
-  if (!url) return null;
-  const config = {
-    facebook: { icon: FacebookIcon, color: "#1877f2" },
-    instagram: { icon: InstagramIcon, color: "#c13584" },
-    linkedin: { icon: LinkedInIcon, color: "#0a66c2" },
-    website: { icon: WebsiteIcon, color: C.slate },
-  }[type];
-  const Icon = config.icon;
-  return (
-    <Box
-      component="a"
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      sx={{ color: config.color, display: "inline-flex", alignItems: "center" }}
-    >
-      <Icon sx={{ fontSize: 18 }} />
-    </Box>
-  );
-}
-
-SocialLink.propTypes = {
-  type: PropTypes.oneOf(["facebook", "instagram", "linkedin", "website"]).isRequired,
-  url: PropTypes.string,
-};
-
-SocialLink.defaultProps = {
-  url: "",
-};
-
-const getCompanyKey = (company) =>
-  company.place_id ||
-  `${company.nom || company.prospect_company_name}-${company.ville || company.city}`;
-
-const toCoordinate = (value) => {
-  if (value === null || value === undefined || value === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
-const markerColor = (evaluation) =>
-  ({
-    hot: "#ef4444",
-    warm: "#f59e0b",
-    cold: "#64748b",
-  }[evaluation] || "#2563eb");
-
-const createMarkerIcon = (evaluation, selected) =>
-  L.divIcon({
-    className: "crm-prospection-marker",
-    html: `<span style="
-      width:${selected ? 20 : 16}px;
-      height:${selected ? 20 : 16}px;
-      display:block;
-      border-radius:999px;
-      background:${markerColor(evaluation)};
-      border:3px solid #ffffff;
-      box-shadow:0 8px 22px rgba(0,0,0,0.28);
-    "></span>`,
-    iconSize: [selected ? 26 : 22, selected ? 26 : 22],
-    iconAnchor: [selected ? 13 : 11, selected ? 13 : 11],
-    popupAnchor: [0, -12],
-  });
-
-function MapAutoFocus({ companies, city, selectedKey }) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (!map) return;
-
-    const selected = companies.find((company) => getCompanyKey(company) === selectedKey);
-    if (selected) {
-      map.setView([selected.latitude, selected.longitude], 15, { animate: true });
-      return;
+    .pa-root {
+      font-family: 'Sora', sans-serif;
+      background: ${T.bg};
+      min-height: 100vh;
+      color: ${T.text};
     }
 
-    if (companies.length > 0) {
-      const bounds = L.latLngBounds(companies.map((company) => [company.latitude, company.longitude]));
-      map.fitBounds(bounds, { padding: [28, 28], maxZoom: 15 });
-      return;
+    /* ── Layout principal ── */
+    .pa-layout {
+      display: grid;
+      grid-template-columns: 1fr 260px;
+      gap: 0;
+      height: calc(100vh - 64px);
+    }
+    @media (max-width: 960px) {
+      .pa-layout { grid-template-columns: 1fr; }
+      .pa-sidebar { display: none; }
     }
 
-    map.setView(CITY_CENTER[city] || CITY_CENTER.tunis, 12);
-  }, [companies, city, map, selectedKey]);
+    /* ── Zone chat (colonne gauche) ── */
+    .pa-chat-col {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-right: 1px solid ${T.border};
+    }
 
-  return null;
+    /* Header chat */
+    .pa-chat-header {
+      padding: 16px 24px;
+      background: ${T.white};
+      border-bottom: 1px solid ${T.border};
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .pa-agent-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: ${T.redLight};
+      border: 1px solid ${T.redMid};
+      border-radius: 20px;
+      padding: 4px 12px 4px 8px;
+    }
+    .pa-agent-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: ${T.red};
+      animation: pa-pulse 2s ease-in-out infinite;
+    }
+    @keyframes pa-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(0.85); }
+    }
+    .pa-agent-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: ${T.red};
+      letter-spacing: 0.3px;
+    }
+    .pa-clear-btn {
+      margin-left: auto;
+      padding: 5px 12px;
+      border: 1px solid ${T.border};
+      border-radius: 6px;
+      background: transparent;
+      font-family: 'Sora', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      color: ${T.textSub};
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+    .pa-clear-btn:hover { border-color: ${T.red}; color: ${T.red}; background: ${T.redLight}; }
+
+    /* Messages scroll */
+    .pa-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .pa-messages::-webkit-scrollbar { width: 4px; }
+    .pa-messages::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 4px; }
+
+    /* ── Messages ── */
+    .pa-msg { display: flex; gap: 10px; animation: pa-fade-in 0.2s ease; }
+    @keyframes pa-fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+    .pa-msg.user { flex-direction: row-reverse; }
+
+    .pa-avatar {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700;
+    }
+    .pa-avatar.agent { background: ${T.red}; color: ${T.white}; font-size: 12px; }
+    .pa-avatar.user { background: ${T.surfaceAlt}; border: 1px solid ${T.border}; }
+
+    .pa-bubble {
+      max-width: 72%;
+      padding: 12px 16px;
+      border-radius: 14px;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .pa-bubble.agent {
+      background: ${T.white};
+      border: 1px solid ${T.border};
+      border-top-left-radius: 4px;
+      box-shadow: ${T.shadow};
+      color: ${T.text};
+    }
+    .pa-bubble.user {
+      background: ${T.red};
+      color: ${T.white};
+      border-top-right-radius: 4px;
+    }
+
+    /* ── Logs agent (thinking) ── */
+    .pa-thinking {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px 14px;
+      background: ${T.white};
+      border: 1px solid ${T.border};
+      border-left: 3px solid ${T.red};
+      border-radius: 10px;
+      max-width: 72%;
+    }
+    .pa-log-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      color: ${T.textSub};
+    }
+    .pa-log-item.active { color: ${T.red}; font-weight: 500; }
+    .pa-log-item.done { color: ${T.green}; }
+    .pa-log-icon { font-size: 11px; width: 16px; text-align: center; }
+    .pa-spinner-sm {
+      width: 12px; height: 12px;
+      border: 2px solid ${T.redMid};
+      border-top-color: ${T.red};
+      border-radius: 50%;
+      animation: pa-spin 0.7s linear infinite;
+    }
+    @keyframes pa-spin { to { transform: rotate(360deg); } }
+
+    /* ── Cards résultats modernes ── */
+    .pa-results-block {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .pa-results-summary {
+      font-size: 13px;
+      font-weight: 600;
+      color: ${T.textSub};
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    /* Card entreprise moderne */
+    .pa-card {
+      background: ${T.white};
+      border-radius: 16px;
+      overflow: hidden;
+      transition: all 0.2s ease;
+      cursor: default;
+      box-shadow: ${T.shadow};
+    }
+    .pa-card:hover { 
+      transform: translateY(-2px); 
+      box-shadow: ${T.shadowLg}; 
+    }
+    .pa-card.hot  { border-left: 4px solid ${T.red}; }
+    .pa-card.warm { border-left: 4px solid ${T.amber}; }
+    .pa-card.cold { border-left: 4px solid ${T.border}; }
+
+    .pa-card-content {
+      padding: 16px;
+    }
+
+    .pa-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .pa-card-title h3 {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0 0 4px 0;
+      color: ${T.text};
+    }
+    .pa-card-subtitle {
+      font-size: 12px;
+      color: ${T.textMuted};
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .pa-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 4px 10px; border-radius: 20px;
+      font-size: 11px; font-weight: 700; white-space: nowrap;
+    }
+    .pa-badge.hot  { background: ${T.redLight};   color: ${T.red};   }
+    .pa-badge.warm { background: ${T.amberBg};     color: ${T.amber}; }
+    .pa-badge.cold { background: ${T.surfaceAlt};  color: ${T.textMuted}; }
+
+    /* Google Maps intégré */
+    .pa-map-container {
+      margin: 12px 0;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid ${T.border};
+      background: ${T.surfaceAlt};
+      min-height: 180px;
+    }
+    .pa-map-placeholder {
+      height: 180px;
+      background: linear-gradient(135deg, ${T.surfaceAlt} 0%, ${T.bg} 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 8px;
+      color: ${T.textMuted};
+      font-size: 12px;
+    }
+    .pa-map-iframe {
+      width: 100%;
+      height: 200px;
+      border: none;
+    }
+
+    .pa-contacts {
+      display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0;
+    }
+    .pa-contact-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; padding: 4px 10px;
+      border-radius: 8px;
+      border: 1px solid ${T.border};
+      background: ${T.surfaceAlt};
+      color: ${T.textSub};
+    }
+    .pa-contact-chip.filled { background: ${T.white}; border-color: ${T.border}; color: ${T.text}; }
+
+    /* Barre score améliorée */
+    .pa-score-section {
+      margin: 12px 0;
+    }
+    .pa-score-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+    .pa-score-lbl { font-size: 11px; color: ${T.textMuted}; font-weight: 500; }
+    .pa-score-val { font-size: 11px; font-family: 'JetBrains Mono', monospace; font-weight: 700; }
+    .pa-score-track { height: 6px; border-radius: 3px; background: ${T.border}; overflow: hidden; }
+    .pa-score-fill  { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+
+    /* Raison score */
+    .pa-score-reason {
+      font-size: 11px;
+      color: ${T.textMuted};
+      margin: 8px 0 0 0;
+      padding: 8px;
+      background: ${T.surfaceAlt};
+      border-radius: 8px;
+      line-height: 1.4;
+    }
+
+    /* Socials */
+    .pa-socials { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .pa-social {
+      width: 30px; height: 30px;
+      border-radius: 8px; border: 1px solid ${T.border};
+      display: inline-flex; align-items: center; justify-content: center;
+      text-decoration: none; font-size: 14px; transition: all 0.12s;
+    }
+    .pa-social:hover { border-color: ${T.red}; background: ${T.redLight}; transform: translateY(-2px); }
+
+    /* Card footer */
+    .pa-card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid ${T.border};
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .pa-next-action {
+      font-size: 11px;
+      color: ${T.textMuted};
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .pa-import-btn {
+      padding: 6px 16px;
+      border: none;
+      border-radius: 8px;
+      font-family: 'Sora', sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+    .pa-import-btn.primary {
+      background: ${T.red};
+      color: ${T.white};
+    }
+    .pa-import-btn.primary:hover {
+      background: ${T.redDeep};
+      transform: scale(1.02);
+    }
+    .pa-import-btn.done {
+      background: ${T.greenBg};
+      color: ${T.green};
+      border: 1px solid #BBF7D0;
+      cursor: default;
+    }
+
+    /* Card prospect */
+    .pa-prospect {
+      background: ${T.white};
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: ${T.shadow};
+      transition: all 0.2s ease;
+    }
+    .pa-prospect:hover { 
+      transform: translateY(-2px); 
+      box-shadow: ${T.shadowLg}; 
+    }
+    .pa-prospect.hot  { border-left: 4px solid ${T.red}; }
+    .pa-prospect.warm { border-left: 4px solid ${T.amber}; }
+    .pa-prospect-content {
+      display: flex;
+      gap: 14px;
+    }
+    .pa-prospect-avatar {
+      width: 48px; height: 48px; border-radius: 50%;
+      background: ${T.redLight}; border: 2px solid ${T.redMid};
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; font-weight: 700; color: ${T.red}; flex-shrink: 0;
+    }
+    .pa-prospect-body { flex: 1; min-width: 0; }
+    .pa-prospect-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .pa-prospect-name { font-size: 16px; font-weight: 700; margin: 0; }
+    .pa-prospect-title { font-size: 12px; color: ${T.textMuted}; margin-top: 2px; }
+
+    /* Tabs résultats */
+    .pa-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      background: ${T.surfaceAlt};
+      border-radius: 12px;
+      padding: 4px;
+    }
+    .pa-tab-btn {
+      flex: 1; padding: 8px 12px; border: none; border-radius: 8px;
+      font-family: 'Sora', sans-serif; font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: all 0.12s;
+    }
+    .pa-tab-btn.active { background: ${T.white}; color: ${T.red}; box-shadow: ${T.shadow}; }
+    .pa-tab-btn:not(.active) { background: transparent; color: ${T.textMuted}; }
+
+    /* Stats chips */
+    .pa-stats-chips {
+      display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px;
+    }
+    .pa-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+      background: ${T.white};
+      border: 1px solid ${T.border};
+    }
+    .pa-chip.red   { background: ${T.redLight};  color: ${T.red};        border-color: ${T.redMid}; }
+    .pa-chip.green { background: ${T.greenBg};   color: ${T.green};      border-color: #BBF7D0; }
+    .pa-chip.amber { background: ${T.amberBg};   color: ${T.amber};      border-color: #FDE68A; }
+    .pa-chip.blue  { background: ${T.blueBg};    color: ${T.blue};       border-color: #BFDBFE; }
+    .pa-chip.gray  { background: ${T.surfaceAlt}; color: ${T.textMuted}; border-color: ${T.border}; }
+
+    /* Suggestions */
+    .pa-suggestions {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      padding: 0 24px 16px;
+    }
+    .pa-suggestion {
+      padding: 8px 16px; border-radius: 24px;
+      border: 1px solid ${T.border}; background: ${T.white};
+      font-family: 'Sora', sans-serif; font-size: 12px; font-weight: 500;
+      color: ${T.textSub}; cursor: pointer; transition: all 0.12s;
+      box-shadow: ${T.shadow};
+    }
+    .pa-suggestion:hover { border-color: ${T.red}; color: ${T.red}; background: ${T.redLight}; transform: translateY(-1px); }
+
+    /* Input zone */
+    .pa-input-zone {
+      padding: 16px 24px;
+      background: ${T.white};
+      border-top: 1px solid ${T.border};
+      flex-shrink: 0;
+    }
+    .pa-input-row {
+      display: flex; gap: 8px; align-items: flex-end;
+      background: ${T.surfaceAlt};
+      border: 1.5px solid ${T.border};
+      border-radius: 16px;
+      padding: 8px 8px 8px 16px;
+      transition: border-color 0.15s;
+    }
+    .pa-input-row:focus-within { border-color: ${T.red}; background: ${T.white}; }
+    .pa-textarea {
+      flex: 1; border: none; background: transparent;
+      font-family: 'Sora', sans-serif; font-size: 14px;
+      color: ${T.text}; resize: none; outline: none;
+      min-height: 22px; max-height: 120px; line-height: 1.5;
+    }
+    .pa-textarea::placeholder { color: ${T.textMuted}; }
+    .pa-send-btn {
+      width: 38px; height: 38px; border: none; border-radius: 12px;
+      background: ${T.red}; color: ${T.white};
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: all 0.12s; flex-shrink: 0; font-size: 16px;
+    }
+    .pa-send-btn:hover:not(:disabled) { background: ${T.redDeep}; transform: scale(1.02); }
+    .pa-send-btn:disabled { background: ${T.textMuted}; cursor: not-allowed; }
+    .pa-input-hint {
+      font-size: 11px; color: ${T.textMuted};
+      margin-top: 8px; text-align: center;
+    }
+
+    /* Sidebar droite simplifiée */
+    .pa-sidebar {
+      background: ${T.white};
+      overflow-y: auto;
+      padding: 20px 16px;
+      display: flex; flex-direction: column; gap: 20px;
+    }
+    .pa-sidebar-section {
+      background: ${T.surfaceAlt};
+      border-radius: 16px;
+      padding: 16px;
+    }
+    .pa-sidebar-title {
+      font-size: 11px; font-weight: 700; letter-spacing: 1px;
+      text-transform: uppercase; color: ${T.textMuted};
+      margin-bottom: 12px;
+    }
+    .pa-stat-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 0;
+    }
+    .pa-stat-row + .pa-stat-row { border-top: 1px solid ${T.border}; }
+    .pa-stat-lbl { font-size: 13px; color: ${T.textSub}; }
+    .pa-stat-val {
+      font-size: 14px; font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .pa-stat-val.red   { color: ${T.red}; }
+    .pa-stat-val.green { color: ${T.green}; }
+    .pa-stat-val.amber { color: ${T.amber}; }
+    .pa-stat-val.blue  { color: ${T.blue}; }
+
+    /* Empty state */
+    .pa-empty {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 16px; padding: 48px 24px; text-align: center;
+    }
+    .pa-empty-icon {
+      width: 80px; height: 80px; border-radius: 50%;
+      background: ${T.redLight}; display: flex; align-items: center; justify-content: center;
+      font-size: 36px;
+    }
+    .pa-empty-title { font-size: 20px; font-weight: 700; margin: 0; }
+    .pa-empty-sub { font-size: 14px; color: ${T.textSub}; max-width: 320px; line-height: 1.5; margin: 0; }
+
+    /* Toast */
+    .pa-toast {
+      position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+      padding: 12px 20px; border-radius: 12px;
+      font-size: 13px; font-weight: 600;
+      display: flex; align-items: center; gap: 10px;
+      animation: pa-fade-in 0.2s ease;
+      box-shadow: ${T.shadowLg};
+    }
+    .pa-toast.success { background: ${T.greenBg}; color: ${T.green}; border: 1px solid #BBF7D0; }
+    .pa-toast.error   { background: ${T.redLight};  color: ${T.red};   border: 1px solid ${T.redMid}; }
+
+    * { box-sizing: border-box; }
+  `;
+  document.head.appendChild(el);
 }
 
-MapAutoFocus.defaultProps = {
-  selectedKey: "",
-};
+// ─── Suggestions ──────────────────────────────────────────────────────────────
+const SUGGESTIONS = [
+  "🍕 restaurants à Tunis",
+  "📸 food bloggers cuisine tunisienne",
+  "💼 responsables RH sociétés informatiques Tunis",
+  "🏨 hôtels à Sousse avec site web",
+  "🧑‍💻 fondateurs startups tech Tunis",
+  "💇 salons de beauté Ariana",
+];
 
-MapAutoFocus.propTypes = {
-  companies: PropTypes.arrayOf(PropTypes.object).isRequired,
-  city: PropTypes.string.isRequired,
-  selectedKey: PropTypes.string,
-};
+// ─── Logs simulés pendant le chargement ───────────────────────────────────────
+const THINKING_STEPS = [
+  { icon: "🧠", label: "Analyse de la requête..." },
+  { icon: "🎯", label: "Sélection des outils..." },
+  { icon: "🔍", label: "Recherche en cours..." },
+  { icon: "⚡", label: "Enrichissement des données..." },
+  { icon: "📊", label: "Scoring des résultats..." },
+];
 
-function ProspectionMap({ companies, city, onSelect, selectedKey }) {
-  const mapCompanies = useMemo(
-    () =>
-      companies
-        .map((company) => ({
-          ...company,
-          latitude: toCoordinate(company.latitude),
-          longitude: toCoordinate(company.longitude),
-        }))
-        .filter((company) => company.latitude !== null && company.longitude !== null),
-    [companies]
-  );
-  const center = CITY_CENTER[city] || CITY_CENTER.tunis;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const scoreColor = (v) => v >= 70 ? T.red : v >= 50 ? T.amber : T.textMuted;
+const cap = (v) => Math.max(0, Math.min(100, Number(v || 0)));
 
-  if (mapCompanies.length === 0) {
+function initials(name) {
+  if (!name) return "?";
+  return name.split(" ").map(p => p[0]).join("").toUpperCase().slice(0, 2);
+}
+
+// ─── Composant Google Maps ───────────────────────────────────────────────────
+function GoogleMapEmbed({ address, placeName }) {
+  const [mapError, setMapError] = useState(false);
+  
+  if (!address || mapError) {
     return (
-      <Box
-        sx={{
-          height: 420,
-          border: `1px solid ${C.line}`,
-          borderRadius: 2,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: C.muted,
-          textAlign: "center",
-          px: 3,
-        }}
-      >
-        <Box>
-          <MapIcon sx={{ fontSize: 42, mb: 1, color: "#d4d4d4" }} />
-          <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-            Aucune coordonnee exploitable
-          </Typography>
-        </Box>
-      </Box>
+      <div className="pa-map-placeholder">
+        <span>🗺️</span>
+        <span>Adresse non disponible</span>
+      </div>
     );
   }
 
+  const encodedAddress = encodeURIComponent(address);
+  const mapUrl = `https://www.google.com/maps/embed/v1/place?key=${GOOGLE_MAPS_API_KEY}&q=${encodedAddress}&zoom=15&maptype=roadmap`;
+
   return (
-    <Box
-      sx={{
-        height: { xs: 360, md: 520 },
-        border: `1px solid ${C.line}`,
-        borderRadius: 2,
-        overflow: "hidden",
-        "& .leaflet-container": {
-          height: "100%",
-          width: "100%",
-          fontFamily: "inherit",
-        },
-        "& .leaflet-popup-content-wrapper": {
-          borderRadius: "8px",
-        },
-      }}
-    >
-      <MapContainer center={center} zoom={12} scrollWheelZoom style={{ height: "100%", width: "100%" }}>
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        <MapAutoFocus companies={mapCompanies} city={city} selectedKey={selectedKey} />
-        {mapCompanies.map((company) => {
-          const key = getCompanyKey(company);
-          const selected = key === selectedKey;
-          return (
-            <Marker
-              key={key}
-              position={[company.latitude, company.longitude]}
-              icon={createMarkerIcon(company.evaluation, selected)}
-              eventHandlers={{ click: () => onSelect(company) }}
-            >
-              <Popup>
-                <Box sx={{ minWidth: 180 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 0.5 }}>
-                    {company.nom}
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: C.muted, display: "block" }}>
-                    {company.categorie || company.secteur} - Score {company.score_ia || 0}/100
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: C.muted, display: "block" }}>
-                    {company.telephone || company.adresse || "Contact a verifier"}
-                  </Typography>
-                </Box>
-              </Popup>
-            </Marker>
-          );
-        })}
-      </MapContainer>
-    </Box>
+    <div className="pa-map-container">
+      <iframe
+        className="pa-map-iframe"
+        title={`Carte - ${placeName || address}`}
+        src={mapUrl}
+        allowFullScreen
+        loading="lazy"
+        referrerPolicy="no-referrer-when-downgrade"
+        onError={() => setMapError(true)}
+      />
+    </div>
   );
 }
 
-ProspectionMap.defaultProps = {
-  selectedKey: "",
+GoogleMapEmbed.propTypes = {
+  address: PropTypes.string,
+  placeName: PropTypes.string,
+};
+GoogleMapEmbed.defaultProps = { address: null, placeName: null };
+
+function Badge({ eval: ev }) {
+  const labels = { hot: "🔥 Hot", warm: "🟡 Warm", cold: "⚪ Cold" };
+  const icons = { hot: "🔥", warm: "🟡", cold: "⚪" };
+  return <span className={`pa-badge ${ev || "cold"}`}>{icons[ev] || "⚪"} {labels[ev] || "Cold"}</span>;
+}
+Badge.propTypes = { eval: PropTypes.string };
+Badge.defaultProps = { eval: "cold" };
+
+function ScoreBar({ score }) {
+  const v = cap(score);
+  return (
+    <div className="pa-score-section">
+      <div className="pa-score-row">
+        <span className="pa-score-lbl">🏆 Score de pertinence</span>
+        <span className="pa-score-val" style={{ color: scoreColor(v) }}>{v}/100</span>
+      </div>
+      <div className="pa-score-track">
+        <div className="pa-score-fill" style={{ width: `${v}%`, background: scoreColor(v) }} />
+      </div>
+    </div>
+  );
+}
+ScoreBar.propTypes = { score: PropTypes.oneOfType([PropTypes.number, PropTypes.string]) };
+ScoreBar.defaultProps = { score: 0 };
+
+function SocialLinks({ website, facebook, instagram, linkedin }) {
+  const links = [
+    { url: website, icon: "🌐", title: "Site web" },
+    { url: facebook, icon: "📘", title: "Facebook" },
+    { url: instagram, icon: "📸", title: "Instagram" },
+    { url: linkedin, icon: "💼", title: "LinkedIn" },
+  ].filter(l => l.url);
+  if (!links.length) return null;
+  return (
+    <div className="pa-socials">
+      {links.map(l => (
+        <a key={l.url} href={l.url} target="_blank" rel="noreferrer"
+          className="pa-social" title={l.title}>{l.icon}</a>
+      ))}
+    </div>
+  );
+}
+SocialLinks.propTypes = {
+  website: PropTypes.string, facebook: PropTypes.string,
+  instagram: PropTypes.string, linkedin: PropTypes.string,
+};
+SocialLinks.defaultProps = { website: "", facebook: "", instagram: "", linkedin: "" };
+
+function Toast({ message, type, onClose }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 3500);
+    return () => clearTimeout(t);
+  }, [onClose]);
+  return (
+    <div className={`pa-toast ${type}`}>
+      <span>{type === "success" ? "✓" : "✕"}</span>
+      <span>{message}</span>
+    </div>
+  );
+}
+Toast.propTypes = {
+  message: PropTypes.string.isRequired,
+  type: PropTypes.oneOf(["success", "error"]).isRequired,
+  onClose: PropTypes.func.isRequired,
 };
 
-ProspectionMap.propTypes = {
-  companies: PropTypes.arrayOf(PropTypes.object).isRequired,
-  city: PropTypes.string.isRequired,
-  onSelect: PropTypes.func.isRequired,
-  selectedKey: PropTypes.string,
+// ─── CompanyCard avec Maps ───────────────────────────────────────────────────
+function CompanyCard({ company, onImport, imported }) {
+  const ev = company.evaluation || "cold";
+  const fullAddress = [company.adresse, company.ville, company.code_postal, company.pays]
+    .filter(Boolean).join(", ");
+  
+  return (
+    <div className={`pa-card ${ev}`}>
+      <div className="pa-card-content">
+        <div className="pa-card-header">
+          <div className="pa-card-title">
+            <h3>{company.nom}</h3>
+            <div className="pa-card-subtitle">
+              {company.categorie || company.secteur}
+              {fullAddress && <span>• {company.ville || company.adresse?.split(",")[0]}</span>}
+            </div>
+          </div>
+          <Badge eval={ev} />
+        </div>
+
+        {/* Google Maps intégré */}
+        <GoogleMapEmbed address={fullAddress} placeName={company.nom} />
+
+        <div className="pa-contacts">
+          {company.telephone && (
+            <a href={`tel:${company.telephone}`} className="pa-contact-chip filled" style={{ textDecoration: 'none' }}>
+              📞 {company.telephone}
+            </a>
+          )}
+          {company.email && (
+            <a href={`mailto:${company.email}`} className="pa-contact-chip filled" style={{ textDecoration: 'none' }}>
+              ✉ {company.email}
+            </a>
+          )}
+          {company.site_web && (
+            <a href={company.site_web} target="_blank" rel="noreferrer"
+              className="pa-contact-chip filled" style={{ textDecoration: 'none' }}>
+              🌐 Site web
+            </a>
+          )}
+          {!company.telephone && !company.email && !company.site_web && (
+            <span className="pa-contact-chip">📋 Contact à vérifier</span>
+          )}
+        </div>
+
+        <ScoreBar score={company.score_ia} />
+
+        {company.raison_score && (
+          <div className="pa-score-reason">
+            💡 {company.raison_score}
+          </div>
+        )}
+
+        <div className="pa-card-footer">
+          <SocialLinks
+            website={company.site_web}
+            facebook={company.facebook_url}
+            instagram={company.instagram_url}
+            linkedin={company.linkedin_url}
+          />
+          {company.next_action && (
+            <span className="pa-next-action">
+              🎯 {company.next_action}
+            </span>
+          )}
+          <button
+            className={`pa-import-btn ${imported ? "done" : "primary"}`}
+            onClick={!imported ? onImport : undefined}
+          >
+            {imported ? "✓ Importé" : "+ Importer"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+CompanyCard.propTypes = {
+  company: PropTypes.object.isRequired,
+  onImport: PropTypes.func.isRequired,
+  imported: PropTypes.bool,
+};
+CompanyCard.defaultProps = { imported: false };
+
+// ─── ProspectCard avec Maps ───────────────────────────────────────────────────
+function ProspectCard({ prospect, onImport }) {
+  const ev = prospect.evaluation || "cold";
+  const name = `${prospect.first_name || ""} ${prospect.last_name || ""}`.trim() || "—";
+  const companyName = prospect.prospect_company_name || prospect.company_name || "";
+  const fullAddress = [prospect.adresse, prospect.ville, prospect.pays].filter(Boolean).join(", ");
+  
+  return (
+    <div className={`pa-prospect ${ev}`}>
+      <div className="pa-prospect-content">
+        <div className="pa-prospect-avatar">{initials(name)}</div>
+        <div className="pa-prospect-body">
+          <div className="pa-prospect-header">
+            <div>
+              <div className="pa-prospect-name">{name}</div>
+              {(prospect.title || companyName) && (
+                <div className="pa-prospect-title">
+                  {prospect.title}
+                  {prospect.title && companyName && " @ "}
+                  {companyName}
+                </div>
+              )}
+            </div>
+            <Badge eval={ev} />
+          </div>
+
+          <div className="pa-contacts">
+            {prospect.email && (
+              <a href={`mailto:${prospect.email}`} className="pa-contact-chip filled" style={{ textDecoration: 'none' }}>
+                ✉ {prospect.email}
+              </a>
+            )}
+            {prospect.phone && (
+              <a href={`tel:${prospect.phone}`} className="pa-contact-chip filled" style={{ textDecoration: 'none' }}>
+                📞 {prospect.phone}
+              </a>
+            )}
+            {!prospect.email && !prospect.phone && (
+              <span className="pa-contact-chip">📋 Contact à vérifier</span>
+            )}
+          </div>
+
+          {/* Google Maps pour le prospect (adresse de son entreprise) */}
+          {fullAddress && (
+            <GoogleMapEmbed address={fullAddress} placeName={companyName || name} />
+          )}
+
+          <div className="pa-card-footer" style={{ marginTop: 12, paddingTop: 12 }}>
+            <SocialLinks
+              linkedin={prospect.linkedin_url}
+              facebook={prospect.facebook_url}
+              instagram={prospect.instagram_url}
+            />
+            <button className="pa-import-btn primary" onClick={onImport}>
+              + Importer
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+ProspectCard.propTypes = {
+  prospect: PropTypes.object.isRequired,
+  onImport: PropTypes.func.isRequired,
 };
 
-export default function ProspectSearch() {
-  useTrackActivity("agent_prospection");
-
-  const [searchType, setSearchType] = useState("company");
-  const [query, setQuery] = useState("");
-  const [secteur, setSecteur] = useState("restaurant");
-  const [ville, setVille] = useState("tunis");
-  const [rayon, setRayon] = useState(5);
-  const [maxRes, setMaxRes] = useState(8);
-  const [scoreMin, setScoreMin] = useState(0);
-  const [sources, setSources] = useState(["osm", "website", "facebook", "instagram", "linkedin"]);
-  const [employeesMin, setEmployeesMin] = useState("");
-  const [employeesMax, setEmployeesMax] = useState("");
-  const [activityType, setActivityType] = useState("");
-  const [jobTitle, setJobTitle] = useState("");
-  const [seniorityLevel, setSeniorityLevel] = useState("");
-  const [targetCompany, setTargetCompany] = useState("");
-  const [required, setRequired] = useState({
-    facebook: false,
-    instagram: false,
-    website: false,
-    phone: false,
-    email: false,
-    linkedin: false,
-  });
-  const [keywords, setKeywords] = useState("");
-  const [filterEval, setFilterEval] = useState("all");
-  const [tab, setTab] = useState("entreprises");
-  const [selectedCompanyKey, setSelectedCompanyKey] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState("");
-  const [imported, setImported] = useState({});
-  const [toast, setToast] = useState({ open: false, message: "", severity: "success" });
-
+// ─── Bloc de résultats inline ────────────────────────────────────────────────
+function ResultsBlock({ result, onImport, imported }) {
+  const [tab, setTab] = useState("companies");
+  const companies = result?.entreprises || result?.companies || [];
+  const prospects = result?.prospects || [];
   const stats = result?.stats || {};
-  const companies = useMemo(() => result?.entreprises || [], [result]);
-  const prospects = useMemo(() => result?.prospects || [], [result]);
 
-  const filteredCompanies = useMemo(
-    () =>
-      companies.filter((item) => (filterEval === "all" ? true : item.evaluation === filterEval)),
-    [companies, filterEval]
+  const activeTab = companies.length === 0 && prospects.length > 0 ? "prospects" : tab;
+
+  return (
+    <div className="pa-results-block">
+      {/* Stats chips */}
+      <div className="pa-stats-chips">
+        {companies.length > 0 && (
+          <span className="pa-chip red">🏢 {stats.total || companies.length} entreprises</span>
+        )}
+        {prospects.length > 0 && (
+          <span className="pa-chip blue">👤 {prospects.length} prospects</span>
+        )}
+        {stats.hot > 0 && <span className="pa-chip red">🔥 {stats.hot} hot</span>}
+        {stats.warm > 0 && <span className="pa-chip amber">🟡 {stats.warm} warm</span>}
+        {result.execution_time && (
+          <span className="pa-chip gray">⏱️ {result.execution_time}</span>
+        )}
+      </div>
+
+      {/* Tabs */}
+      {companies.length > 0 && prospects.length > 0 && (
+        <div className="pa-tabs">
+          <button
+            className={`pa-tab-btn ${activeTab === "companies" ? "active" : ""}`}
+            onClick={() => setTab("companies")}
+          >
+            🏢 Entreprises ({companies.length})
+          </button>
+          <button
+            className={`pa-tab-btn ${activeTab === "prospects" ? "active" : ""}`}
+            onClick={() => setTab("prospects")}
+          >
+            👤 Prospects ({prospects.length})
+          </button>
+        </div>
+      )}
+
+      {/* Liste entreprises */}
+      {activeTab === "companies" && companies.length > 0 && companies.map(c => {
+        const key = c.place_id || c.nom;
+        return (
+          <CompanyCard
+            key={key}
+            company={c}
+            imported={!!imported[key]}
+            onImport={() => onImport(c, prospects)}
+          />
+        );
+      })}
+
+      {/* Liste prospects */}
+      {activeTab === "prospects" && prospects.length > 0 && prospects.map((p, i) => (
+        <ProspectCard
+          key={p.linkedin_url || p.email || `p-${i}`}
+          prospect={p}
+          onImport={() => onImport(null, [p])}
+        />
+      ))}
+
+      {/* Vide */}
+      {activeTab === "companies" && companies.length === 0 && (
+        <div style={{ padding: "20px", fontSize: 13, color: T.textMuted, textAlign: "center", background: T.surfaceAlt, borderRadius: 12 }}>
+          🏢 Aucune entreprise trouvée. Essayez une autre requête.
+        </div>
+      )}
+      {activeTab === "prospects" && prospects.length === 0 && (
+        <div style={{ padding: "20px", fontSize: 13, color: T.textMuted, textAlign: "center", background: T.surfaceAlt, borderRadius: 12 }}>
+          👤 Aucun prospect trouvé. Ajoutez &quot;inkedIn&quot;tre requête.
+        </div>
+      )}
+    </div>
   );
-  const mapCompanies = useMemo(
-    () =>
-      filteredCompanies.filter(
-        (item) => toCoordinate(item.latitude) !== null && toCoordinate(item.longitude) !== null
-      ),
-    [filteredCompanies]
+}
+ResultsBlock.propTypes = {
+  result: PropTypes.object.isRequired,
+  onImport: PropTypes.func.isRequired,
+  imported: PropTypes.object.isRequired,
+};
+
+// ─── Thinking Indicator ───────────────────────────────────────────────────────
+function ThinkingIndicator({ step }) {
+  return (
+    <div className="pa-msg">
+      <div className="pa-avatar agent">AI</div>
+      <div className="pa-thinking">
+        {THINKING_STEPS.map((s, i) => {
+          const isDone = i < step;
+          const isActive = i === step;
+          return (
+            <div key={i} className={`pa-log-item ${isActive ? "active" : isDone ? "done" : ""}`}>
+              <span className="pa-log-icon">
+                {isDone ? "✓" : isActive ? <span className="pa-spinner-sm" /> : s.icon}
+              </span>
+              <span>{s.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
-  const selectedCompany = useMemo(
-    () => companies.find((item) => getCompanyKey(item) === selectedCompanyKey),
-    [companies, selectedCompanyKey]
+}
+ThinkingIndicator.propTypes = { step: PropTypes.number.isRequired };
+
+// ─── Sidebar stats simplifiée ─────────────────────────────────────────────────
+function Sidebar({ lastResult, sessionCount }) {
+  const stats = lastResult?.stats || {};
+  const totalResults = (lastResult?.entreprises?.length || 0) + (lastResult?.prospects?.length || 0);
+
+  return (
+    <aside className="pa-sidebar">
+      {/* Statistiques de recherche */}
+      <div className="pa-sidebar-section">
+        <div className="pa-sidebar-title">📊 Statistiques</div>
+        <div className="pa-stat-row">
+          <span className="pa-stat-lbl">Recherches effectuées</span>
+          <span className="pa-stat-val blue">{sessionCount}</span>
+        </div>
+        <div className="pa-stat-row">
+          <span className="pa-stat-lbl">Derniers résultats</span>
+          <span className="pa-stat-val red">{totalResults}</span>
+        </div>
+        <div className="pa-stat-row">
+          <span className="pa-stat-lbl">Hot leads</span>
+          <span className="pa-stat-val red">{stats.hot || 0}</span>
+        </div>
+        <div className="pa-stat-row">
+          <span className="pa-stat-lbl">Warm leads</span>
+          <span className="pa-stat-val amber">{stats.warm || 0}</span>
+        </div>
+        <div className="pa-stat-row">
+          <span className="pa-stat-lbl">Avec téléphone</span>
+          <span className="pa-stat-val green">{stats.avec_tel || 0}</span>
+        </div>
+        <div className="pa-stat-row">
+          <span className="pa-stat-lbl">Avec email</span>
+          <span className="pa-stat-val green">{stats.avec_email || 0}</span>
+        </div>
+      </div>
+
+      {/* Outils utilisés */}
+      {lastResult?.meta?.tools_used?.length > 0 && (
+        <div className="pa-sidebar-section">
+          <div className="pa-sidebar-title">⚙️ Outils utilisés</div>
+          {(lastResult.meta.tools_used || []).map((tool, i) => (
+            <div key={i} style={{ 
+              fontSize: 12, 
+              color: T.textSub, 
+              padding: "6px 0",
+              borderTop: i > 0 ? `1px solid ${T.border}` : "none",
+              display: "flex",
+              alignItems: "center",
+              gap: 6
+            }}>
+              <span>🔧</span> {tool}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Dernière recherche */}
+      {lastResult && (
+        <div className="pa-sidebar-section">
+          <div className="pa-sidebar-title">🕐 Dernière recherche</div>
+          <div className="pa-stat-row">
+            <span className="pa-stat-lbl">Temps d&quot;tion</span>
+            <span className="pa-stat-val">{lastResult.execution_time || "—"}</span>
+          </div>
+          <div className="pa-stat-row">
+            <span className="pa-stat-lbl">Sources actives</span>
+            <span className="pa-stat-val green">
+              {lastResult?.meta?.executed_sources?.length || 0}
+            </span>
+          </div>
+        </div>
+      )}
+    </aside>
   );
+}
+Sidebar.propTypes = {
+  lastResult: PropTypes.object,
+  sessionCount: PropTypes.number.isRequired,
+};
+Sidebar.defaultProps = { lastResult: null };
 
-  const notify = (message, severity = "success") => {
-    setToast({ open: true, message, severity });
-  };
+// ─── Composant principal ──────────────────────────────────────────────────────
+export default function ProspectAgent() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [thinkStep, setThinkStep] = useState(0);
+  const [imported, setImported] = useState({});
+  const [toast, setToast] = useState(null);
+  const [sessionCount, setSessionCount] = useState(0);
+  const [lastResult, setLastResult] = useState(null);
 
-  const toggleSource = (source) => {
-    setSources((current) => {
-      if (current.includes(source)) {
-        return current.length === 1 ? current : current.filter((item) => item !== source);
-      }
-      return [...current, source];
-    });
-  };
+  const messagesEndRef = useRef(null);
+  const textareaRef = useRef(null);
+  const thinkTimerRef = useRef(null);
 
-  const toggleRequired = (key) => {
-    setRequired((current) => ({ ...current, [key]: !current[key] }));
-  };
+  // Auto-scroll
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
 
-  const handleSearchTypeChange = (value) => {
-    setSearchType(value);
-    if (value === "prospect") {
-      setSources((current) => Array.from(new Set([...current, "osm", "website", "linkedin"])));
-    }
-  };
+  const notify = useCallback((message, type = "success") => {
+    setToast({ message, type });
+  }, []);
 
-  const selectCompanyOnMap = (company) => {
-    setSelectedCompanyKey(getCompanyKey(company));
-    setTab("carte");
-  };
+  // Animation du thinking
+  const startThinking = useCallback(() => {
+    setThinkStep(0);
+    let step = 0;
+    thinkTimerRef.current = setInterval(() => {
+      step = Math.min(step + 1, THINKING_STEPS.length - 1);
+      setThinkStep(step);
+    }, 2800);
+  }, []);
 
-  const parseKeywords = (value) =>
-    value
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean);
+  const stopThinking = useCallback(() => {
+    clearInterval(thinkTimerRef.current);
+  }, []);
 
-  const handleSearch = async () => {
+  // Envoi d'une requête
+  const handleSend = useCallback(async (queryText) => {
+    const text = (queryText || input).trim();
+    if (!text || loading) return;
+
+    setInput("");
+
+    // Ajouter message utilisateur
+    const userMsg = { type: "user", content: text, id: Date.now() };
+    setMessages(prev => [...prev, userMsg]);
     setLoading(true);
-    setError("");
-    setResult(null);
-    setImported({});
-    setSelectedCompanyKey("");
+    startThinking();
 
     try {
-      const payload = {
-        search_type: searchType,
-        query,
-        secteur,
-        ville,
-        rayon_km: rayon,
-        max_resultats: maxRes,
-        score_min: scoreMin,
-        sources,
-        employees_min: employeesMin || null,
-        employees_max: employeesMax || null,
-        activity_type: activityType,
-        job_title: searchType === "prospect" ? jobTitle : "",
-        seniority_level: searchType === "prospect" ? seniorityLevel : "",
-        target_company: searchType === "prospect" ? targetCompany : "",
-        require_facebook: required.facebook,
-        require_instagram: required.instagram,
-        require_website: searchType === "company" ? required.website : false,
-        require_phone: searchType === "company" ? required.phone : false,
-        require_email: required.email,
-        require_linkedin: searchType === "prospect" ? required.linkedin : false,
-        keywords: parseKeywords(keywords),
-        session_id: "crm-agent-prospection",
+      const result = await searchProspectsAgent({ query: text, session_id: "crm-chat" });
+      stopThinking();
+
+      const companies = result?.entreprises || result?.companies || [];
+      const prospects = result?.prospects || [];
+      const total = companies.length + prospects.length;
+
+      // Message agent avec résultats
+      const agentMsg = {
+        type: "agent",
+        id: Date.now() + 1,
+        text: total > 0
+          ? `✅ J'ai trouvé ${total} résultat${total > 1 ? "s" : ""} pour "${text}".`
+          : `🔍 Aucun résultat trouvé pour "${text}". Essayez une requête plus précise.`,
+        result: total > 0 ? result : null,
       };
-      const data = await searchProspectsAgent(payload);
-      setResult(data);
-      const firstMappedCompany = (data.entreprises || []).find(
-        (item) => toCoordinate(item.latitude) !== null && toCoordinate(item.longitude) !== null
-      );
-      setSelectedCompanyKey(firstMappedCompany ? getCompanyKey(firstMappedCompany) : "");
-      if (searchType === "prospect" && (data.prospects || []).length > 0) {
-        setTab("prospects");
-      } else {
-        setTab(firstMappedCompany ? "carte" : "entreprises");
-      }
-      notify(
-        searchType === "prospect"
-          ? `${data.prospects?.length || 0} prospects valides sur ${data.stats?.total || 0} entreprises`
-          : `${data.stats?.total || 0} entreprises qualifiees`,
-        "success"
-      );
-    } catch (exc) {
-      setError(exc.message);
-      notify(exc.message, "error");
+
+      setMessages(prev => [...prev, agentMsg]);
+      setLastResult(result);
+      setSessionCount(c => c + 1);
+
+      if (total > 0) notify(`${total} résultat${total > 1 ? "s" : ""} trouvé${total > 1 ? "s" : ""}`, "success");
+
+    } catch (err) {
+      stopThinking();
+      setMessages(prev => [...prev, {
+        type: "agent",
+        id: Date.now() + 1,
+        text: `❌ Erreur : ${err.message}`,
+        isError: true,
+      }]);
+      notify(err.message, "error");
     } finally {
       setLoading(false);
     }
-  };
+  }, [input, loading, startThinking, stopThinking, notify]);
 
-  const handleImportCompany = async (company) => {
-    const key = getCompanyKey(company);
-    const linkedProspects = prospects.filter((p) => p.place_id === company.place_id);
-
-    try {
-      await importProspectionResult({
-        company,
-        prospects: linkedProspects,
-      });
-      setImported((prev) => ({ ...prev, [key]: true }));
-      notify(`${company.nom} importe dans le CRM`, "success");
-    } catch (exc) {
-      notify(exc.message, "error");
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
     }
-  };
+  }, [handleSend]);
 
-  const handleImportProspect = async (prospect) => {
-    const company = companies.find((item) => item.place_id === prospect.place_id) || {
-      nom: prospect.prospect_company_name,
-      ville: prospect.city,
-      evaluation: prospect.evaluation,
-      place_id: prospect.place_id,
+  const handleImport = useCallback(async (company, prospects) => {
+    const companyData = company || {
+      nom: prospects[0]?.prospect_company_name || "Entreprise inconnue",
+      evaluation: prospects[0]?.evaluation,
+      place_id: prospects[0]?.place_id,
     };
-
     try {
-      await importProspectionResult({ company, prospects: [prospect] });
-      notify(`${prospect.first_name} ${prospect.last_name} importe`, "success");
-    } catch (exc) {
-      notify(exc.message, "error");
+      await importProspectionResult({ company: companyData, prospects: prospects || [] });
+      const key = companyData.place_id || companyData.nom;
+      setImported(prev => ({ ...prev, [key]: true }));
+      notify(`${companyData.nom} importé dans le CRM`, "success");
+    } catch (err) {
+      notify(err.message, "error");
     }
-  };
+  }, [notify]);
+
+  const handleClear = useCallback(() => {
+    setMessages([]);
+    setLastResult(null);
+    setImported({});
+  }, []);
+
+  const isEmpty = messages.length === 0 && !loading;
 
   return (
     <DashboardLayout>
       <DashboardNavbar />
-      <Container maxWidth="xl" sx={{ py: 3 }}>
-        <Snackbar
-          open={toast.open}
-          autoHideDuration={3500}
-          onClose={() => setToast((prev) => ({ ...prev, open: false }))}
-          anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
-        >
-          <Alert
-            severity={toast.severity}
-            onClose={() => setToast((prev) => ({ ...prev, open: false }))}
-          >
-            {toast.message}
-          </Alert>
-        </Snackbar>
+      <div className="pa-root">
+        <div className="pa-layout">
 
-        <Paper sx={{ background: C.grad, color: C.white, borderRadius: 3, p: 3, mb: 3 }}>
-          <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" gap={2}>
-            <Stack direction="row" gap={2} alignItems="center">
-              <Box
-                sx={{
-                  width: 60,
-                  height: 60,
-                  borderRadius: 2,
-                  background: "rgba(255,255,255,0.18)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <SearchIcon sx={{ color: C.white, fontSize: 32 }} />
-              </Box>
-              <Box>
-                <Typography variant="h4" sx={{ fontWeight: 900, color: C.white }}>
-                  AI Prospecting Agent
-                </Typography>
-                <Typography variant="body2" sx={{ color: "rgba(255,255,255,0.78)" }}>
-                  MCP pipeline: Gemini, OSM, Web, Redis, ChromaDB et CRM
-                </Typography>
-              </Box>
-            </Stack>
-            {result?.meta && (
-              <Stack direction="row" gap={1} flexWrap="wrap">
-                <Pill active={false} onClick={() => {}}>
-                  {result.meta.cache_hit ? "Redis cache" : "Live search"}
-                </Pill>
-                <Pill active={false} onClick={() => {}}>
-                  {result.meta.vector_store || "chroma"}
-                </Pill>
-              </Stack>
-            )}
-          </Stack>
-        </Paper>
+          {/* ── Colonne chat ── */}
+          <div className="pa-chat-col">
 
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={4} lg={3}>
-            <Paper sx={{ p: 2.5, borderRadius: 3, position: "sticky", top: 24 }}>
-              <Typography
-                variant="subtitle1"
-                sx={{ fontWeight: 900, mb: 2, display: "flex", gap: 1 }}
-              >
-                <SettingsIcon sx={{ color: C.red }} />
-                Recherche commerciale
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
+            {/* Header */}
+            <div className="pa-chat-header">
+              <div className="pa-agent-badge">
+                <div className="pa-agent-dot" />
+                <span className="pa-agent-label">Agent de prospection</span>
+              </div>
+              {messages.length > 0 && (
+                <button className="pa-clear-btn" onClick={handleClear}>
+                  ✨ Nouvelle conversation
+                </button>
+              )}
+            </div>
 
-              <Typography
-                variant="caption"
-                sx={{ display: "block", mb: 1, color: C.muted, fontWeight: 800 }}
-              >
-                Type de recherche
-              </Typography>
-              <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mb: 2 }}>
-                {SEARCH_MODES.map((mode) => {
-                  const Icon = mode.icon;
-                  return (
-                    <Pill
-                      key={mode.id}
-                      active={searchType === mode.id}
-                      onClick={() => handleSearchTypeChange(mode.id)}
-                    >
-                      <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
-                        <Icon sx={{ fontSize: 15 }} />
-                        {mode.label}
-                      </Box>
-                    </Pill>
-                  );
-                })}
-              </Stack>
-
-              <TextField
-                fullWidth
-                multiline
-                minRows={3}
-                size="small"
-                label="Requete naturelle"
-                placeholder={
-                  searchType === "prospect"
-                    ? "Ex: responsables marketing dans les hotels a Tunis"
-                    : "Ex: restaurants italiens actifs a Tunis avec presence Instagram"
-                }
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                sx={{ mb: 2 }}
-              />
-
-              <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-                <InputLabel>{searchType === "prospect" ? "Secteur entreprise" : "Secteur"}</InputLabel>
-                <Select
-                  value={secteur}
-                  label={searchType === "prospect" ? "Secteur entreprise" : "Secteur"}
-                  onChange={(event) => setSecteur(event.target.value)}
-                >
-                  {SECTEURS.map((item) => (
-                    <MenuItem value={item} key={item}>
-                      {item.charAt(0).toUpperCase() + item.slice(1)}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-                <InputLabel>Ville</InputLabel>
-                <Select
-                  value={ville}
-                  label="Ville"
-                  onChange={(event) => setVille(event.target.value)}
-                >
-                  {VILLES.map((item) => (
-                    <MenuItem value={item} key={item}>
-                      {item.charAt(0).toUpperCase() + item.slice(1)}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              {searchType === "prospect" && (
-                <>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    label="Poste recherche"
-                    placeholder="Ex: Responsable RH, Marketing Manager, CEO"
-                    value={jobTitle}
-                    onChange={(event) => setJobTitle(event.target.value)}
-                    sx={{ mb: 2 }}
-                  />
-
-                  <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-                    <InputLabel>Niveau</InputLabel>
-                    <Select
-                      value={seniorityLevel}
-                      label="Niveau"
-                      onChange={(event) => setSeniorityLevel(event.target.value)}
-                    >
-                      {SENIORITY_OPTIONS.map((item) => (
-                        <MenuItem value={item.value} key={item.value || "all"}>
-                          {item.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-
-                  <TextField
-                    fullWidth
-                    size="small"
-                    label="Entreprise cible"
-                    placeholder="Optionnel: nom d'une entreprise"
-                    value={targetCompany}
-                    onChange={(event) => setTargetCompany(event.target.value)}
-                    sx={{ mb: 2 }}
-                  />
-                </>
+            {/* Zone messages */}
+            <div className="pa-messages">
+              {isEmpty ? (
+                <div className="pa-empty">
+                  <div className="pa-empty-icon">🎯</div>
+                  <div className="pa-empty-title">Agent de prospection</div>
+                  <div className="pa-empty-sub">
+                    Décrivez ce que vous cherchez en langage naturel.<br />
+                    L&quot; choisit automatiquement les meilleures sources.
+                  </div>
+                </div>
+              ) : (
+                messages.map(msg => (
+                  <div key={msg.id}>
+                    {msg.type === "user" ? (
+                      <div className="pa-msg user">
+                        <div className="pa-avatar user">👤</div>
+                        <div className="pa-bubble user">{msg.content}</div>
+                      </div>
+                    ) : (
+                      <div className="pa-msg">
+                        <div className="pa-avatar agent">AI</div>
+                        <div style={{ flex: 1, maxWidth: "80%" }}>
+                          <div
+                            className="pa-bubble agent"
+                            style={{
+                              borderColor: msg.isError ? "#FECACA" : undefined,
+                              background: msg.isError ? "#FFF5F5" : undefined,
+                              color: msg.isError ? T.red : undefined,
+                              maxWidth: "none",
+                            }}
+                          >
+                            {msg.text}
+                          </div>
+                          {msg.result && (
+                            <div style={{ marginTop: 16 }}>
+                              <ResultsBlock
+                                result={msg.result}
+                                onImport={handleImport}
+                                imported={imported}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
               )}
 
-              <Typography
-                variant="caption"
-                sx={{ display: "block", mb: 1, color: C.muted, fontWeight: 800 }}
-              >
-                Sources de recherche
-              </Typography>
-              <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mb: 2 }}>
-                {SOURCE_OPTIONS.map((option) => {
-                  const Icon = option.icon;
-                  return (
-                    <Pill
-                      key={option.id}
-                      active={sources.includes(option.id)}
-                      onClick={() => toggleSource(option.id)}
-                    >
-                      <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
-                        <Icon sx={{ fontSize: 15 }} />
-                        {option.label}
-                      </Box>
-                    </Pill>
-                  );
-                })}
-              </Stack>
+              {/* Thinking en cours */}
+              {loading && <ThinkingIndicator step={thinkStep} />}
 
-              <Typography
-                variant="caption"
-                sx={{ display: "block", mb: 1, color: C.muted, fontWeight: 800 }}
-              >
-                Donnees obligatoires
-              </Typography>
-              <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mb: 2 }}>
-                {(searchType === "prospect"
-                  ? [
-                      ["linkedin", "LinkedIn"],
-                      ["email", "Email"],
-                      ["facebook", "Facebook"],
-                    ]
-                  : [
-                      ["phone", "Telephone"],
-                      ["email", "Email"],
-                      ["website", "Site"],
-                      ["facebook", "Facebook"],
-                      ["instagram", "Instagram"],
-                    ]
-                ).map(([key, label]) => (
-                  <Pill key={key} active={required[key]} onClick={() => toggleRequired(key)}>
-                    {label}
-                  </Pill>
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Suggestions (état vide seulement) */}
+            {isEmpty && (
+              <div className="pa-suggestions">
+                {SUGGESTIONS.map(s => (
+                  <button key={s} className="pa-suggestion" onClick={() => handleSend(s)}>
+                    {s}
+                  </button>
                 ))}
-              </Stack>
-
-              <TextField
-                fullWidth
-                size="small"
-                label={searchType === "prospect" ? "Contexte entreprise" : "Activite precise"}
-                placeholder={
-                  searchType === "prospect"
-                    ? "Ex: fintech, hotel luxe, logiciel B2B"
-                    : "Ex: italien, luxe, B2B, clinique dentaire"
-                }
-                value={activityType}
-                onChange={(event) => setActivityType(event.target.value)}
-                sx={{ mb: 2 }}
-              />
-
-              <Stack direction={{ xs: "column", sm: "row" }} gap={1.2} sx={{ mb: 2 }}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  type="number"
-                  label="Employes min"
-                  value={employeesMin}
-                  onChange={(event) => setEmployeesMin(event.target.value)}
-                />
-                <TextField
-                  fullWidth
-                  size="small"
-                  type="number"
-                  label="Employes max"
-                  value={employeesMax}
-                  onChange={(event) => setEmployeesMax(event.target.value)}
-                />
-              </Stack>
-
-              <TextField
-                fullWidth
-                size="small"
-                label="Mots-cles"
-                placeholder="Ex: livraison, logiciel, reservation"
-                value={keywords}
-                onChange={(event) => setKeywords(event.target.value)}
-                sx={{ mb: 2 }}
-              />
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="caption" sx={{ color: C.muted, fontWeight: 800 }}>
-                  Rayon: {rayon} km
-                </Typography>
-                <Slider
-                  value={rayon}
-                  min={1}
-                  max={30}
-                  onChange={(_, value) => setRayon(value)}
-                  sx={{ color: C.red }}
-                />
-              </Box>
-
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="caption" sx={{ color: C.muted, fontWeight: 800 }}>
-                  Resultats max: {maxRes}
-                </Typography>
-                <Slider
-                  value={maxRes}
-                  min={1}
-                  max={20}
-                  onChange={(_, value) => setMaxRes(value)}
-                  sx={{ color: C.red }}
-                />
-              </Box>
-
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="caption" sx={{ color: C.muted, fontWeight: 800 }}>
-                  Score minimum: {scoreMin}
-                </Typography>
-                <Slider
-                  value={scoreMin}
-                  min={0}
-                  max={90}
-                  step={5}
-                  onChange={(_, value) => setScoreMin(value)}
-                  sx={{ color: C.red }}
-                />
-              </Box>
-
-              <Typography
-                variant="caption"
-                sx={{ display: "block", mb: 1, color: C.muted, fontWeight: 800 }}
-              >
-                Evaluation
-              </Typography>
-              <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mb: 3 }}>
-                {["all", "hot", "warm", "cold"].map((item) => (
-                  <Pill key={item} active={filterEval === item} onClick={() => setFilterEval(item)}>
-                    {item === "all" ? "Tous" : item}
-                  </Pill>
-                ))}
-              </Stack>
-
-              <NativeButton fullWidth onClick={handleSearch} disabled={loading}>
-                {loading ? (
-                  <CircularProgress size={18} sx={{ color: C.white }} />
-                ) : (
-                  <SearchIcon sx={{ fontSize: 18 }} />
-                )}
-                {loading ? "Agent en cours..." : "Lancer l'agent"}
-              </NativeButton>
-            </Paper>
-          </Grid>
-
-          <Grid item xs={12} md={8} lg={9}>
-            {error && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {error}
-              </Alert>
+              </div>
             )}
 
-            {!result && !loading && (
-              <Paper sx={{ p: 6, textAlign: "center", borderRadius: 3 }}>
-                <SearchIcon sx={{ fontSize: 64, color: "#d4d4d4", mb: 2 }} />
-                <Typography variant="h5" sx={{ fontWeight: 900, color: C.muted }}>
-                  Pret a prospecter
-                </Typography>
-              </Paper>
-            )}
+            {/* Input */}
+            <div className="pa-input-zone">
+              <div className="pa-input-row">
+                <textarea
+                  ref={textareaRef}
+                  className="pa-textarea"
+                  placeholder="Ex: restaurants à Tunis avec site web, food bloggers tunisiens..."
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  rows={1}
+                  disabled={loading}
+                />
+                <button
+                  className="pa-send-btn"
+                  onClick={() => handleSend()}
+                  disabled={!input.trim() || loading}
+                  title="Envoyer (Entrée)"
+                >
+                  {loading ? <span className="pa-spinner-sm" style={{ borderColor: "#fff5", borderTopColor: "#fff" }} /> : "↑"}
+                </button>
+              </div>
+              <p className="pa-input-hint">
+                ⏎ Entrée pour envoyer · ⇧ Entrée pour nouvelle ligne
+              </p>
+            </div>
+          </div>
 
-            {loading && (
-              <Paper sx={{ p: 5, textAlign: "center", borderRadius: 3 }}>
-                <CircularProgress sx={{ color: C.red, mb: 2 }} />
-                <Typography variant="h6" sx={{ fontWeight: 900 }}>
-                  Pipeline MCP en cours
-                </Typography>
-                <Typography variant="body2" sx={{ color: C.muted }}>
-                  Planning, sources, enrichissement, scoring Gemini, memoire Redis et ChromaDB
-                </Typography>
-              </Paper>
-            )}
+          {/* ── Sidebar stats simplifiée ── */}
+          <Sidebar
+            lastResult={lastResult}
+            sessionCount={sessionCount}
+          />
+        </div>
 
-            {result && !loading && (
-              <>
-                <Grid container spacing={2} sx={{ mb: 3 }}>
-                  {[
-                    { label: "Entreprises", value: stats.total, icon: StoreIcon, color: C.red },
-                    {
-                      label: "Prospects",
-                      value: prospects.length,
-                      icon: PeopleIcon,
-                      color: C.blue,
-                    },
-                    {
-                      label: "Carte",
-                      value: mapCompanies.length,
-                      icon: MapIcon,
-                      color: C.green,
-                    },
-                    { label: "Hot", value: stats.hot, icon: HotIcon, color: "#ef4444" },
-                    { label: "Warm", value: stats.warm, icon: WarmIcon, color: C.amber },
-                    { label: "Telephone", value: stats.avec_tel, icon: PhoneIcon, color: C.green },
-                    {
-                      label: searchType === "prospect" ? "LinkedIn" : "Email",
-                      value: searchType === "prospect" ? stats.prospects_avec_linkedin : stats.avec_email,
-                      icon: searchType === "prospect" ? LinkedInIcon : EmailIcon,
-                      color: C.blue,
-                    },
-                  ].map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <Grid item xs={6} sm={4} md={2} key={item.label}>
-                        <Paper
-                          sx={{ p: 2, borderRadius: 2, border: `1px solid ${C.line}` }}
-                          elevation={0}
-                        >
-                          <Icon sx={{ color: item.color, mb: 1 }} />
-                          <Typography variant="h4" sx={{ color: item.color, fontWeight: 900 }}>
-                            {item.value || 0}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: C.muted, fontWeight: 800 }}>
-                            {item.label}
-                          </Typography>
-                        </Paper>
-                      </Grid>
-                    );
-                  })}
-                </Grid>
-
-                <Paper sx={{ borderRadius: 3, overflow: "hidden" }}>
-                  <Stack direction="row" sx={{ borderBottom: `1px solid ${C.line}` }}>
-                    <Box
-                      component="button"
-                      type="button"
-                      onClick={() => setTab("entreprises")}
-                      sx={{
-                        border: "none",
-                        borderBottom:
-                          tab === "entreprises" ? `2px solid ${C.red}` : "2px solid rgba(0,0,0,0)",
-                        background: C.white,
-                        color: tab === "entreprises" ? C.red : C.muted,
-                        px: 2,
-                        py: 1.4,
-                        cursor: "pointer",
-                        fontWeight: 900,
-                      }}
-                    >
-                      <BusinessIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
-                      Entreprises ({companies.length})
-                    </Box>
-                    <Box
-                      component="button"
-                      type="button"
-                      onClick={() => setTab("carte")}
-                      sx={{
-                        border: "none",
-                        borderBottom:
-                          tab === "carte" ? `2px solid ${C.red}` : "2px solid rgba(0,0,0,0)",
-                        background: C.white,
-                        color: tab === "carte" ? C.red : C.muted,
-                        px: 2,
-                        py: 1.4,
-                        cursor: "pointer",
-                        fontWeight: 900,
-                      }}
-                    >
-                      <MapIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
-                      Carte ({mapCompanies.length})
-                    </Box>
-                    <Box
-                      component="button"
-                      type="button"
-                      onClick={() => setTab("prospects")}
-                      sx={{
-                        border: "none",
-                        borderBottom:
-                          tab === "prospects" ? `2px solid ${C.red}` : "2px solid rgba(0,0,0,0)",
-                        background: C.white,
-                        color: tab === "prospects" ? C.red : C.muted,
-                        px: 2,
-                        py: 1.4,
-                        cursor: "pointer",
-                        fontWeight: 900,
-                      }}
-                    >
-                      <PeopleIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
-                      Prospects ({prospects.length})
-                    </Box>
-                  </Stack>
-
-                  <Box sx={{ p: 2.5 }}>
-                    {tab === "carte" && (
-                      <Grid container spacing={2}>
-                        <Grid item xs={12} lg={8}>
-                          <ProspectionMap
-                            companies={filteredCompanies}
-                            city={ville}
-                            selectedKey={selectedCompanyKey}
-                            onSelect={(company) => setSelectedCompanyKey(getCompanyKey(company))}
-                          />
-                        </Grid>
-                        <Grid item xs={12} lg={4}>
-                          <Stack spacing={1.5}>
-                            {(selectedCompany ? [selectedCompany] : mapCompanies.slice(0, 5)).map(
-                              (company) => {
-                                const key = getCompanyKey(company);
-                                return (
-                                  <Paper
-                                    key={key}
-                                    sx={{
-                                      p: 2,
-                                      border: `1px solid ${
-                                        selectedCompanyKey === key ? C.red : C.line
-                                      }`,
-                                      borderRadius: 2,
-                                    }}
-                                    elevation={0}
-                                  >
-                                    <Stack direction="row" justifyContent="space-between" gap={2}>
-                                      <Box>
-                                        <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-                                          {company.nom}
-                                        </Typography>
-                                        <Typography variant="caption" sx={{ color: C.muted }}>
-                                          {company.adresse || company.ville}
-                                        </Typography>
-                                      </Box>
-                                      <EvaluationBadge value={company.evaluation} />
-                                    </Stack>
-                                    <Stack spacing={0.6} sx={{ mt: 1.2 }}>
-                                      <Typography variant="caption" sx={{ color: C.muted }}>
-                                        <PlaceIcon sx={{ fontSize: 15, mr: 0.5, verticalAlign: "middle" }} />
-                                        {company.distance_km !== null && company.distance_km !== undefined
-                                          ? `${company.distance_km} km`
-                                          : "Distance non calculee"}
-                                      </Typography>
-                                      <Typography variant="caption" sx={{ color: C.muted }}>
-                                        Qualite donnees: {company.data_quality || 0}/100
-                                      </Typography>
-                                      <Typography variant="caption" sx={{ color: C.muted }}>
-                                        {company.telephone || company.site_web || "Contact a enrichir"}
-                                      </Typography>
-                                    </Stack>
-                                    <Stack direction="row" gap={1} sx={{ mt: 1.5 }}>
-                                      <NativeButton
-                                        variant="ghost"
-                                        onClick={() => setSelectedCompanyKey(key)}
-                                      >
-                                        Centrer
-                                      </NativeButton>
-                                      <NativeButton
-                                        disabled={!!imported[key]}
-                                        onClick={() => handleImportCompany(company)}
-                                      >
-                                        {imported[key] ? "Importe" : "Importer CRM"}
-                                      </NativeButton>
-                                    </Stack>
-                                  </Paper>
-                                );
-                              }
-                            )}
-                            {!selectedCompany && mapCompanies.length > 5 && (
-                              <Typography variant="caption" sx={{ color: C.muted }}>
-                                {mapCompanies.length - 5} autres entreprises visibles sur la carte.
-                              </Typography>
-                            )}
-                          </Stack>
-                        </Grid>
-                      </Grid>
-                    )}
-
-                    {tab === "entreprises" && (
-                      <Grid container spacing={2}>
-                        {filteredCompanies.map((company) => {
-                          const key = getCompanyKey(company);
-                          return (
-                            <Grid item xs={12} md={6} key={key}>
-                              <Card sx={{ borderRadius: 2, border: `1px solid ${C.line}` }}>
-                                <CardContent>
-                                  <Stack
-                                    direction="row"
-                                    justifyContent="space-between"
-                                    gap={2}
-                                    sx={{ mb: 1 }}
-                                  >
-                                    <Box>
-                                      <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
-                                        {company.nom}
-                                      </Typography>
-                                      <Typography variant="caption" sx={{ color: C.muted }}>
-                                        {company.categorie || company.secteur} - {company.ville}
-                                      </Typography>
-                                    </Box>
-                                    <EvaluationBadge value={company.evaluation} />
-                                  </Stack>
-
-                                  <Stack spacing={0.75} sx={{ my: 1.5 }}>
-                                    <Typography variant="body2">
-                                      <PhoneIcon sx={{ fontSize: 15, color: C.muted, mr: 0.5 }} />
-                                      {company.telephone || "Telephone non trouve"}
-                                    </Typography>
-                                    <Typography variant="body2">
-                                      <EmailIcon sx={{ fontSize: 15, color: C.muted, mr: 0.5 }} />
-                                      {company.email || "Email non trouve"}
-                                    </Typography>
-                                  </Stack>
-
-                                  <Stack
-                                    direction="row"
-                                    gap={1}
-                                    alignItems="center"
-                                    sx={{ mb: 1.5 }}
-                                  >
-                                    <SocialLink type="website" url={company.site_web} />
-                                    <SocialLink type="facebook" url={company.facebook_url} />
-                                    <SocialLink type="instagram" url={company.instagram_url} />
-                                    <SocialLink type="linkedin" url={company.linkedin_url} />
-                                  </Stack>
-
-                                  <Typography
-                                    variant="caption"
-                                    sx={{ color: C.muted, display: "block", minHeight: 36 }}
-                                  >
-                                    {company.raison_score ||
-                                      company.besoin_probable ||
-                                      "Analyse IA disponible apres scoring."}
-                                  </Typography>
-
-                                  <Stack
-                                    direction="row"
-                                    justifyContent="space-between"
-                                    alignItems="center"
-                                    sx={{ mt: 2 }}
-                                  >
-                                    <Typography
-                                      variant="body2"
-                                      sx={{ color: C.red, fontWeight: 900 }}
-                                    >
-                                      Score {company.score_ia || 0}/100
-                                    </Typography>
-                                    <Stack direction="row" gap={1} flexWrap="wrap" justifyContent="flex-end">
-                                      {toCoordinate(company.latitude) !== null &&
-                                        toCoordinate(company.longitude) !== null && (
-                                          <NativeButton
-                                            variant="ghost"
-                                            onClick={() => selectCompanyOnMap(company)}
-                                          >
-                                            <MapIcon sx={{ fontSize: 17 }} />
-                                            Carte
-                                          </NativeButton>
-                                        )}
-                                      <NativeButton
-                                        disabled={!!imported[key]}
-                                        onClick={() => handleImportCompany(company)}
-                                      >
-                                        {imported[key] ? "Importe" : "Importer CRM"}
-                                      </NativeButton>
-                                    </Stack>
-                                  </Stack>
-                                </CardContent>
-                              </Card>
-                            </Grid>
-                          );
-                        })}
-                      </Grid>
-                    )}
-
-                    {tab === "prospects" && (
-                      <Stack spacing={1.5}>
-                        {prospects.length === 0 && (
-                          <Typography sx={{ textAlign: "center", py: 6, color: C.muted }}>
-                            Aucun prospect personne fiable trouve. Les entreprises restent
-                            importables.
-                          </Typography>
-                        )}
-                        {prospects.map((prospect) => (
-                          <Paper
-                            key={`${prospect.linkedin_url || prospect.email}-${prospect.prospect_company_name}`}
-                            sx={{ p: 2, border: `1px solid ${C.line}`, borderRadius: 2 }}
-                            elevation={0}
-                          >
-                            <Stack
-                              direction={{ xs: "column", md: "row" }}
-                              justifyContent="space-between"
-                              gap={2}
-                            >
-                              <Box>
-                                <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-                                  {prospect.first_name} {prospect.last_name}
-                                </Typography>
-                                <Typography variant="caption" sx={{ color: C.muted }}>
-                                  {prospect.title || "Contact"} - {prospect.prospect_company_name}
-                                </Typography>
-                                <Typography variant="body2" sx={{ mt: 1 }}>
-                                  {prospect.email || "Email manquant"}{" "}
-                                  {prospect.phone ? `- ${prospect.phone}` : ""}
-                                </Typography>
-                                <Stack direction="row" gap={1} alignItems="center" sx={{ mt: 1 }}>
-                                  <SocialLink type="linkedin" url={prospect.linkedin_url} />
-                                  <SocialLink type="facebook" url={prospect.facebook_url} />
-                                  <Typography variant="caption" sx={{ color: C.muted }}>
-                                    Score {prospect.score_ia || 0}/100 - validation{" "}
-                                    {prospect.validation_score || 0}/100
-                                  </Typography>
-                                </Stack>
-                                {prospect.raison_score && (
-                                  <Typography variant="caption" sx={{ color: C.muted, display: "block", mt: 0.75 }}>
-                                    {prospect.raison_score}
-                                  </Typography>
-                                )}
-                              </Box>
-                              <Stack direction="row" gap={1} alignItems="center">
-                                <EvaluationBadge value={prospect.evaluation} />
-                                <NativeButton onClick={() => handleImportProspect(prospect)}>
-                                  Importer
-                                </NativeButton>
-                              </Stack>
-                            </Stack>
-                          </Paper>
-                        ))}
-                      </Stack>
-                    )}
-                  </Box>
-                </Paper>
-              </>
-            )}
-          </Grid>
-        </Grid>
-      </Container>
+        {/* Toast */}
+        {toast && (
+          <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
+        )}
+      </div>
     </DashboardLayout>
   );
 }
