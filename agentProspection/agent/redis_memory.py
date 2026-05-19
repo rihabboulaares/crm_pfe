@@ -91,6 +91,7 @@ class RedisAgentMemory:
 
     def _search_key(self, criteria: dict[str, Any]) -> str:
         stable = {
+            "pipeline_version": 2,
             "search_type": criteria.get("search_type"),
             "secteur": criteria.get("secteur"),
             "ville": criteria.get("ville"),

@@ -1,5 +1,6 @@
 import json
 import re
+import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, TypedDict
@@ -10,7 +11,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, StateGraph
 
 from agentProspection.tools.ddg_tool import DDGTool
-from agentProspection.tools.osm_tool import OSMTool
+from agentProspection.tools.google_maps_tool import GoogleMapsTool
 from agentProspection.tools.scoring_tool import ScoringTool
 from agentProspection.tools.social_tool import SocialTool
 
@@ -49,9 +50,14 @@ class ProspectionGraph:
             raise RuntimeError("GOOGLE_API_KEY ou GEMINI_API_KEY manquante.")
 
         self.settings = settings
-        self.osm = OSMTool()
+        self.google_maps = GoogleMapsTool(settings.google_maps_api_key)
         self.ddg = DDGTool()
-        self.social = SocialTool()
+        self.social = SocialTool(
+            google_search_api_key=settings.google_search_api_key,
+            google_cse_id=settings.google_cse_id,
+            serper_api_key=settings.serper_api_key,
+            brave_search_api_key=settings.brave_search_api_key,
+        )
         self.local_scorer = ScoringTool()
         self.memory = ProspectionMemoryStore(settings)
         self.redis_memory = RedisAgentMemory(settings)
@@ -65,12 +71,18 @@ class ProspectionGraph:
         self.graph = self._build_graph()
 
     def run(self, raw_input: dict[str, Any]) -> dict[str, Any]:
+        started_at = time.perf_counter()
         state = self.graph.invoke({"input": dict(raw_input), "errors": []})
         criteria = state.get("criteria", {})
+        entreprises = state.get("entreprises", [])
+        prospects = state.get("prospects", [])
         return {
-            "entreprises": state.get("entreprises", []),
-            "prospects": state.get("prospects", []),
+            "query": criteria.get("query") or raw_input.get("query") or raw_input.get("prompt") or "",
+            "companies": entreprises,
+            "entreprises": entreprises,
+            "prospects": prospects,
             "stats": state.get("stats", {}),
+            "execution_time": f"{time.perf_counter() - started_at:.2f}s",
             "meta": {
                 **criteria,
                 "agent": "prospection_gemini_langgraph",
@@ -81,6 +93,14 @@ class ProspectionGraph:
                 "cache_hit": state.get("cache_hit", False),
                 "sources": criteria.get("sources", []),
                 "executed_sources": state.get("executed_sources", []),
+                "search_mode": state.get("search_mode", ""),
+                "search_engines": self.social.available_search_engines(),
+                "search_diagnostics": self._search_diagnostics(
+                    state.get("search_trace", []),
+                    criteria,
+                ),
+                "linkedin_queries": state.get("linkedin_queries", []),
+                "search_trace": state.get("search_trace", []),
                 "errors": state.get("errors", []),
             },
         }
@@ -163,14 +183,15 @@ class ProspectionGraph:
 
             if parsed.get("criteres"):
                 merged["criteres"] = parsed["criteres"]
-            if parsed.get("sources"):
+            raw_sources_provided = "sources" in raw_input and raw_input.get("sources") not in [None, "", []]
+            if parsed.get("sources") and not raw_sources_provided:
                 merged["sources"] = parsed["sources"]
             if parsed.get("keywords"):
                 merged["keywords"] = parsed["keywords"]
 
             criteria = SearchCriteria.from_dict(merged, max_allowed_results=self.settings.max_results)
 
-        state["criteria"] = criteria.to_dict()
+        state["criteria"] = self._apply_query_intent_overrides(criteria.to_dict(), raw_input)
         return state
 
     def _load_redis_memory(self, state: ProspectionState) -> ProspectionState:
@@ -182,6 +203,10 @@ class ProspectionGraph:
             state["entreprises"] = cached.get("entreprises", [])
             state["prospects"] = cached.get("prospects", [])
             state["stats"] = cached.get("stats", {})
+            state["executed_sources"] = cached.get("executed_sources", [])
+            state["search_mode"] = cached.get("search_mode", "")
+            state["search_trace"] = cached.get("search_trace", [])
+            state["linkedin_queries"] = cached.get("linkedin_queries", [])
             state["cache_hit"] = True
         else:
             state["cache_hit"] = False
@@ -280,7 +305,7 @@ class ProspectionGraph:
             if word in lower
         ]
         source_aliases = {
-            "osm": ["osm", "openstreetmap", "map", "maps", "carte"],
+            "google_maps": ["google maps", "googlemaps", "places", "maps"],
             "website": ["website", "site", "web", "annuaire"],
             "facebook": ["facebook"],
             "instagram": ["instagram", "insta"],
@@ -296,38 +321,204 @@ class ProspectionGraph:
             "secteur": next((item for item in secteurs if item in lower), "restaurant"),
             "ville": next((item for item in villes if item in lower), "tunis"),
             "job_title": job_title,
-            "sources": sources or (["osm", "website", "linkedin"] if search_type == "prospect" else ["osm", "website"]),
+            "sources": sources or ["website", "linkedin"],
             "criteres": criteres,
         }
 
+    def _apply_query_intent_overrides(
+        self,
+        criteria: dict[str, Any],
+        raw_input: dict[str, Any],
+    ) -> dict[str, Any]:
+        query = str(raw_input.get("query") or raw_input.get("prompt") or criteria.get("query") or "")
+        query_fp = self._fingerprint(query)
+        raw_sources_provided = "sources" in raw_input and raw_input.get("sources") not in [None, "", []]
+
+        if query and self._query_targets_person(query_fp):
+            criteria["search_type"] = "prospect"
+            if not criteria.get("job_title"):
+                criteria["job_title"] = self._extract_job_title_from_query(query)
+
+        detected_sector = self._extract_sector_from_query(query)
+        if detected_sector:
+            criteria["secteur"] = detected_sector
+
+        detected_city = self._extract_city_from_query(query)
+        if detected_city:
+            criteria["ville"] = detected_city
+
+        if criteria.get("search_type") == "prospect":
+            if criteria.get("job_title"):
+                criteria["job_title"] = self._canonical_job_title(criteria["job_title"])
+
+            sources = list(criteria.get("sources") or [])
+            if "linkedin" in query_fp and not raw_sources_provided:
+                sources = ["linkedin"]
+                criteria["require_linkedin"] = True
+            criteria["sources"] = sources or ["website", "linkedin"]
+
+        return self._optimize_b2b_criteria(criteria, raw_sources_provided)
+
+    def _optimize_b2b_criteria(self, criteria: dict[str, Any], raw_sources_provided: bool) -> dict[str, Any]:
+        settings_max = getattr(getattr(self, "settings", None), "max_results", 10)
+        criteria["max_resultats"] = min(int(criteria.get("max_resultats") or settings_max), 10)
+        if raw_sources_provided:
+            criteria["sources"] = [
+                source
+                for source in criteria.get("sources", [])
+                if source in {"google_maps", "website", "linkedin", "facebook", "instagram"}
+            ] or ["website", "linkedin"]
+        else:
+            criteria["sources"] = ["website", "linkedin"]
+        return criteria
+
+    def _query_targets_person(self, query_fp: str) -> bool:
+        person_terms = {
+            "responsable",
+            "responsables",
+            "directeur",
+            "directrice",
+            "manager",
+            "ceo",
+            "cto",
+            "cfo",
+            "fondateur",
+            "founder",
+            "rh",
+            "hr",
+            "recruteur",
+            "recruteuse",
+            "talent acquisition",
+            "developpeur",
+            "developer",
+            "marketing manager",
+        }
+        return any(term in query_fp for term in person_terms)
+
+    def _extract_job_title_from_query(self, query: str) -> str:
+        query_fp = self._fingerprint(query)
+        known_titles = [
+            ("responsable rh", "Responsable RH"),
+            ("responsables rh", "Responsable RH"),
+            ("hr manager", "HR Manager"),
+            ("human resources manager", "Human Resources Manager"),
+            ("talent acquisition", "Talent Acquisition"),
+            ("it recruiter", "IT Recruiter"),
+            ("recruteur it", "Recruteur IT"),
+            ("directeur marketing", "Directeur Marketing"),
+            ("marketing manager", "Marketing Manager"),
+            ("ceo", "CEO"),
+            ("cto", "CTO"),
+            ("fondateur", "Fondateur"),
+            ("founder", "Founder"),
+        ]
+        for needle, title in known_titles:
+            if needle in query_fp:
+                return title
+
+        match = re.search(
+            r"\b(responsables?|directeurs?|directrices?|managers?)\s+([a-zA-ZÀ-ÿ ]{2,40}?)(?:\s+(?:dans|en|sur|a|à|de|des|du)\b|$)",
+            query,
+            re.IGNORECASE,
+        )
+        if match:
+            return f"{match.group(1)} {match.group(2)}".strip()
+
+        return ""
+
+    def _canonical_job_title(self, title: str) -> str:
+        title_fp = self._fingerprint(title)
+        aliases = [
+            ("rh", "Responsable RH"),
+            ("ressources humaines", "Responsable RH"),
+            ("human resources", "HR Manager"),
+            ("hr manager", "HR Manager"),
+            ("talent acquisition", "Talent Acquisition"),
+            ("commercial", "Sales Manager"),
+            ("sales", "Sales Manager"),
+            ("marketing", "Marketing Manager"),
+            ("ceo", "CEO"),
+            ("cto", "CTO"),
+            ("fondateur", "Fondateur"),
+            ("founder", "Founder"),
+        ]
+        for needle, canonical in aliases:
+            if needle in title_fp:
+                return canonical
+        return str(title or "").strip()
+
+    def _extract_sector_from_query(self, query: str) -> str:
+        query_fp = self._fingerprint(query)
+        sector_aliases = [
+            ("it", {"it", "informatique", "informatiques", "software", "logiciel", "technologie", "saas"}),
+            ("hotel", {"hotel", "hotels", "hotellerie", "tourisme", "hospitality"}),
+            ("restaurant", {"restaurant", "restaurants", "restauration"}),
+            ("marketing", {"marketing", "communication", "digital"}),
+            ("startup", {"startup", "startups"}),
+            ("clinique", {"clinique", "cliniques", "sante"}),
+            ("pharmacie", {"pharmacie", "pharmacies"}),
+            ("banque", {"banque", "banques", "finance"}),
+        ]
+        for sector, aliases in sector_aliases:
+            if any(alias in query_fp for alias in aliases):
+                return sector
+        return ""
+
+    def _extract_city_from_query(self, query: str) -> str:
+        query_fp = self._fingerprint(query)
+        villes = [
+            "tunis",
+            "sfax",
+            "sousse",
+            "kairouan",
+            "bizerte",
+            "gabes",
+            "ariana",
+            "gafsa",
+            "monastir",
+            "nabeul",
+            "ben arous",
+            "la marsa",
+            "la goulette",
+        ]
+        return next((ville for ville in villes if ville in query_fp), "")
+
     def _search_companies(self, state: ProspectionState) -> ProspectionState:
         criteria = state["criteria"]
-        sources = set(criteria.get("sources") or ["osm"])
+        sources = set(criteria.get("sources") or ["website", "linkedin"])
         if criteria.get("search_type") == "prospect":
-            sources.update(["osm", "website"])
+            state["search_mode"] = "orchestrated_prospect_search"
         source_query = self._source_query(criteria)
-        social_sources = [source for source in ["facebook", "instagram", "linkedin"] if source in sources]
+        social_source_candidates = ["facebook", "instagram", "linkedin"]
+        social_sources = [source for source in social_source_candidates if source in sources]
         raw_companies = []
-        state["executed_sources"] = []
+        state["executed_sources"] = ["source_router"]
+        self.social.reset_trace()
+
+        if "google_maps" in sources and not self.google_maps.available:
+            state.setdefault("errors", []).append(
+                "Google Maps non configure: ajoute GOOGLE_MAPS_API_KEY ou GOOGLE_PLACES_API_KEY."
+            )
 
         future_sources = {}
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            if "osm" in sources:
+        max_companies = min(int(criteria.get("max_resultats", self.settings.max_results)), 10)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            if "google_maps" in sources and self.google_maps.available:
                 future = executor.submit(
-                    self.osm.rechercher,
+                    self.google_maps.rechercher,
                     secteur=criteria.get("secteur", "restaurant"),
                     ville=criteria.get("ville", "tunis"),
                     rayon_km=int(criteria.get("rayon_km", 5)),
-                    max_resultats=int(criteria.get("max_resultats", self.settings.max_results)),
+                    max_resultats=max_companies,
                 )
-                future_sources[future] = "osm"
+                future_sources[future] = "google_maps"
 
             if "website" in sources:
                 future = executor.submit(
                     self.ddg.rechercher_entreprises,
                     secteur=source_query,
                     ville=criteria.get("ville", "tunis"),
-                    max_resultats=int(criteria.get("max_resultats", self.settings.max_results)),
+                    max_resultats=max_companies,
                 )
                 future_sources[future] = "website"
 
@@ -337,7 +528,7 @@ class ProspectionGraph:
                     secteur=source_query,
                     ville=criteria.get("ville", "tunis"),
                     plateformes=social_sources,
-                    max_resultats=int(criteria.get("max_resultats", self.settings.max_results)),
+                    max_resultats=max_companies,
                 )
                 future_sources[future] = ",".join(social_sources)
 
@@ -356,14 +547,18 @@ class ProspectionGraph:
                     state.setdefault("errors", []).append(f"Recherche {source_name} indisponible: {exc}")
 
         state["raw_enterprises"] = self._dedupe_companies(raw_companies)
+        state["search_trace"] = self.social.get_trace()
         return state
+
     def _enrich_companies(self, state: ProspectionState) -> ProspectionState:
         criteria = state["criteria"]
-        sources = set(criteria.get("sources") or ["osm", "website", "facebook", "instagram", "linkedin"])
-        social_sources = [source for source in ["facebook", "instagram", "linkedin"] if source in sources]
+        sources = set(criteria.get("sources") or ["website", "linkedin"])
+        social_source_candidates = ["facebook", "instagram", "linkedin"]
+        social_sources = [source for source in social_source_candidates if source in sources]
         enriched_companies = []
 
-        for raw_company in state.get("raw_enterprises", []):
+        max_companies = min(int(criteria.get("max_resultats", self.settings.max_results)), 10)
+        for raw_company in state.get("raw_enterprises", [])[:max_companies]:
             company = normalize_company({**raw_company, "secteur": criteria.get("secteur", "")})
 
             if "website" in sources:
@@ -392,6 +587,7 @@ class ProspectionGraph:
             enriched_companies.append(normalize_company(company))
 
         state["entreprises"] = self._rank_companies(enriched_companies, criteria)
+        state["search_trace"] = self.social.get_trace()
         return state
 
     def _validate_companies(self, state: ProspectionState) -> ProspectionState:
@@ -399,7 +595,7 @@ class ProspectionGraph:
         validated = []
         min_validation = int(criteria.get("validation_min") or 0)
         if min_validation <= 0:
-            min_validation = 25 if criteria.get("search_type") == "company" else 15
+            min_validation = 25 if criteria.get("search_type") == "company" else 10
 
         for company in state.get("entreprises", []):
             validation = self._validate_company(company, criteria)
@@ -497,10 +693,24 @@ class ProspectionGraph:
     def _search_target_prospects(self, state: ProspectionState) -> ProspectionState:
         criteria = state["criteria"]
         job_title = criteria.get("job_title") or criteria.get("activity_type") or criteria.get("secteur") or "Responsable"
-        max_resultats = int(criteria.get("max_resultats", self.settings.max_results))
+        max_resultats = min(int(criteria.get("max_resultats", self.settings.max_results)), 10)
         score_min = int(criteria.get("score_min", 0))
         prospects = []
         seen = set()
+        prospect_sources = self._prospect_sources(criteria)
+
+        if criteria.get("target_company") and not state.get("entreprises"):
+            company_stub = {
+                "place_id": f"target_{self._fingerprint(criteria['target_company'])[:24]}",
+                "nom": criteria["target_company"],
+                "secteur": criteria.get("secteur", ""),
+                "ville": criteria.get("ville", ""),
+                "country": criteria.get("country", "Tunisie"),
+                "validation_score": 45,
+                "validation_status": "weak",
+                "validation_reasons": ["entreprise cible fournie par la requete"],
+            }
+            state["entreprises"] = [company_stub]
 
         for company in state.get("entreprises", []):
             if len(prospects) >= max_resultats:
@@ -508,13 +718,17 @@ class ProspectionGraph:
             if criteria.get("target_company") and not self._target_company_matches(company, criteria["target_company"]):
                 continue
 
-            raw_prospects = self.social.rechercher_prospects(
-                company=company,
-                job_title=job_title,
-                ville=criteria.get("ville", ""),
-                seniority_level=criteria.get("seniority_level", ""),
-                max_resultats=3,
-            )
+            raw_prospects = []
+            if "linkedin" in prospect_sources:
+                raw_prospects = self.social.rechercher_prospects(
+                    company=company,
+                    job_title=job_title,
+                    ville=criteria.get("ville", ""),
+                    seniority_level=criteria.get("seniority_level", ""),
+                    max_resultats=5,
+                )
+            if raw_prospects and "linkedin_public_index" not in state.get("executed_sources", []):
+                state.setdefault("executed_sources", []).append("linkedin_public_index")
             for raw in raw_prospects:
                 normalized = normalize_prospect(raw, company)
                 validation = self._validate_prospect(normalized, company, criteria)
@@ -535,15 +749,18 @@ class ProspectionGraph:
                 if len(prospects) >= max_resultats:
                     break
 
-        if len(prospects) < max_resultats:
+        direct_profiles = []
+        if len(prospects) < max_resultats and not state.get("entreprises"):
             remaining = max_resultats - len(prospects)
             direct_profiles = self.social.rechercher_profils_publics(
                 job_title=job_title,
                 secteur=criteria.get("secteur", ""),
                 ville=criteria.get("ville", ""),
-                plateformes=sorted(set(criteria.get("sources", [])) | {"linkedin"}),
+                plateformes=prospect_sources,
                 max_resultats=remaining,
             )
+            if direct_profiles and "linkedin_public_index" not in state.get("executed_sources", []):
+                state.setdefault("executed_sources", []).append("linkedin_public_index")
             for raw in direct_profiles:
                 company_stub = self._company_stub_for_direct_profile(raw, criteria)
                 normalized = normalize_prospect(raw, company_stub)
@@ -564,9 +781,70 @@ class ProspectionGraph:
                 if len(prospects) >= max_resultats:
                     break
 
+        enable_secondary_fallback = False
+        if enable_secondary_fallback and len(prospects) < max_resultats:
+            fallback_sources = self._fallback_prospect_sources(prospect_sources)
+            if fallback_sources:
+                remaining = max_resultats - len(prospects)
+                fallback_profiles = self.social.rechercher_profils_publics(
+                    job_title=job_title,
+                    secteur=criteria.get("secteur", ""),
+                    ville=criteria.get("ville", ""),
+                    plateformes=fallback_sources,
+                    max_resultats=remaining,
+                )
+                if fallback_profiles:
+                    state.setdefault("executed_sources", []).append(
+                        f"fallback:{','.join(fallback_sources)}"
+                    )
+                for raw in fallback_profiles:
+                    company_stub = self._company_stub_for_direct_profile(raw, criteria)
+                    normalized = normalize_prospect(raw, company_stub)
+                    validation = self._validate_prospect(normalized, company_stub, criteria)
+                    normalized.update(validation)
+                    scoring = self._score_prospect(normalized, company_stub, criteria)
+                    normalized.update(scoring)
+                    key = self._prospect_key(normalized)
+                    if not key or key in seen:
+                        continue
+                    if not self._passes_prospect_filters(normalized, criteria):
+                        continue
+                    if normalized.get("score_ia", 0) < score_min:
+                        continue
+                    if is_person_prospect(normalized):
+                        seen.add(key)
+                        prospects.append(normalized)
+                    if len(prospects) >= max_resultats:
+                        break
+
         state["prospects"] = prospects
         state["stats"] = self._stats(state.get("entreprises", []), prospects)
+        state["search_trace"] = self.social.get_trace()
+        state["linkedin_queries"] = [
+            item["query"]
+            for item in state["search_trace"]
+            if item.get("source") == "linkedin_public_index"
+        ]
+        if state["linkedin_queries"] and "linkedin_public_index" not in state.get("executed_sources", []):
+            state.setdefault("executed_sources", []).append("linkedin_public_index")
         return state
+
+    def _prospect_sources(self, criteria: dict[str, Any]) -> list[str]:
+        sources = [
+            source
+            for source in criteria.get("sources", [])
+            if source in {"linkedin", "facebook", "instagram", "website"}
+        ]
+        if sources:
+            return sources
+        if "google_maps" in set(criteria.get("sources") or []):
+            return ["website"]
+        return ["linkedin", "website"]
+
+    def _fallback_prospect_sources(self, used_sources: list[str]) -> list[str]:
+        fallback_order = ["linkedin", "website"]
+        used = set(used_sources or [])
+        return [source for source in fallback_order if source not in used]
 
     def _extract_prospects(self, state: ProspectionState) -> ProspectionState:
         prospects = []
@@ -644,6 +922,10 @@ class ProspectionGraph:
                 "entreprises": state.get("entreprises", []),
                 "prospects": state.get("prospects", []),
                 "stats": state.get("stats", {}),
+                "executed_sources": state.get("executed_sources", []),
+                "search_mode": state.get("search_mode", ""),
+                "search_trace": state.get("search_trace", []),
+                "linkedin_queries": state.get("linkedin_queries", []),
             }
             self.redis_memory.set_cached_result(state.get("criteria", {}), result)
             self.redis_memory.append_history(
@@ -685,9 +967,50 @@ class ProspectionGraph:
             )
             if companies
             else 0,
-            "hot": sum(1 for item in companies if item.get("evaluation") == "hot"),
-            "warm": sum(1 for item in companies if item.get("evaluation") == "warm"),
-            "cold": sum(1 for item in companies if item.get("evaluation") == "cold"),
+            "hot": sum(1 for item in [*companies, *prospects] if item.get("evaluation") == "hot"),
+            "warm": sum(1 for item in [*companies, *prospects] if item.get("evaluation") == "warm"),
+            "cold": sum(1 for item in [*companies, *prospects] if item.get("evaluation") == "cold"),
+            "prospects_hot": sum(1 for item in prospects if item.get("evaluation") == "hot"),
+            "prospects_warm": sum(1 for item in prospects if item.get("evaluation") == "warm"),
+            "prospects_cold": sum(1 for item in prospects if item.get("evaluation") == "cold"),
+        }
+
+    def _search_diagnostics(
+        self,
+        trace: list[dict[str, Any]],
+        criteria: dict[str, Any],
+    ) -> dict[str, Any]:
+        selected_sources = set(criteria.get("sources") or [])
+        social_sources = [source for source in ["linkedin", "facebook", "instagram", "website"] if source in selected_sources]
+        raw_by_source: dict[str, int] = {}
+        errors = []
+        for item in trace or []:
+            source = str(item.get("source") or "unknown")
+            raw_by_source[source] = raw_by_source.get(source, 0) + int(item.get("result_count") or 0)
+            if item.get("error"):
+                errors.append(
+                    {
+                        "engine": item.get("engine", ""),
+                        "source": source,
+                        "message": item.get("error", ""),
+                    }
+                )
+        social_raw = sum(
+            count
+            for source, count in raw_by_source.items()
+            if any(token in source for token in ["linkedin", "facebook", "instagram", "website", "web_public"])
+        )
+        return {
+            "selected_social_sources": social_sources,
+            "raw_by_source": raw_by_source,
+            "social_raw_results": social_raw,
+            "engine_errors": errors[:5],
+            "hint": (
+                "Les sources sociales ont ete interrogees mais aucun resultat brut exploitable n'a ete retourne. "
+                "Verifie SERPER_API_KEY ou la disponibilite DuckDuckGo."
+                if social_sources and social_raw == 0
+                else ""
+            ),
         }
 
     def _source_query(self, criteria: dict[str, Any]) -> str:
@@ -695,12 +1018,32 @@ class ProspectionGraph:
         if criteria.get("activity_type"):
             parts.append(criteria["activity_type"])
         parts.extend(criteria.get("keywords") or [])
+        parts.extend(self._industry_query_aliases(criteria.get("secteur", ""))[:2])
         clean_parts = []
         for part in parts:
             text = str(part).strip().lower()
             if text and text not in clean_parts:
                 clean_parts.append(text)
         return " ".join(clean_parts) or "restaurant"
+
+    def _industry_query_aliases(self, secteur: str) -> list[str]:
+        base = self._fingerprint(secteur)
+        aliases = {
+            "marketing": ["digital marketing", "communication"],
+            "it": ["informatique", "software"],
+            "informatique": ["IT", "software"],
+            "hotel": ["hotellerie", "tourisme"],
+            "restaurant": ["restauration"],
+            "commercial": ["vente", "sales"],
+            "banque": ["finance"],
+            "clinique": ["sante"],
+        }
+        results = []
+        for key, values in aliases.items():
+            if key in base:
+                results.extend(values)
+        return results
+
     def _merge_if_empty(self, target: dict[str, Any], source: dict[str, Any], keys: list[str]) -> None:
         for key in keys:
             if not target.get(key) and source.get(key):
@@ -835,20 +1178,22 @@ class ProspectionGraph:
             reasons.append("nom coherent")
         if company.get("latitude") and company.get("longitude"):
             score += 20
-            reasons.append("position OSM")
+            reasons.append("position Google Maps")
         elif self._fingerprint(criteria.get("ville", "")) in self._fingerprint(company.get("ville", "")):
             score += 10
             reasons.append("ville coherente")
         if company.get("data_quality"):
             score += min(15, int(company.get("data_quality") or 0) // 5)
-            reasons.append("qualite OSM")
+            reasons.append("qualite Google Maps")
         sector_match = any(term in text for term in sector_terms)
         if sector_match:
             score += 20
             reasons.append("secteur coherent")
-        elif company.get("source") not in {"openstreetmap", "osm"}:
+        elif company.get("source") != "google_maps" and criteria.get("search_type") != "prospect":
             score -= 20
             reasons.append("secteur non confirme")
+        elif criteria.get("search_type") == "prospect":
+            reasons.append("secteur a confirmer")
         if company.get("telephone") and self._normalize_phone_key(company.get("telephone")):
             score += 10
             reasons.append("telephone valide")
@@ -870,10 +1215,10 @@ class ProspectionGraph:
         }
 
     def _passes_company_filters(self, company: dict[str, Any], criteria: dict[str, Any]) -> bool:
+        if criteria.get("search_type") == "prospect":
+            return int(company.get("validation_score") or 0) > 0
         if company.get("validation_status") == "invalid":
             return False
-        if criteria.get("search_type") == "prospect":
-            return True
         required_fields = {
             "require_facebook": "facebook_url",
             "require_instagram": "instagram_url",
@@ -885,7 +1230,45 @@ class ProspectionGraph:
         for flag, field in required_fields.items():
             if criteria.get(flag) and not company.get(field):
                 return False
+        if self._is_b2b_digital_search(criteria) and not self._has_b2b_company_signal(company):
+            return False
         return True
+
+    def _is_b2b_digital_search(self, criteria: dict[str, Any]) -> bool:
+        text = self._fingerprint(
+            " ".join(
+                str(value or "")
+                for value in [
+                    criteria.get("secteur"),
+                    criteria.get("activity_type"),
+                    " ".join(criteria.get("keywords") or []),
+                ]
+            )
+        )
+        markers = {
+            "it", "informatique", "software", "logiciel", "digital", "marketing",
+            "communication", "startup", "saas", "tech", "technologie", "consulting",
+            "agence",
+        }
+        return any(marker in text for marker in markers)
+
+    def _has_b2b_company_signal(self, company: dict[str, Any]) -> bool:
+        text = self._fingerprint(
+            " ".join(
+                str(company.get(key) or "")
+                for key in [
+                    "nom", "secteur", "categorie", "texte_web", "facebook_bio",
+                    "instagram_bio", "linkedin_bio", "site_web", "source_url",
+                ]
+            )
+        )
+        business_terms = {
+            "it", "informatique", "software", "logiciel", "digital", "marketing",
+            "communication", "startup", "saas", "tech", "technologie", "consulting",
+            "agence", "services", "company", "societe", "sarl", "suarl",
+        }
+        has_business_profile = bool(company.get("site_web") or company.get("linkedin_url") or company.get("facebook_url"))
+        return has_business_profile and any(term in text for term in business_terms)
 
     def _company_stub_for_direct_profile(self, prospect: dict[str, Any], criteria: dict[str, Any]) -> dict[str, Any]:
         company_name = prospect.get("prospect_company_name") or f"Profil professionnel {criteria.get('ville', '')}".strip()
@@ -900,21 +1283,24 @@ class ProspectionGraph:
             "validation_reasons": ["profil public direct"],
             "score_ia": 0,
             "evaluation": "cold",
+            "source_url": prospect.get("source_url", ""),
         }
 
     def _is_non_crm_company(self, company: dict[str, Any]) -> bool:
-        text = self._fingerprint(
+        identity_text = self._fingerprint(
             " ".join(
                 str(company.get(key) or "")
                 for key in [
                     "nom",
                     "source_url",
                     "site_web",
-                    "texte_web",
-                    "facebook_bio",
-                    "instagram_bio",
-                    "linkedin_bio",
                 ]
+            )
+        )
+        body_text = self._fingerprint(
+            " ".join(
+                str(company.get(key) or "")
+                for key in ["texte_web", "facebook_bio", "instagram_bio", "linkedin_bio"]
             )
         )
         noise_terms = {
@@ -922,10 +1308,7 @@ class ProspectionGraph:
             "directory",
             "pages jaunes",
             "page jaune",
-            "liste",
             "classement",
-            "meilleur",
-            "meilleurs",
             "cours",
             "formation",
             "ecole",
@@ -942,7 +1325,18 @@ class ProspectionGraph:
             "forum",
             "pdf",
         }
-        return any(self._fingerprint(term) in text for term in noise_terms)
+        hard_match = any(self._fingerprint(term) in identity_text for term in noise_terms)
+        severe_body_terms = {"emploi", "recrutement", "job", "stage", "pdf", "formation", "cours"}
+        body_match = any(self._fingerprint(term) in body_text for term in severe_body_terms)
+        has_crm_signal = bool(
+            company.get("telephone")
+            or company.get("email")
+            or company.get("site_web")
+            or company.get("facebook_url")
+            or company.get("instagram_url")
+            or company.get("linkedin_url")
+        )
+        return hard_match or (body_match and not has_crm_signal)
 
     def _validate_prospect(
         self,
@@ -959,6 +1353,9 @@ class ProspectionGraph:
         if prospect.get("linkedin_url") and "linkedin.com/in/" in prospect["linkedin_url"].lower():
             score += 25
             reasons.append("linkedin public")
+        elif prospect.get("facebook_url") or prospect.get("instagram_url") or prospect.get("source_url"):
+            score += 15
+            reasons.append("profil public")
         if self._title_matches(prospect.get("title", ""), criteria.get("job_title", "")):
             score += 25
             reasons.append("poste coherent")
@@ -971,6 +1368,27 @@ class ProspectionGraph:
         if prospect.get("email"):
             score += 5
             reasons.append("email public")
+        if prospect.get("phone"):
+            score += 5
+            reasons.append("telephone public")
+        public_text = self._fingerprint(
+            " ".join(
+                str(prospect.get(key) or "")
+                for key in ["public_text", "evidence", "title", "prospect_company_name"]
+            )
+        )
+        city = self._fingerprint(criteria.get("ville", ""))
+        if city and city in public_text:
+            score += 10
+            reasons.append("localisation coherente")
+        sector_terms = [
+            self._fingerprint(criteria.get("secteur", "")),
+            self._fingerprint(criteria.get("activity_type", "")),
+            *[self._fingerprint(item) for item in criteria.get("keywords", [])],
+        ]
+        if any(term and term in public_text for term in sector_terms):
+            score += 10
+            reasons.append("secteur coherent")
         if criteria.get("seniority_level") and self._title_matches(
             prospect.get("title", ""),
             criteria.get("seniority_level", ""),
@@ -981,7 +1399,7 @@ class ProspectionGraph:
         score = min(score, 100)
         return {
             "validation_score": score,
-            "validation_status": "valid" if score >= 65 else "weak" if score >= 45 else "invalid",
+            "validation_status": "valid" if score >= 60 else "weak" if score >= 35 else "invalid",
             "validation_reasons": reasons,
         }
 
@@ -993,27 +1411,67 @@ class ProspectionGraph:
     ) -> dict[str, Any]:
         score = 0
         reasons = []
-        if prospect.get("linkedin_url"):
-            score += 30
-            reasons.append("LinkedIn valide")
+        public_text = self._fingerprint(
+            " ".join(
+                str(value or "")
+                for value in [
+                    prospect.get("public_text"),
+                    prospect.get("evidence"),
+                    prospect.get("title"),
+                    prospect.get("prospect_company_name"),
+                    company.get("nom"),
+                    company.get("secteur"),
+                ]
+            )
+        )
         if self._title_matches(prospect.get("title", ""), criteria.get("job_title", "")):
             score += 30
             reasons.append("poste correspondant")
-        if company.get("validation_status") == "valid":
+        city = self._fingerprint(criteria.get("ville", ""))
+        if city and (city in public_text or city in self._fingerprint(company.get("ville", ""))):
             score += 20
+            reasons.append("localisation coherente")
+        sector_terms = [
+            self._fingerprint(criteria.get("secteur", "")),
+            self._fingerprint(criteria.get("activity_type", "")),
+            *[self._fingerprint(item) for item in criteria.get("keywords", [])],
+        ]
+        if any(term and term in public_text for term in sector_terms):
+            score += 15
+            reasons.append("secteur coherent")
+        if prospect.get("linkedin_url"):
+            score += 15
+            reasons.append("LinkedIn public")
+        if prospect.get("facebook_url") or prospect.get("instagram_url"):
+            score += 10
+            reasons.append("reseaux sociaux publics")
+        if prospect.get("source_url"):
+            score += 5
+            reasons.append("source web publique")
+        if company.get("validation_status") == "valid":
+            score += 5
             reasons.append("entreprise valide")
         elif company.get("validation_status") == "weak":
-            score += 10
+            score += 3
             reasons.append("entreprise partiellement valide")
         if prospect.get("email"):
-            score += 10
+            score += 20
             reasons.append("email public")
-        if prospect.get("facebook_url"):
-            score += 10
-            reasons.append("Facebook trouve")
+        if prospect.get("phone"):
+            score += 30
+            reasons.append("telephone public")
         score = min(score, 100)
         evaluation = "hot" if score >= 70 else "warm" if score >= 50 else "cold"
-        next_action = "LinkedIn" if prospect.get("linkedin_url") else "Email" if prospect.get("email") else "Ignorer"
+        if prospect.get("phone"):
+            next_action = "Appel"
+        elif prospect.get("email"):
+            next_action = "Email"
+        elif prospect.get("linkedin_url"):
+            next_action = "LinkedIn"
+        elif prospect.get("facebook_url") or prospect.get("instagram_url"):
+            next_action = "Message reseau social"
+        else:
+            next_action = "Verifier"
         return {
             "score_ia": score,
             "evaluation": evaluation,
@@ -1028,7 +1486,24 @@ class ProspectionGraph:
             return False
         if criteria.get("require_facebook") and not prospect.get("facebook_url"):
             return False
+        if criteria.get("require_instagram") and not prospect.get("instagram_url"):
+            return False
+        if not self._is_target_decision_maker(prospect, criteria):
+            return False
         return prospect.get("validation_status") in {"valid", "weak"}
+
+    def _is_target_decision_maker(self, prospect: dict[str, Any], criteria: dict[str, Any]) -> bool:
+        expected = criteria.get("job_title") or ""
+        if expected:
+            return self._title_matches(prospect.get("title", ""), expected)
+        title = self._fingerprint(prospect.get("title", ""))
+        allowed = {
+            "ceo", "founder", "fondateur", "co founder", "cto", "chief technology",
+            "hr", "rh", "human resources", "ressources humaines", "talent acquisition",
+            "sales manager", "directeur commercial", "business development",
+        }
+        excluded = {"student", "etudiant", "professeur", "professor", "teacher", "enseignant", "stagiaire", "intern"}
+        return any(term in title for term in allowed) and not any(term in title for term in excluded)
 
     def _target_company_matches(self, company: dict[str, Any], target: str) -> bool:
         if not target:
@@ -1048,9 +1523,11 @@ class ProspectionGraph:
         title_fp = self._fingerprint(title)
         expected_fp = self._fingerprint(expected)
         aliases = {
-            "rh": ["rh", "hr", "human resources", "talent acquisition", "people"],
-            "marketing": ["marketing", "digital"],
-            "commercial": ["commercial", "sales", "business development"],
+            "rh": ["rh", "hr", "human resources", "ressources humaines", "talent acquisition", "people"],
+            "hr": ["rh", "hr", "human resources", "ressources humaines", "talent acquisition", "people"],
+            "marketing": ["marketing", "digital", "communication", "growth"],
+            "commercial": ["commercial", "sales", "business development", "vente"],
+            "sales": ["commercial", "sales", "business development", "vente"],
             "achat": ["achat", "procurement", "purchasing"],
             "ceo": ["ceo", "founder", "fondateur", "directeur general"],
             "dentiste": ["dentiste", "chirurgien dentiste", "dental surgeon", "dentist"],
@@ -1069,6 +1546,15 @@ class ProspectionGraph:
     def _prospect_key(self, prospect: dict[str, Any]) -> str:
         if prospect.get("linkedin_url"):
             return f"linkedin:{prospect['linkedin_url'].lower()}"
+        if prospect.get("facebook_url"):
+            return f"facebook:{prospect['facebook_url'].lower()}"
+        if prospect.get("instagram_url"):
+            return f"instagram:{prospect['instagram_url'].lower()}"
+        if prospect.get("source_url"):
+            source_name = self._fingerprint(
+                f"{prospect.get('first_name')} {prospect.get('last_name')}"
+            )
+            return f"source:{prospect['source_url'].lower()}:{source_name}"
         email = prospect.get("email")
         if email:
             return f"email:{email.lower()}"

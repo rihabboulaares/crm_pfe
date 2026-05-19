@@ -1,8 +1,16 @@
-# agentProspection/tools/gemini_tool.py
-import os
+"""
+Scoring via Gemini — optionnel, enrichit le scoring local.
+
+Dans l'agent ReAct, le scoring est fait via score_entity (ScoringTool local).
+GeminiTool est utilisé dans le pipeline déterministe (graph.py) pour un
+scoring plus contextuel basé sur le RAG.
+"""
+
 import json
-import time
+import os
 import re
+import time
+
 from google import genai
 
 
@@ -39,20 +47,16 @@ Retourne UNIQUEMENT ce JSON (rien d'autre) :
 class GeminiTool:
 
     def __init__(self):
-        # On lit GEMINI_API_KEY EN PREMIER et on la passe
-        # explicitement à genai.Client — le SDK n'ira pas
-        # chercher GOOGLE_API_KEY tout seul dans ce cas.
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            api_key = os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            raise ValueError("Clé GEMINI_API_KEY manquante dans le .env")
-
-        # Passer la clé explicitement évite le conflit entre
-        # GOOGLE_API_KEY et GEMINI_API_KEY
+            raise ValueError(
+                "Clé GEMINI_API_KEY manquante dans .env — "
+                "GeminiTool ne peut pas être instancié."
+            )
+        # Passe la clé explicitement pour éviter les conflits GOOGLE_API_KEY / GEMINI_API_KEY
         self.client = genai.Client(api_key=api_key)
-        self.model  = "models/gemini-2.5-flash"
-        print(f"[Gemini] Initialisé avec {self.model} ✅")
+        self.model = "models/gemini-2.5-flash"
+        print(f"[GeminiTool] Initialisé avec {self.model} ✅")
 
     def scorer(self, prospect: dict) -> dict:
         prompt = SCORING_PROMPT.format(
@@ -76,38 +80,42 @@ class GeminiTool:
                 # Nettoyer les balises ```json ... ```
                 if "```" in texte:
                     texte = texte.split("```")[1]
-                    if texte.startswith("json"):
+                    if texte.lower().startswith("json"):
                         texte = texte[4:]
 
                 return json.loads(texte.strip())
 
-            except Exception as e:
-                msg = str(e)
+            except Exception as exc:
+                msg = str(exc)
                 if "429" in msg:
-                    m = re.search(r"retry in (\d+)", msg)
-                    delai = int(m.group(1)) + 2 if m else 15
-                    print(f"  [Gemini] Quota — attente {delai}s (tentative {tentative+1}/3)...")
+                    match = re.search(r"retry in (\d+)", msg)
+                    delai = int(match.group(1)) + 2 if match else 15
+                    print(f"  [GeminiTool] Quota — attente {delai}s (tentative {tentative+1}/3)")
                     time.sleep(delai)
                 else:
-                    print(f"  [Gemini] Erreur : {msg[:120]}")
+                    print(f"  [GeminiTool] Erreur : {msg[:120]}")
                     break
 
         return self._score_fallback(prospect)
 
     def _score_fallback(self, prospect: dict) -> dict:
+        """Fallback local si Gemini est indisponible."""
         score = 0
-        if prospect.get("telephone"): score += 30
-        if prospect.get("site_web"):  score += 20
-        if prospect.get("email"):     score += 20
-        if prospect.get("adresse") and len(prospect["adresse"]) > 5: score += 15
+        if prospect.get("telephone"):
+            score += 30
+        if prospect.get("site_web"):
+            score += 20
+        if prospect.get("email"):
+            score += 20
+        if prospect.get("adresse") and len(str(prospect.get("adresse", ""))) > 5:
+            score += 15
 
-        if score >= 70:   evaluation = "hot"
-        elif score >= 50: evaluation = "warm"
-        else:             evaluation = "cold"
+        score = min(score, 100)
+        evaluation = "hot" if score >= 70 else "warm" if score >= 50 else "cold"
 
         return {
-            "score":       score,
-            "evaluation":  evaluation,
-            "raison":      "Score basé sur données disponibles",
+            "score": score,
+            "evaluation": evaluation,
+            "raison": "Score basé sur données disponibles (fallback)",
             "next_action": "Appel" if score >= 30 else "Ignorer",
         }

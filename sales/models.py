@@ -44,7 +44,7 @@ class ProspectCompany(models.Model):
     website           = models.URLField(blank=True, null=True)
     facebook_url      = models.URLField(blank=True, null=True)
     instagram_url     = models.URLField(blank=True, null=True)
-    osm_place_id      = models.CharField(max_length=100, blank=True, null=True)
+    google_place_id   = models.CharField(max_length=150, blank=True, null=True)
     score_ia          = models.IntegerField(default=0)
     evaluation        = models.CharField(
         max_length=10,

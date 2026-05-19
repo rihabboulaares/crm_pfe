@@ -1,39 +1,48 @@
+"""
+Mémoire centrale de l'agent. Utilise ChromaDB via ProspectionVectorStore.
+Fonctionne en mode dégradé (no-op) si le vector store est indisponible.
+"""
+
 import json
 from datetime import datetime, timezone
 from typing import Any
-
-from langchain_core.documents import Document
 
 from .config import AgentSettings
 from .vector_store import ProspectionVectorStore
 
 
 class ProspectionMemoryStore:
-    """
-    Memoire centrale unique de l'agent.
-
-    On utilise ChromaDB via ProspectionVectorStore pour:
-    - retrouver des entreprises deja analysees,
-    - alimenter le RAG,
-    - stocker l'historique utile des recherches.
-    """
 
     def __init__(self, settings: AgentSettings):
         self.vector_store = ProspectionVectorStore(settings)
 
     def retrieve_context(self, criteria: dict[str, Any], companies: list[dict[str, Any]]) -> str:
-        company_names = ", ".join(company.get("nom", "") for company in companies[:8])
-        query = (
-            f"Recherche CRM secteur={criteria.get('secteur')} ville={criteria.get('ville')} "
-            f"criteres={criteria.get('criteres', [])} entreprises={company_names}"
-        )
-        return self.vector_store.context_for_query(query, k=5)
+        if not self.vector_store.available:
+            return ""
+        try:
+            company_names = ", ".join(
+                company.get("nom", "") for company in companies[:8]
+            )
+            query = (
+                f"Recherche CRM secteur={criteria.get('secteur')} "
+                f"ville={criteria.get('ville')} "
+                f"criteres={criteria.get('criteres', [])} "
+                f"entreprises={company_names}"
+            )
+            return self.vector_store.context_for_query(query, k=5)
+        except Exception as exc:
+            print(f"[MemoryStore] retrieve_context erreur: {exc}")
+            return ""
 
     def mark_known_companies(self, companies: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for company in companies:
-            context = self._company_context(company)
-            company["memory_status"] = "known" if context else "new"
-            company["memory_context"] = context
+            try:
+                context = self._company_context(company)
+                company["memory_status"] = "known" if context else "new"
+                company["memory_context"] = context
+            except Exception:
+                company["memory_status"] = "new"
+                company["memory_context"] = ""
         return companies
 
     def store_search_result(
@@ -43,57 +52,64 @@ class ProspectionMemoryStore:
         prospects: list[dict[str, Any]],
         stats: dict[str, Any],
     ) -> int:
-        now = datetime.now(timezone.utc).isoformat()
-        docs: list[Document] = [
-            Document(
-                page_content=(
-                    f"Recherche prospection: secteur={criteria.get('secteur')} "
-                    f"ville={criteria.get('ville')} stats={json.dumps(stats, ensure_ascii=False)}"
-                ),
-                metadata={
-                    "doc_type": "search_history",
-                    "source": "agent_prospection",
-                    "created_at": now,
-                    "secteur": criteria.get("secteur", ""),
-                    "ville": criteria.get("ville", ""),
-                },
-            )
-        ]
-
-        for company in companies:
-            docs.append(self._company_document(company, now))
-
-        for prospect in prospects:
-            docs.append(self._prospect_document(prospect, now))
-
-        return self.vector_store.add_documents(docs)
+        if not self.vector_store.available:
+            return 0
+        try:
+            from langchain_core.documents import Document
+            now = datetime.now(timezone.utc).isoformat()
+            docs = [
+                Document(
+                    page_content=(
+                        f"Recherche prospection: secteur={criteria.get('secteur')} "
+                        f"ville={criteria.get('ville')} "
+                        f"stats={json.dumps(stats, ensure_ascii=False)}"
+                    ),
+                    metadata={
+                        "doc_type": "search_history",
+                        "source": "agent_prospection",
+                        "created_at": now,
+                        "secteur": criteria.get("secteur", ""),
+                        "ville": criteria.get("ville", ""),
+                    },
+                )
+            ]
+            for company in companies:
+                docs.append(self._company_document(company, now))
+            for prospect in prospects:
+                docs.append(self._prospect_document(prospect, now))
+            return self.vector_store.add_documents(docs)
+        except Exception as exc:
+            print(f"[MemoryStore] store_search_result erreur: {exc}")
+            return 0
 
     def _company_context(self, company: dict[str, Any]) -> str:
+        if not self.vector_store.available:
+            return ""
         place_id = company.get("place_id")
-        if place_id and hasattr(self.vector_store.store, "_collection"):
+        if place_id and hasattr(self.vector_store, "store") and self.vector_store.store:
             try:
-                result = self.vector_store.store._collection.get(
-                    where={"place_id": place_id},
-                    limit=1,
-                )
-                docs = result.get("documents") or []
-                if docs:
-                    return docs[0][:800]
+                collection = getattr(self.vector_store.store, "_collection", None)
+                if collection:
+                    result = collection.get(where={"place_id": place_id}, limit=1)
+                    docs = result.get("documents") or []
+                    if docs:
+                        return docs[0][:800]
             except Exception:
                 pass
-
-        query = f"{company.get('nom')} {company.get('ville')} {company.get('telephone')} {company.get('site_web')}"
+        query = (
+            f"{company.get('nom')} {company.get('ville')} "
+            f"{company.get('telephone')} {company.get('site_web')}"
+        )
         return self.vector_store.context_for_query(query, k=1)
 
-    def _company_document(self, company: dict[str, Any], created_at: str) -> Document:
+    def _company_document(self, company: dict[str, Any], created_at: str):
+        from langchain_core.documents import Document
         text = (
             f"Entreprise prospectee: {company.get('nom')} | "
             f"secteur={company.get('secteur')} | ville={company.get('ville')} | "
             f"telephone={company.get('telephone')} | email={company.get('email')} | "
-            f"site={company.get('site_web')} | facebook={company.get('facebook_url')} | "
-            f"instagram={company.get('instagram_url')} | linkedin={company.get('linkedin_url')} | "
-            f"score={company.get('score_ia')} | evaluation={company.get('evaluation')} | "
-            f"raison={company.get('raison_score')} | action={company.get('next_action')}"
+            f"site={company.get('site_web')} | score={company.get('score_ia')} | "
+            f"evaluation={company.get('evaluation')}"
         )
         return Document(
             page_content=text,
@@ -109,12 +125,12 @@ class ProspectionMemoryStore:
             },
         )
 
-    def _prospect_document(self, prospect: dict[str, Any], created_at: str) -> Document:
+    def _prospect_document(self, prospect: dict[str, Any], created_at: str):
+        from langchain_core.documents import Document
         text = (
-            f"Prospect extrait: {prospect.get('first_name')} {prospect.get('last_name')} | "
+            f"Prospect: {prospect.get('first_name')} {prospect.get('last_name')} | "
             f"title={prospect.get('title')} | email={prospect.get('email')} | "
-            f"phone={prospect.get('phone')} | company={prospect.get('prospect_company_name')} | "
-            f"origin={prospect.get('origin')} | evidence={prospect.get('evidence')}"
+            f"company={prospect.get('prospect_company_name')}"
         )
         return Document(
             page_content=text,

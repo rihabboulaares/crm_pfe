@@ -27,7 +27,7 @@ class SearchCriteria:
     query: str = ""
     session_id: str = "default"
     criteres: list[str] = field(default_factory=list)
-    sources: list[str] = field(default_factory=lambda: ["osm", "website", "facebook", "instagram", "linkedin"])
+    sources: list[str] = field(default_factory=lambda: ["website", "linkedin"])
     keywords: list[str] = field(default_factory=list)
 
     @classmethod
@@ -105,9 +105,9 @@ def normalize_company(raw: dict[str, Any]) -> dict[str, Any]:
         "email": raw.get("email") or "",
         "site_web": raw.get("site_web") or raw.get("website") or "",
         "categorie": raw.get("categorie") or raw.get("category") or "",
-        "source": raw.get("source") or "openstreetmap",
+        "source": raw.get("source") or "google_maps",
         "source_url": raw.get("source_url") or "",
-        "osm_url": raw.get("osm_url") or "",
+        "google_maps_url": raw.get("google_maps_url") or raw.get("source_url") or "",
         "facebook_url": raw.get("facebook_url") or "",
         "instagram_url": raw.get("instagram_url") or "",
         "linkedin_url": raw.get("linkedin_url") or "",
@@ -149,7 +149,8 @@ def normalize_prospect(raw: dict[str, Any], company: dict[str, Any]) -> dict[str
         "linkedin_url": raw.get("linkedin_url") or company.get("linkedin_url") or "",
         "facebook_url": raw.get("facebook_url") or company.get("facebook_url") or "",
         "instagram_url": raw.get("instagram_url") or company.get("instagram_url") or "",
-        "prospect_company_name": company.get("nom") or "",
+        "source_url": raw.get("source_url") or company.get("source_url") or "",
+        "prospect_company_name": raw.get("prospect_company_name") or company.get("nom") or "",
         "place_id": company.get("place_id") or "",
         "score_ia": raw.get("score_ia") or company.get("score_ia") or 0,
         "raison_score": raw.get("raison_score") or company.get("raison_score") or "",
@@ -161,19 +162,37 @@ def normalize_prospect(raw: dict[str, Any], company: dict[str, Any]) -> dict[str
         "validation_reasons": raw.get("validation_reasons") or [],
         "confidence": raw.get("confidence") or 0,
         "evidence": raw.get("evidence") or "",
+        "public_text": raw.get("public_text") or raw.get("evidence") or "",
     }
 
 
 def is_person_prospect(prospect: dict[str, Any]) -> bool:
-    has_name = bool(prospect.get("first_name") and prospect.get("last_name"))
+    """
+    Valide qu'un prospect est une vraie personne avec au moins un moyen de contact.
+
+    Règle relaxée pour les créateurs Instagram :
+    - first_name suffit (last_name optionnel — un handle comme "cuisine.faye" est valide)
+    - Au moins une URL sociale ou un email ou un téléphone obligatoire
+    """
+    # Doit avoir au minimum un prénom (handle accepté)
+    has_name = bool(prospect.get("first_name") and str(prospect["first_name"]).strip())
+
+    # Doit avoir au moins un moyen de contact ou une URL publique
     has_contact = bool(
         prospect.get("email")
         or prospect.get("phone")
         or prospect.get("linkedin_url")
         or prospect.get("facebook_url")
+        or prospect.get("instagram_url")
+        or prospect.get("source_url")
     )
+
     return has_name and has_contact
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fonctions de normalisation internes
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _normalize_search_type(value: Any) -> str:
     normalized = str(value or "").strip().lower()
@@ -195,6 +214,10 @@ def _to_int(value: Any, default: int, min_value: int, max_value: int) -> int:
 def _optional_int(value: Any) -> int | None:
     if value in [None, ""]:
         return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _to_bool(value: Any) -> bool:
@@ -203,22 +226,39 @@ def _to_bool(value: Any) -> bool:
     if value in [None, ""]:
         return False
     return str(value).strip().lower() in {"1", "true", "yes", "oui", "on"}
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _normalize_sources(value: Any) -> list[str]:
-    allowed = {"osm", "website", "facebook", "instagram", "linkedin"}
+    allowed = {"google_maps", "website", "facebook", "instagram", "linkedin"}
+    aliases = {
+        "maps": ["google_maps"],
+        "google": ["google_maps"],
+        "google maps": ["google_maps"],
+        "googlemaps": ["google_maps"],
+        "google_maps_api": ["google_maps"],
+        "google_places": ["google_maps"],
+        "web": ["website"],
+        "duckduckgo": ["website"],
+        "site": ["website"],
+        "web_index": ["linkedin", "facebook", "instagram"],
+        "google_dork": ["linkedin"],
+        "google_dorks": ["linkedin"],
+        "linkedin_indexed": ["linkedin"],
+    }
     if not value:
-        return ["osm", "website", "facebook", "instagram", "linkedin"]
+        return ["website", "linkedin"]
     if isinstance(value, str):
         raw_items = [item.strip().lower() for item in value.split(",")]
     else:
         raw_items = [str(item).strip().lower() for item in value]
-    selected = [item for item in raw_items if item in allowed]
-    return selected or ["osm"]
+    selected = []
+    for item in raw_items:
+        if item in aliases:
+            selected.extend(aliases[item])
+        elif item in allowed:
+            selected.append(item)
+    selected = [item for index, item in enumerate(selected) if item in allowed and item not in selected[:index]]
+    return selected or ["website", "linkedin"]
 
 
 def _normalize_list(value: Any) -> list[str]:

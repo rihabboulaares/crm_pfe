@@ -20,6 +20,10 @@ Tu dois obligatoirement distinguer:
 - search_type="company" si la demande vise des entreprises, lieux, commerces, societes.
 - search_type="prospect" si la demande vise des personnes, postes, dirigeants, responsables.
 Pour les professions humaines (dentiste, medecin, avocat, consultant), utilise search_type="prospect" sauf si la demande precise cabinet, clinique ou entreprise.
+Regle prioritaire: si la demande contient un poste humain (responsable RH, CEO, CTO, directeur, manager, recruteur, developpeur), search_type="prospect" meme si elle contient aussi "societe", "entreprise" ou un secteur.
+En search_type="prospect", privilegie Google Maps  le web, LinkedIn , facebook , instagram
+En search_type="company", privilegie Google Maps  le web, LinkedIn , facebook , instagram
+Si l'utilisateur mentionne "sur LinkedIn" ou selectionne LinkedIn pour des prospects, retourne sources=["linkedin"] et require_linkedin=true.
 Les resultats attendus doivent etre uniquement des entreprises ou des personnes, jamais des annuaires, cours, formations, articles ou listes.
 """
 
@@ -31,7 +35,7 @@ Valeurs par defaut:
 - secteur: restaurant
 - ville: tunis
 - rayon_km: 5
-- max_resultats: 10
+- max_resultats: 20
 - score_min: 0
 
 Retourne exactement:
@@ -56,7 +60,7 @@ Retourne exactement:
   "require_email": false,
   "require_linkedin": false,
   "validation_min": 0,
-  "sources": ["osm", "website", "facebook", "instagram", "linkedin"],
+  "sources": ["linkedin", "google maps","facebook","instagram","web"],
   "keywords": [],
   "criteres": ["telephone", "site_web", "email", "facebook", "instagram", "linkedin"]
 }}
@@ -87,7 +91,7 @@ Bareme:
 - email present: +20
 - site_web present: +15
 - reseaux sociaux publics presents: +10
-- coordonnees GPS, distance et qualite OSM coherentes: +10
+- coordonnees GPS, distance et qualite Google Maps coherentes: +10
 - categorie et adresse claires: +15
 - contexte RAG pertinent: +15
 - correspondance avec activite, mots-cles et sources demandees: +10

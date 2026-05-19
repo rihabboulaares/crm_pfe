@@ -1,46 +1,60 @@
-class ScoringTool:
-    """
-    Scoring local gratuit.
+"""
+Scoring local — fonctionne sans clé API Gemini.
 
-    Il remplace Gemini si aucune cle API n'est configuree.
-    Tu peux garder Gemini comme bonus, mais ce fallback rend l'agent
-    utilisable sans budget.
-    """
+Utilisé comme :
+1. Outil principal dans l'agent ReAct (score_entity)
+2. Fallback si Gemini est indisponible dans le pipeline
+
+Le barème est volontairement simple et explicable pour le commercial.
+"""
+
+
+class ScoringTool:
 
     def scorer(self, prospect: dict) -> dict:
         score = 0
         raisons = []
 
+        # ── Données de contact ────────────────────────────────────────────
         if prospect.get("telephone"):
-            score += 25
-            raisons.append("telephone")
+            score += 30
+            raisons.append("téléphone")
         if prospect.get("email"):
             score += 20
             raisons.append("email")
         if prospect.get("site_web"):
-            score += 15
+            score += 20
             raisons.append("site web")
-        if prospect.get("adresse") and len(prospect.get("adresse", "")) > 5:
+
+        # ── Données d'identification ───────────────────────────────────────
+        if prospect.get("adresse") and len(str(prospect.get("adresse", ""))) > 5:
             score += 10
             raisons.append("adresse")
         if prospect.get("categorie"):
             score += 10
-            raisons.append("categorie")
+            raisons.append("catégorie")
+
+        # ── Données GPS ───────────────────────────────────────────────────
         if prospect.get("latitude") and prospect.get("longitude"):
             score += 5
-            raisons.append("position")
+            raisons.append("position GPS")
+
+        # ── Qualité Google Maps ───────────────────────────────────────────
         if int(prospect.get("data_quality") or 0) >= 60:
-            score += 5
-            raisons.append("qualite OSM")
+            score += 15
+            raisons.append("qualité Maps")
+
+        # ── Présence digitale ─────────────────────────────────────────────
         if prospect.get("facebook_url") or prospect.get("instagram_url"):
             score += 10
-            raisons.append("reseaux sociaux")
+            raisons.append("réseaux sociaux")
         if prospect.get("linkedin_url"):
             score += 10
-            raisons.append("linkedin")
+            raisons.append("LinkedIn")
 
         score = min(score, 100)
 
+        # ── Évaluation ────────────────────────────────────────────────────
         if score >= 70:
             evaluation = "hot"
         elif score >= 50:
@@ -48,16 +62,23 @@ class ScoringTool:
         else:
             evaluation = "cold"
 
+        # ── Action recommandée ────────────────────────────────────────────
         if prospect.get("telephone") and score >= 45:
             next_action = "Appel"
         elif prospect.get("email"):
             next_action = "Email"
+        elif prospect.get("linkedin_url"):
+            next_action = "LinkedIn"
         elif prospect.get("adresse"):
             next_action = "Visite"
         else:
             next_action = "Ignorer"
 
-        raison = "Donnees: " + ", ".join(raisons[:4]) if raisons else "Peu de donnees publiques"
+        raison = (
+            "Données: " + ", ".join(raisons[:4])
+            if raisons
+            else "Peu de données publiques disponibles"
+        )
 
         return {
             "score": score,
