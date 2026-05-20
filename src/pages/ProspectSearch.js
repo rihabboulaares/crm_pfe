@@ -570,21 +570,21 @@ if (!document.getElementById(STYLE_ID)) {
 
 // ─── Suggestions ──────────────────────────────────────────────────────────────
 const SUGGESTIONS = [
-  "🍕 restaurants à Tunis",
-  "📸 food bloggers cuisine tunisienne",
-  "💼 responsables RH sociétés informatiques Tunis",
-  "🏨 hôtels à Sousse avec site web",
-  "🧑‍💻 fondateurs startups tech Tunis",
-  "💇 salons de beauté Ariana",
+  "Restaurants a Tunis avec telephone et site web",
+  "Food bloggers cuisine tunisienne sur Instagram",
+  "Responsables RH dans les societes IT a Tunis sur LinkedIn",
+  "Hotels a Sousse avec email et site web",
+  "Fondateurs de startups tech a Tunis",
+  "Salons de beaute a Ariana avec Instagram",
 ];
 
 // ─── Logs simulés pendant le chargement ───────────────────────────────────────
 const THINKING_STEPS = [
-  { icon: "🧠", label: "Analyse de la requête..." },
-  { icon: "🎯", label: "Sélection des outils..." },
-  { icon: "🔍", label: "Recherche en cours..." },
-  { icon: "⚡", label: "Enrichissement des données..." },
-  { icon: "📊", label: "Scoring des résultats..." },
+  { icon: "1", label: "Analyse de la requete" },
+  { icon: "2", label: "Detection du secteur, de la ville et des sources" },
+  { icon: "3", label: "Recherche publique" },
+  { icon: "4", label: "Enrichissement et dedoublonnage" },
+  { icon: "5", label: "Scoring et classement" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -594,6 +594,23 @@ const cap = (v) => Math.max(0, Math.min(100, Number(v || 0)));
 function initials(name) {
   if (!name) return "?";
   return name.split(" ").map(p => p[0]).join("").toUpperCase().slice(0, 2);
+}
+
+function rankItems(items) {
+  return [...(items || [])].sort((a, b) => {
+    const scoreA = Number(a.score_ia || a.score || 0);
+    const scoreB = Number(b.score_ia || b.score || 0);
+    const contactA = ["telephone", "phone", "email", "site_web", "linkedin_url", "facebook_url", "instagram_url"].filter(k => a[k]).length;
+    const contactB = ["telephone", "phone", "email", "site_web", "linkedin_url", "facebook_url", "instagram_url"].filter(k => b[k]).length;
+    return scoreB - scoreA || contactB - contactA;
+  });
+}
+
+function leadQuality(item) {
+  const contacts = ["telephone", "phone", "email", "site_web", "linkedin_url", "facebook_url", "instagram_url"].filter(k => item?.[k]).length;
+  if (Number(item?.score_ia || 0) >= 70 || contacts >= 3) return "Prioritaire";
+  if (Number(item?.score_ia || 0) >= 50 || contacts >= 1) return "A verifier";
+  return "Faible signal";
 }
 
 // ─── Composant Google Maps ───────────────────────────────────────────────────
@@ -634,9 +651,8 @@ GoogleMapEmbed.propTypes = {
 GoogleMapEmbed.defaultProps = { address: null, placeName: null };
 
 function Badge({ eval: ev }) {
-  const labels = { hot: "🔥 Hot", warm: "🟡 Warm", cold: "⚪ Cold" };
-  const icons = { hot: "🔥", warm: "🟡", cold: "⚪" };
-  return <span className={`pa-badge ${ev || "cold"}`}>{icons[ev] || "⚪"} {labels[ev] || "Cold"}</span>;
+  const labels = { hot: "Hot", warm: "Warm", cold: "Cold" };
+  return <span className={`pa-badge ${ev || "cold"}`}>{labels[ev] || "Cold"}</span>;
 }
 Badge.propTypes = { eval: PropTypes.string };
 Badge.defaultProps = { eval: "cold" };
@@ -646,7 +662,7 @@ function ScoreBar({ score }) {
   return (
     <div className="pa-score-section">
       <div className="pa-score-row">
-        <span className="pa-score-lbl">🏆 Score de pertinence</span>
+        <span className="pa-score-lbl">Score de pertinence</span>
         <span className="pa-score-val" style={{ color: scoreColor(v) }}>{v}/100</span>
       </div>
       <div className="pa-score-track">
@@ -660,10 +676,10 @@ ScoreBar.defaultProps = { score: 0 };
 
 function SocialLinks({ website, facebook, instagram, linkedin }) {
   const links = [
-    { url: website, icon: "🌐", title: "Site web" },
-    { url: facebook, icon: "📘", title: "Facebook" },
-    { url: instagram, icon: "📸", title: "Instagram" },
-    { url: linkedin, icon: "💼", title: "LinkedIn" },
+    { url: website, icon: "Web", title: "Site web" },
+    { url: facebook, icon: "Fb", title: "Facebook" },
+    { url: instagram, icon: "Ig", title: "Instagram" },
+    { url: linkedin, icon: "In", title: "LinkedIn" },
   ].filter(l => l.url);
   if (!links.length) return null;
   return (
@@ -745,6 +761,10 @@ function CompanyCard({ company, onImport, imported }) {
         </div>
 
         <ScoreBar score={company.score_ia} />
+
+        <div className="pa-score-reason">
+          Qualification: {leadQuality(company)}
+        </div>
 
         {company.raison_score && (
           <div className="pa-score-reason">
@@ -829,6 +849,10 @@ function ProspectCard({ prospect, onImport }) {
             <GoogleMapEmbed address={fullAddress} placeName={companyName || name} />
           )}
 
+          <div className="pa-score-reason">
+            Qualification: {leadQuality(prospect)}
+          </div>
+
           <div className="pa-card-footer" style={{ marginTop: 12, paddingTop: 12 }}>
             <SocialLinks
               linkedin={prospect.linkedin_url}
@@ -852,48 +876,45 @@ ProspectCard.propTypes = {
 // ─── Bloc de résultats inline ────────────────────────────────────────────────
 function ResultsBlock({ result, onImport, imported }) {
   const [tab, setTab] = useState("companies");
-  const companies = result?.entreprises || result?.companies || [];
-  const prospects = result?.prospects || [];
+  const companies = useMemo(() => rankItems(result?.entreprises || result?.companies || []), [result]);
+  const prospects = useMemo(() => rankItems(result?.prospects || []), [result]);
   const stats = result?.stats || {};
-
+  const meta = result?.meta || {};
   const activeTab = companies.length === 0 && prospects.length > 0 ? "prospects" : tab;
+  const total = companies.length + prospects.length;
 
   return (
     <div className="pa-results-block">
-      {/* Stats chips */}
-      <div className="pa-stats-chips">
-        {companies.length > 0 && (
-          <span className="pa-chip red">🏢 {stats.total || companies.length} entreprises</span>
-        )}
-        {prospects.length > 0 && (
-          <span className="pa-chip blue">👤 {prospects.length} prospects</span>
-        )}
-        {stats.hot > 0 && <span className="pa-chip red">🔥 {stats.hot} hot</span>}
-        {stats.warm > 0 && <span className="pa-chip amber">🟡 {stats.warm} warm</span>}
-        {result.execution_time && (
-          <span className="pa-chip gray">⏱️ {result.execution_time}</span>
-        )}
+      <div className="pa-results-summary">
+        <span>{total} resultat{total > 1 ? "s" : ""}</span>
+        {meta.intent_summary && <span> - {meta.intent_summary}</span>}
       </div>
 
-      {/* Tabs */}
+      <div className="pa-stats-chips">
+        {companies.length > 0 && <span className="pa-chip red">{companies.length} entreprises</span>}
+        {prospects.length > 0 && <span className="pa-chip blue">{prospects.length} prospects</span>}
+        {stats.hot > 0 && <span className="pa-chip red">{stats.hot} hot</span>}
+        {stats.warm > 0 && <span className="pa-chip amber">{stats.warm} warm</span>}
+        {result.execution_time && <span className="pa-chip gray">{result.execution_time}</span>}
+      </div>
+
+      {meta.errors?.length > 0 && (
+        <div style={{ padding: 12, fontSize: 12, color: T.amber, background: T.amberBg, border: "1px solid #FDE68A", borderRadius: 10 }}>
+          Certains modeles ou outils etaient indisponibles. L&apos;agent a utilise les fallbacks disponibles.
+        </div>
+      )}
+
       {companies.length > 0 && prospects.length > 0 && (
         <div className="pa-tabs">
-          <button
-            className={`pa-tab-btn ${activeTab === "companies" ? "active" : ""}`}
-            onClick={() => setTab("companies")}
-          >
-            🏢 Entreprises ({companies.length})
+          <button className={`pa-tab-btn ${activeTab === "companies" ? "active" : ""}`} onClick={() => setTab("companies")}>
+            Entreprises ({companies.length})
           </button>
-          <button
-            className={`pa-tab-btn ${activeTab === "prospects" ? "active" : ""}`}
-            onClick={() => setTab("prospects")}
-          >
-            👤 Prospects ({prospects.length})
+          <button className={`pa-tab-btn ${activeTab === "prospects" ? "active" : ""}`} onClick={() => setTab("prospects")}>
+            Prospects ({prospects.length})
           </button>
         </div>
       )}
 
-      {/* Liste entreprises */}
       {activeTab === "companies" && companies.length > 0 && companies.map(c => {
         const key = c.place_id || c.nom;
         return (
@@ -906,24 +927,22 @@ function ResultsBlock({ result, onImport, imported }) {
         );
       })}
 
-      {/* Liste prospects */}
       {activeTab === "prospects" && prospects.length > 0 && prospects.map((p, i) => (
         <ProspectCard
-          key={p.linkedin_url || p.email || `p-${i}`}
+          key={p.linkedin_url || p.instagram_url || p.email || `p-${i}`}
           prospect={p}
           onImport={() => onImport(null, [p])}
         />
       ))}
 
-      {/* Vide */}
       {activeTab === "companies" && companies.length === 0 && (
-        <div style={{ padding: "20px", fontSize: 13, color: T.textMuted, textAlign: "center", background: T.surfaceAlt, borderRadius: 12 }}>
-          🏢 Aucune entreprise trouvée. Essayez une autre requête.
+        <div style={{ padding: 20, fontSize: 13, color: T.textMuted, textAlign: "center", background: T.surfaceAlt, borderRadius: 12 }}>
+          Aucune entreprise trouvee. Essayez une requete avec ville, secteur et source.
         </div>
       )}
       {activeTab === "prospects" && prospects.length === 0 && (
-        <div style={{ padding: "20px", fontSize: 13, color: T.textMuted, textAlign: "center", background: T.surfaceAlt, borderRadius: 12 }}>
-          👤 Aucun prospect trouvé. Ajoutez &quot;inkedIn&quot;tre requête.
+        <div style={{ padding: 20, fontSize: 13, color: T.textMuted, textAlign: "center", background: T.surfaceAlt, borderRadius: 12 }}>
+          Aucun prospect trouve. Essayez avec un poste precis, par exemple Responsable RH a Tunis sur LinkedIn.
         </div>
       )}
     </div>
@@ -1020,7 +1039,7 @@ function Sidebar({ lastResult, sessionCount }) {
         <div className="pa-sidebar-section">
           <div className="pa-sidebar-title">🕐 Dernière recherche</div>
           <div className="pa-stat-row">
-            <span className="pa-stat-lbl">Temps d&quot;tion</span>
+            <span className="pa-stat-lbl">Temps execution</span>
             <span className="pa-stat-val">{lastResult.execution_time || "—"}</span>
           </div>
           <div className="pa-stat-row">
@@ -1190,7 +1209,7 @@ export default function ProspectAgent() {
                   <div className="pa-empty-title">Agent de prospection</div>
                   <div className="pa-empty-sub">
                     Décrivez ce que vous cherchez en langage naturel.<br />
-                    L&quot; choisit automatiquement les meilleures sources.
+                    L&apos;agent choisit automatiquement les meilleures sources.
                   </div>
                 </div>
               ) : (
@@ -1255,7 +1274,7 @@ export default function ProspectAgent() {
                 <textarea
                   ref={textareaRef}
                   className="pa-textarea"
-                  placeholder="Ex: restaurants à Tunis avec site web, food bloggers tunisiens..."
+                  placeholder="Ex: restaurants a Tunis avec telephone, responsables RH IT sur LinkedIn..."
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}

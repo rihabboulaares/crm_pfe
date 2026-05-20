@@ -52,7 +52,8 @@ async function request(path, options = {}) {
  * searchProspectsAgent({ query: "foodbloggers à Sousse" })
  * searchProspectsAgent({ query: "responsables RH hôtels Tunis" })
  *
- * // Mode pipeline — champs structurés (sans query)
+ 
+* // Mode champs structures (sans query naturelle)
  * searchProspectsAgent({ secteur: "restaurant", ville: "tunis", sources: ["google_maps"] })
  */
 export function searchProspectsAgent(criteria) {
