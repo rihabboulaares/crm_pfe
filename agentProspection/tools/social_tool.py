@@ -11,6 +11,7 @@ try:
 except ImportError:
     requests = None
 
+# ddg_tool.py et social_tool.py — remplacer le bloc try/except import
 try:
     from ddgs import DDGS
 except ImportError:
@@ -44,6 +45,10 @@ FAKE_NAME_TERMS = {
 # Prénoms valides connus (Tunisie + France)
 # ─────────────────────────────────────────────────────────────────────────────
 KNOWN_FIRST_NAMES = {
+   
+    "houda", "boutheina", "ibtissem", "ibtihel", "soumaya", "sabrine",
+    "slaheddine", "mounir", "yesmine", "farah", "amal", "nada",
+    "mariem", "amira",
     "ahmed", "mohamed", "ali", "omar", "youssef", "hamza", "amine",
     "mehdi", "bilel", "bilal", "sami", "wissem", "wassim", "aymen",
     "ayman", "karim", "tarek", "tariq", "hedi", "riadh", "nabil",
@@ -540,7 +545,14 @@ class SocialTool:
     # ─────────────────────────────────────────────────────────────────────
 
     def _split_name(self, full_name: str) -> tuple[str, str]:
-        parts = [p for p in full_name.strip().split() if p]
+    # Nettoyer les caractères de contrôle bidirectionnels Unicode
+        import unicodedata
+        cleaned_name = "".join(
+            c for c in full_name
+            if unicodedata.category(c) not in ("Cf",)  # Cf = Format characters (LRM, RLM, etc.)
+        ).strip()
+    
+        parts = [p for p in cleaned_name.strip().split() if p]
         if len(parts) < 2:
             print(f"    [_split_name] REJET (1 mot): '{full_name[:50]}'")
             return "", ""
@@ -549,15 +561,15 @@ class SocialTool:
             print(f"    [_split_name] REJET (>{4} mots): '{full_name[:50]}'")
             return "", ""
 
-        if re.search(r"[@•()\[\]#%&*=+<>]", full_name):
+        if re.search(r"[@•()\[\]#%&*=+<>]", cleaned_name):
             print(f"    [_split_name] REJET (caractères suspects): '{full_name[:50]}'")
             return "", ""
 
-        if re.search(r"\d", full_name):
+        if re.search(r"\d", cleaned_name):
             print(f"    [_split_name] REJET (chiffres): '{full_name[:50]}'")
             return "", ""
 
-        full_fp = self._fingerprint(full_name)
+        full_fp = self._fingerprint(cleaned_name)
         all_words = full_fp.split()
 
         bad_word = next((w for w in all_words if w in FAKE_NAME_TERMS), None)
@@ -580,7 +592,8 @@ class SocialTool:
 
         first_lower = first_clean.lower()
         is_known = first_lower in KNOWN_FIRST_NAMES
-        starts_with_capital = parts[0][0].isupper() if parts[0] else False
+    # Vérifier la majuscule sur le nom nettoyé (sans caractères invisibles)
+        starts_with_capital = parts[0].lstrip("\u200f\u200e\u202a\u202b\u202c\u202d\u202e")[0].isupper() if parts[0] else False
 
         if not is_known and not starts_with_capital:
             print(f"    [_split_name] REJET (prénom non reconnu + pas de majuscule): '{full_name[:50]}'")
@@ -594,7 +607,6 @@ class SocialTool:
 
         print(f"    [_split_name] VALIDE: '{parts[0]} {last_raw}'")
         return parts[0], last_raw
-
     # ─────────────────────────────────────────────────────────────────────
     # Construction des prospects
     # ─────────────────────────────────────────────────────────────────────

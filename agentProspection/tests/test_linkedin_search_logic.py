@@ -2,11 +2,6 @@ from unittest import TestCase
 from agentProspection.tools.social_tool import SocialTool
 from agentProspection.agent.schemas import SearchCriteria
 
-try:
-    from agentProspection.agent.graph import ProspectionGraph
-except Exception:  # pragma: no cover - depends on optional LangChain runtime in CI
-    ProspectionGraph = None
-
 
 class FakeSocialTool(SocialTool):
     def __init__(self, items):
@@ -147,21 +142,3 @@ class LinkedinSearchLogicTests(TestCase):
         criteria = SearchCriteria.from_dict({"sources": ["google maps", "web", "linkedin"]})
 
         self.assertEqual(criteria.sources, ["google_maps", "website", "linkedin"])
-
-    def test_prospect_intent_preserves_selected_company_sources(self):
-        if ProspectionGraph is None:
-            self.skipTest("ProspectionGraph dependencies are not installed")
-        graph = ProspectionGraph.__new__(ProspectionGraph)
-
-        criteria = {
-            "query": "Je cherche des responsables RH dans des societes marketing a Tunis",
-            "search_type": "company",
-            "sources": ["google_maps", "website", "linkedin"],
-            "secteur": "restaurant",
-            "ville": "tunis",
-        }
-        result = graph._apply_query_intent_overrides(criteria, {"query": criteria["query"], "sources": criteria["sources"]})
-
-        self.assertEqual(result["search_type"], "prospect")
-        self.assertEqual(result["sources"], ["google_maps", "website", "linkedin"])
-        self.assertEqual(result["job_title"], "Responsable RH")

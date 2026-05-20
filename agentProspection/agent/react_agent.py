@@ -1,35 +1,32 @@
 """
-Agent ReAct de prospection B2B — version corrigée v3.
+Agent ReAct de prospection B2B — version corrigée v5.
 
-Corrections v3 (par rapport à v2) :
+Corrections v5 (par rapport à v4) :
 
-A. FIX CRITIQUE — _is_empty_result (bug principal "prospects=0") :
-   L'ancienne condition était :
-       not parsed.get("companies") and not parsed.get("prospects")
-   En Python, `not []` est True. Donc une réponse avec companies=[] et
-   prospects=[10 items] était considérée VIDE → synthèse forcée inutile
-   → timeout 504 car le contexte de synthèse est trop volumineux.
-   CORRECTION : len(companies)==0 AND len(prospects)==0 (vrai vide).
+A. FIX CRITIQUE — Pollution mémoire inter-requêtes :
+   MemorySaver avec thread_id fixe ("crm-chat") accumule tous les messages
+   de toutes les requêtes dans la même session. Quand l'agent pose une question
+   au lieu d'agir, _extract_prospects_from_tool_messages récupère les
+   ToolMessages de la requête PRÉCÉDENTE → résultats erronés retournés.
+   CORRECTION : générer un thread_id unique par requête (UUID) pour isoler
+   chaque recherche dans sa propre session mémoire.
 
-B. FIX TIMEOUT SYNTHÈSE — _truncate_for_synthesis :
-   Le contexte envoyé à la synthèse forcée pouvait atteindre 49k chars
-   (tool_results=28k + ai_text=20k), ce qui dépassait le quota RPM et
-   causait des timeouts DEADLINE_EXCEEDED systématiques.
-   CORRECTION : tronquer tool_results à 8000 chars et ai_text à 4000 chars.
+B. FIX — LLM pose des questions au lieu d'agir :
+   Sur des requêtes vagues ("trouver des avocats"), Gemini demande des
+   précisions au lieu d'utiliser les valeurs par défaut et d'appeler les outils.
+   CORRECTION : renforcement du SYSTEM_PROMPT avec une règle explicite
+   "NE JAMAIS poser de question" + valeurs par défaut obligatoires.
 
-C. FIX PARSE — _clean_content :
-   Nettoyage agressif avant parse JSON pour gérer les cas où le LLM
-   préfixe le JSON avec du texte ou des backticks markdown même en
-   commençant par '{'.
-
-D. FIX RETRYABLE — ajout de "504" et "DEADLINE_EXCEEDED" dans _is_retryable_error
-   pour que les timeouts déclenchent aussi le fallback modèle.
+C. FIX — _extract_prospects_from_tool_messages ne lit que les messages
+   de la requête courante (last_messages), pas tous les messages de session.
+   Le paramètre reçoit maintenant uniquement les messages du dernier invoke().
 """
 
 import inspect
 import json
 import re
 import time
+import uuid
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -50,43 +47,59 @@ from .tools_registry import build_agent_tools
 # SYSTEM PROMPT
 # ─────────────────────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """
-⚠️ INSTRUCTION ABSOLUE — LIS CECI EN PREMIER :
-Tu dois retourner UNIQUEMENT un objet JSON valide.
+⚠️ RÈGLES ABSOLUES — LIS CECI EN PREMIER, RESPECTE-LES TOUJOURS :
+
+RÈGLE 0 — NE JAMAIS POSER DE QUESTION
+Tu ne poses JAMAIS de question à l'utilisateur. Jamais. Même si la requête est vague.
+Si des informations manquent, utilise ces valeurs par défaut :
+- ville → Tunis
+- pays → Tunisie
+- secteur → déduis-le du contexte (avocat→juridique, médecin→santé, etc.)
+- max_resultats → 10
+Lance immédiatement les outils sans demander de précisions.
+
+RÈGLE 1 — FORMAT DE SORTIE OBLIGATOIRE
+Tu retournes UNIQUEMENT un objet JSON valide.
 Aucun texte avant. Aucun texte après. Aucun markdown. Aucune liste. Aucune explication.
-SI TU RETOURNES DU TEXTE OU DU MARKDOWN AU LIEU DE JSON, LA RÉPONSE EST INVALIDE ET INUTILISABLE.
+Ton message DOIT commencer par { et se terminer par }.
+Si tu retournes autre chose que du JSON pur, la réponse est invalide.
 
 Tu es un agent de prospection B2B expert pour le marché tunisien.
 Tu travailles pour un CRM commercial.
 
-RÈGLE N°1 — SÉLECTION D'OUTILS
-- Entreprises physiques (restaurant, hôtel, clinique, pharmacie, garage, café) → google_maps_search en premier, puis web_search_companies si moins de 3 résultats.
-- Entreprises digitales / B2B (IT, startup, marketing, agence) → web_search_companies, puis social_company_search(["linkedin"]).
-- Décideurs B2B (responsable, directeur, manager, DRH, CEO, CTO, fondateur, recruteur) → linkedin_profiles_search uniquement.
-- Créateurs de contenu / influenceurs (foodblogger, influenceur, coach, photographe, bloggeur cuisine) → instagram_profiles_search, puis facebook_profiles_search.
+RÈGLE 2 — SÉLECTION D'OUTILS
+- Avocats, notaires, architectes, experts comptables, médecins, dentistes
+  → search_type="company" → google_maps_search en premier
+- Entreprises physiques (restaurant, hôtel, clinique, pharmacie, garage, café)
+  → google_maps_search en premier, puis web_search_companies si < 3 résultats
+- Entreprises digitales / B2B (IT, startup, marketing, agence)
+  → web_search_companies, puis social_company_search(["linkedin"])
+- Décideurs B2B (responsable, directeur, manager, DRH, CEO, CTO, fondateur, recruteur)
+  → linkedin_profiles_search uniquement
+- Créateurs de contenu / influenceurs (foodblogger, influenceur, coach, photographe)
+  → instagram_profiles_search, puis facebook_profiles_search
 
-RÈGLE N°2 — EXÉCUTION
+RÈGLE 3 — EXÉCUTION
 - Maximum 8 appels d'outils au total.
 - Après chaque outil, intègre les résultats directement dans ta réponse finale JSON.
 - Si un outil retourne 0 résultat, essaie une variante de mots-clés.
 - Score chaque résultat avec score_entity.
 
-RÈGLE N°3 — QUALITÉ
+RÈGLE 4 — QUALITÉ
 - Ne jamais inventer email, téléphone, nom ou URL.
 - Ne jamais retourner annuaires, articles, offres d'emploi, formations.
 - Un résultat valide = une entreprise réelle OU une personne avec au moins une URL publique.
 
-RÈGLE N°4 — PROSPECTS CRÉATEURS DE CONTENU (CRITIQUE)
+RÈGLE 5 — PROSPECTS CRÉATEURS DE CONTENU
 Quand instagram_profiles_search retourne des profils :
 - Chaque profil devient un objet dans "prospects" (PAS dans "companies")
 - Si nom complet disponible → first_name = prénom, last_name = nom de famille
 - Si seulement un handle/pseudo → first_name = handle, last_name = "Blogger"
 - instagram_url est OBLIGATOIRE pour chaque créateur Instagram
-- origin = "instagram"
-- evaluation = "warm" minimum si instagram_url présent
-- score_ia = 55 minimum pour tout profil avec instagram_url
+- origin = "instagram", evaluation = "warm" minimum, score_ia = 55 minimum
 
-RÈGLE N°5 — FORMAT DE SORTIE OBLIGATOIRE
-Retourne UNIQUEMENT ce JSON exact, sans aucun caractère avant ou après les accolades :
+RÈGLE 6 — FORMAT DE SORTIE JSON EXACT
+Retourne UNIQUEMENT ce JSON, sans aucun caractère avant ou après les accolades :
 
 {
   "search_type": "company|prospect",
@@ -138,7 +151,7 @@ BARÈME DE SCORING :
 - cold (<50)  : peu de données publiques
 - Créateurs Instagram : warm (55) si instagram_url présent, hot (75) si email aussi
 
-⚠️ RAPPEL FINAL : Ton message de réponse doit commencer par { et se terminer par }. Rien d'autre.
+⚠️ RAPPEL ABSOLU : commence par { et termine par }. Aucune question. Aucun texte.
 """
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -151,42 +164,14 @@ Ton message doit commencer par { et se terminer par }.
 RÈGLES DE CONVERSION :
 1. Pour les créateurs Instagram / food bloggers / influenceurs :
    - Crée un objet dans "prospects" (PAS dans "companies")
-   - Extrais l'URL Instagram depuis le texte : "instagram.com/HANDLE" → instagram_url = "https://www.instagram.com/HANDLE"
-   - Si pas de nom complet → first_name = le handle Instagram, last_name = "Blogger"
+   - Extrais l'URL Instagram : "instagram.com/HANDLE" → instagram_url = "https://www.instagram.com/HANDLE"
+   - Si pas de nom complet → first_name = handle Instagram, last_name = "Blogger"
    - title = "Food Blogger" ou "Influenceur" selon le contexte
-   - origin = "instagram"
-   - evaluation = "warm", score_ia = 55
+   - origin = "instagram", evaluation = "warm", score_ia = 55
    - next_action = "Message Instagram"
 2. Pour les entreprises → tableau "companies"
 3. Pour les profils LinkedIn → "prospects" avec origin="linkedin"
 4. Ne pas inventer de données manquantes
-
-EXEMPLE DE SORTIE POUR DES CRÉATEURS INSTAGRAM :
-{
-  "search_type": "prospect",
-  "companies": [],
-  "prospects": [
-    {
-      "first_name": "cuisine.faye",
-      "last_name": "Blogger",
-      "title": "Food Blogger",
-      "email": "",
-      "phone": "",
-      "linkedin_url": "",
-      "facebook_url": "",
-      "instagram_url": "https://www.instagram.com/cuisine.faye",
-      "source_url": "https://www.instagram.com/cuisine.faye",
-      "prospect_company_name": "",
-      "origin": "instagram",
-      "public_text": "Food blogger cuisine Tunisie",
-      "evaluation": "warm",
-      "score_ia": 55,
-      "next_action": "Message Instagram"
-    }
-  ],
-  "summary": "8 créateurs trouvés.",
-  "tools_used": ["instagram_profiles_search"]
-}
 
 DONNÉES BRUTES À CONVERTIR :
 <<<RAW_DATA>>>
@@ -253,97 +238,6 @@ def _get_last_ai_content(messages: list) -> str:
     return ""
 
 
-def _clean_content(content: str) -> str:
-    """
-    Nettoyage agressif avant parse JSON.
-    Gère les cas où le LLM préfixe le JSON avec du texte parasite
-    ou l'entoure de backticks markdown.
-
-    ── FIX C ──────────────────────────────────────────────────────────────────
-    Cas observé dans les logs :
-        [DEBUG] content[:300]={
-          "search_type": "prospect",
-          ...
-    Le content commençait bien par '{' mais _parse_json_robust échouait car
-    il y avait parfois du texte parasite APRÈS le JSON final '}'.
-    Ce nettoyage isole proprement l'objet JSON.
-    ─────────────────────────────────────────────────────────────────────────────
-    """
-    if not content:
-        return ""
-    s = content.strip()
-
-    # Supprimer les blocs markdown ```json ... ``` ou ``` ... ```
-    s = re.sub(r"^\s*```(?:json)?\s*\n?", "", s)
-    s = re.sub(r"\n?\s*```\s*$", "", s)
-    s = s.strip()
-
-    # Si le contenu ne commence pas par '{', chercher le premier '{'
-    if s and s[0] != "{":
-        idx = s.find("{")
-        if idx != -1:
-            s = s[idx:]
-
-    return s
-
-
-def _parse_json_robust(content: str) -> dict[str, Any]:
-    """
-    Tente de parser un JSON depuis une réponse LLM potentiellement balisée.
-    Ordre de tentatives :
-    1. Contenu nettoyé (_clean_content) direct
-    2. Contenu brut direct
-    3. Extraction par comptage d'accolades sur contenu nettoyé
-    4. Extraction par comptage d'accolades sur contenu brut
-    5. Fallback json_utils
-    """
-    if not content or not content.strip():
-        return {}
-
-    cleaned = _clean_content(content)
-    stripped = content.strip()
-
-    # Tentative 1 : contenu nettoyé direct
-    if cleaned:
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
-            pass
-
-    # Tentative 2 : brut
-    try:
-        return json.loads(stripped)
-    except json.JSONDecodeError:
-        pass
-
-    # Tentative 3 : extraction par comptage d'accolades sur contenu nettoyé
-    candidate = _find_json_object(cleaned or stripped)
-    if candidate:
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
-
-    # Tentative 4 : extraction sur brut
-    if cleaned != stripped:
-        candidate = _find_json_object(stripped)
-        if candidate:
-            try:
-                return json.loads(candidate)
-            except json.JSONDecodeError:
-                pass
-
-    # Fallback json_utils
-    try:
-        result = extract_json(stripped)
-        if result:
-            return result
-    except Exception:
-        pass
-
-    return {}
-
-
 def _find_json_object(text: str) -> str | None:
     """Trouve le premier objet JSON valide en comptant les accolades."""
     if not text:
@@ -375,37 +269,82 @@ def _find_json_object(text: str) -> str | None:
     return None
 
 
+def _clean_content(content: str) -> str:
+    """
+    Nettoyage agressif avant parse JSON — 3 passes :
+    1. Supprimer les blocs markdown ```[json]...```
+    2. Chercher le premier '{'
+    3. Isoler l'objet JSON complet par comptage d'accolades
+    """
+    if not content:
+        return ""
+    s = content.strip()
+
+    s = re.sub(r"^```(?:json)?\s*\n?", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\n?```\s*$", "", s)
+    s = s.strip()
+
+    if s and s[0] != "{":
+        idx = s.find("{")
+        if idx != -1:
+            s = s[idx:]
+        else:
+            return s
+
+    candidate = _find_json_object(s)
+    if candidate:
+        return candidate
+
+    return s
+
+
+def _parse_json_robust(content: str) -> dict[str, Any]:
+    """Parse JSON depuis une réponse LLM potentiellement balisée."""
+    if not content or not content.strip():
+        return {}
+
+    cleaned = _clean_content(content)
+    stripped = content.strip()
+
+    if cleaned:
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            print(f"[parse] T1 nettoyé échoué: {e} | debut: {cleaned[:80]!r}")
+
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError as e:
+        print(f"[parse] T2 brut échoué: {e}")
+
+    candidate = _find_json_object(cleaned or stripped)
+    if candidate:
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as e:
+            print(f"[parse] T3 candidate échoué: {e}")
+
+    if cleaned != stripped:
+        candidate = _find_json_object(stripped)
+        if candidate:
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+
+    try:
+        result = extract_json(stripped)
+        if result:
+            return result
+    except Exception:
+        pass
+
+    print(f"[parse] ÉCHEC TOTAL — content debut: {content[:200]!r}")
+    return {}
+
+
 def _is_empty_result(parsed: dict[str, Any]) -> bool:
-    """
-    Retourne True UNIQUEMENT si le JSON ne contient ni companies ni prospects.
-
-    ── FIX A ──────────────────────────────────────────────────────────────────
-    BUG ORIGINAL dans v2 :
-        return not parsed or (
-            not parsed.get("companies") and not parsed.get("prospects")
-        )
-
-    En Python :
-        not []  → True
-        not [{"a": 1}]  → False
-
-    Donc avec companies=[] et prospects=[10 items LinkedIn] :
-        not []  → True   ← companies "vides"
-        not [10 items]  → False
-        True AND False  → False  ← résultat correct théoriquement
-
-    MAIS le vrai problème observé dans les logs :
-        [DEBUG] parsed companies=0 prospects=0
-    alors que content[:300] montrait clairement des prospects valides.
-
-    Cause réelle : _parse_json_robust échouait silencieusement (retournait {})
-    à cause du contenu nettoyage insuffisant. Donc parsed={}, et not {} → True.
-
-    Double correction :
-    1. _clean_content plus robuste (Fix C) → parse réussit
-    2. Condition explicite avec len() pour éviter toute ambiguïté Python
-    ─────────────────────────────────────────────────────────────────────────────
-    """
+    """Retourne True UNIQUEMENT si le JSON ne contient ni companies ni prospects."""
     if not parsed:
         return True
     companies = parsed.get("companies") or []
@@ -414,30 +353,210 @@ def _is_empty_result(parsed: dict[str, Any]) -> bool:
 
 
 def _truncate_for_synthesis(tool_results_str: str, ai_text: str) -> tuple[str, str]:
-    """
-    Tronque les données pour la synthèse forcée afin d'éviter les timeouts 504.
-
-    ── FIX B ──────────────────────────────────────────────────────────────────
-    PROBLÈME OBSERVÉ dans les logs :
-        [ReactAgent] Synthèse forcée — 31649 chars (tools=28557, ai_text=20665)
-        → HTTP 504 DEADLINE_EXCEEDED systématique
-
-    CAUSE : 49k chars de contexte → prompt de synthèse > 50k tokens → timeout.
-
-    SOLUTION : Limiter à 8000 + 4000 = 12000 chars maximum.
-    Les tool_results contiennent l'essentiel (profils LinkedIn structurés).
-    L'ai_text est souvent redondant → on le tronque plus agressivement.
-    ─────────────────────────────────────────────────────────────────────────────
-    """
+    """Tronque les données pour éviter les timeouts 504."""
     MAX_TOOL_CHARS = 8000
     MAX_AI_CHARS = 4000
-
     if len(tool_results_str) > MAX_TOOL_CHARS:
-        tool_results_str = tool_results_str[:MAX_TOOL_CHARS] + "\n... [tronqué pour éviter timeout]"
+        tool_results_str = tool_results_str[:MAX_TOOL_CHARS] + "\n... [tronqué]"
     if len(ai_text) > MAX_AI_CHARS:
         ai_text = ai_text[:MAX_AI_CHARS] + "\n... [tronqué]"
-
     return tool_results_str, ai_text
+
+
+def _extract_prospects_from_tool_messages(messages: list) -> dict[str, Any]:
+    """
+    Extrait directement les prospects/entreprises depuis les ToolMessages
+    de la requête COURANTE uniquement.
+
+    Reçoit `last_messages` = uniquement les messages du dernier agent.invoke().
+    Grâce au thread_id unique par requête (Fix A), il n'y a plus de pollution
+    par les sessions précédentes.
+    """
+    all_prospects = []
+    all_companies = []
+    tools_used = []
+    seen_urls: set[str] = set()
+
+    for msg in messages:
+        if not isinstance(msg, ToolMessage):
+            continue
+        if not msg.content:
+            continue
+
+        tool_name = getattr(msg, "name", "") or ""
+        if tool_name:
+            tools_used.append(tool_name)
+
+        try:
+            data = json.loads(msg.content)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            if data.get("error"):
+                continue
+            items = data.get("results") or data.get("prospects") or data.get("companies") or []
+            if not isinstance(items, list):
+                continue
+        else:
+            continue
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+
+            has_linkedin = bool(item.get("linkedin_url"))
+            has_instagram = bool(item.get("instagram_url"))
+            has_facebook = bool(item.get("facebook_url"))
+            has_first_name = bool(item.get("first_name"))
+
+            # ── Prospect (personne) ───────────────────────────────────────────
+            if has_first_name or has_linkedin or has_instagram:
+                dedup_key = (
+                    item.get("linkedin_url")
+                    or item.get("instagram_url")
+                    or item.get("facebook_url")
+                    or item.get("source_url")
+                    or f"{item.get('first_name')}:{item.get('last_name')}"
+                )
+                if dedup_key in seen_urls:
+                    continue
+
+                score = item.get("score_ia") or item.get("score") or 0
+                if not score:
+                    score = 65 if has_linkedin else 55 if (has_instagram or has_facebook) else 40
+
+                evaluation = "hot" if score >= 70 else "warm" if score >= 50 else "cold"
+
+                next_action = item.get("next_action", "")
+                if not next_action:
+                    if has_linkedin:
+                        next_action = "LinkedIn"
+                    elif has_instagram:
+                        next_action = "Message Instagram"
+                    elif item.get("email"):
+                        next_action = "Email"
+                    else:
+                        next_action = "Vérifier"
+
+                origin = item.get("origin", "")
+                if not origin:
+                    if has_linkedin:
+                        origin = "linkedin"
+                    elif has_instagram:
+                        origin = "instagram"
+                    elif has_facebook:
+                        origin = "facebook"
+                    else:
+                        origin = "website"
+
+                prospect = {
+                    "first_name": item.get("first_name", ""),
+                    "last_name": item.get("last_name", ""),
+                    "title": item.get("title", ""),
+                    "email": item.get("email", ""),
+                    "phone": item.get("phone", "") or item.get("telephone", ""),
+                    "linkedin_url": item.get("linkedin_url", ""),
+                    "facebook_url": item.get("facebook_url", ""),
+                    "instagram_url": item.get("instagram_url", ""),
+                    "source_url": item.get("source_url", ""),
+                    "prospect_company_name": item.get("prospect_company_name", ""),
+                    "origin": origin,
+                    "public_text": str(item.get("public_text", "") or item.get("evidence", ""))[:500],
+                    "evaluation": item.get("evaluation", evaluation),
+                    "score_ia": score,
+                    "next_action": next_action,
+                }
+
+                if prospect["first_name"] and (
+                    prospect["linkedin_url"]
+                    or prospect["instagram_url"]
+                    or prospect["facebook_url"]
+                    or prospect["source_url"]
+                    or prospect["email"]
+                ):
+                    seen_urls.add(dedup_key)
+                    all_prospects.append(prospect)
+                    print(
+                        f"  [extract_direct] prospect: {prospect['first_name']} {prospect['last_name']} "
+                        f"| {origin} | score={score}"
+                    )
+
+            # ── Entreprise ────────────────────────────────────────────────────
+            elif item.get("nom") or item.get("name"):
+                dedup_key = (
+                    item.get("place_id")
+                    or item.get("site_web")
+                    or item.get("linkedin_url")
+                    or item.get("facebook_url")
+                    or item.get("instagram_url")
+                    or item.get("source_url")
+                    or item.get("nom")
+                    or item.get("name")
+                )
+                if dedup_key in seen_urls:
+                    continue
+
+                score = item.get("score_ia") or item.get("score") or item.get("data_quality") or 0
+                evaluation = "hot" if score >= 70 else "warm" if score >= 50 else "cold"
+
+                next_action = item.get("next_action", "")
+                if not next_action:
+                    if item.get("telephone"):
+                        next_action = "Appel"
+                    elif item.get("email"):
+                        next_action = "Email"
+                    elif item.get("linkedin_url"):
+                        next_action = "LinkedIn"
+                    elif item.get("adresse"):
+                        next_action = "Visite"
+                    else:
+                        next_action = "Ignorer"
+
+                company = {
+                    "place_id": item.get("place_id", ""),
+                    "nom": item.get("nom") or item.get("name", ""),
+                    "secteur": item.get("secteur", ""),
+                    "adresse": item.get("adresse", ""),
+                    "ville": item.get("ville", ""),
+                    "telephone": item.get("telephone", "") or item.get("phone", ""),
+                    "email": item.get("email", ""),
+                    "site_web": item.get("site_web", "") or item.get("websiteUri", ""),
+                    "facebook_url": item.get("facebook_url", ""),
+                    "instagram_url": item.get("instagram_url", ""),
+                    "linkedin_url": item.get("linkedin_url", ""),
+                    "score_ia": score,
+                    "evaluation": item.get("evaluation", evaluation),
+                    "next_action": next_action,
+                    "raison_score": item.get("raison_score", "") or item.get("raison", ""),
+                }
+
+                seen_urls.add(dedup_key)
+                all_companies.append(company)
+                print(f"  [extract_direct] entreprise: {company['nom']} | score={score}")
+
+    total = len(all_prospects) + len(all_companies)
+    if total == 0:
+        print("[extract_direct] Aucun résultat extrait directement des ToolMessages")
+        return {}
+
+    print(
+        f"[extract_direct] Extraction directe OK — "
+        f"prospects={len(all_prospects)} companies={len(all_companies)}"
+    )
+
+    return {
+        "search_type": "prospect" if all_prospects else "company",
+        "companies": all_companies,
+        "prospects": all_prospects,
+        "summary": (
+            f"{len(all_prospects)} prospect(s) et {len(all_companies)} entreprise(s) "
+            f"extraits directement des outils."
+        ),
+        "tools_used": list(dict.fromkeys(tools_used)),
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -476,16 +595,6 @@ class ReactProspectionAgent:
         return self._agents[model]
 
     def _is_retryable_error(self, exc: Exception) -> bool:
-        """
-        Détecte toute erreur qui justifie un switch vers le modèle suivant.
-
-        ── FIX D ──────────────────────────────────────────────────────────────
-        Ajout de "504" et "DEADLINE_EXCEEDED" :
-        Les timeouts lors de la synthèse retournaient 504 mais n'étaient pas
-        reconnus comme retryable → l'agent abandonnait sans essayer le modèle
-        suivant.
-        ────────────────────────────────────────────────────────────────────────
-        """
         msg = str(exc)
         return any(code in msg for code in [
             "429", "503", "500", "504", "404",
@@ -499,16 +608,13 @@ class ReactProspectionAgent:
             "try again",
         ])
 
-    # Alias pour compatibilité ascendante
     def _is_quota_error(self, exc: Exception) -> bool:
         return self._is_retryable_error(exc)
 
     def _retry_delay(self, exc: Exception) -> float:
-        """Toujours 0.0 : switch immédiat vers le modèle suivant."""
         return 0.0
 
     def _next_model(self, current: str) -> str | None:
-        """Retourne le prochain modèle de fallback, ou None si épuisé."""
         try:
             idx = GEMINI_MODEL_FALLBACKS.index(current)
             candidates = GEMINI_MODEL_FALLBACKS[idx + 1:]
@@ -521,11 +627,22 @@ class ReactProspectionAgent:
 
     def _force_synthesis(self, messages: list, model: str) -> dict[str, Any]:
         """
-        Synthèse forcée : capture les ToolMessages ET le texte AIMessage,
-        puis demande au LLM de les convertir en JSON structuré.
-
-        FIX B appliqué : données tronquées avant envoi pour éviter timeout 504.
+        Synthèse forcée en deux étapes :
+        1. Extraction directe depuis les ToolMessages (sans LLM)
+        2. Synthèse LLM tronquée (fallback si extraction vide)
         """
+        print("[ReactAgent] Tentative extraction directe depuis ToolMessages...")
+        direct = _extract_prospects_from_tool_messages(messages)
+        if not _is_empty_result(direct):
+            print(
+                f"[ReactAgent] Extraction directe OK — "
+                f"companies={len(direct.get('companies', []))} "
+                f"prospects={len(direct.get('prospects', []))}"
+            )
+            return direct
+
+        print("[ReactAgent] Extraction directe vide — passage à la synthèse LLM")
+
         tool_results_str = _extract_tool_results(messages)
         ai_text = _get_last_ai_content(messages)
 
@@ -533,28 +650,19 @@ class ReactProspectionAgent:
             print("[ReactAgent] Synthèse impossible — aucune donnée disponible")
             return {}
 
-        # ── FIX B : tronquer pour éviter timeout 504 ─────────────────────────
         tool_results_str, ai_text = _truncate_for_synthesis(tool_results_str, ai_text)
 
         context_parts = []
         if tool_results_str:
-            context_parts.append(
-                "=== RÉSULTATS DES OUTILS (JSON brut) ===\n" + tool_results_str
-            )
+            context_parts.append("=== RÉSULTATS DES OUTILS ===\n" + tool_results_str)
         if ai_text:
-            context_parts.append(
-                "=== RÉPONSE DE L'AGENT (à convertir en JSON) ===\n" + ai_text
-            )
+            context_parts.append("=== RÉPONSE DE L'AGENT ===\n" + ai_text)
 
         raw_data = "\n\n".join(context_parts)
-        print(
-            f"[ReactAgent] Synthèse forcée — {len(raw_data)} chars "
-            f"(tools={len(tool_results_str)}, ai_text={len(ai_text)})"
-        )
+        print(f"[ReactAgent] Synthèse LLM — {len(raw_data)} chars")
 
         prompt = SYNTHESIS_PROMPT_TEMPLATE.replace("<<<RAW_DATA>>>", raw_data)
 
-        # Essayer le modèle courant + le suivant
         models_to_try = [model]
         next_m = self._next_model(model)
         if next_m:
@@ -567,28 +675,43 @@ class ReactProspectionAgent:
                 content = response.content if isinstance(response.content, str) else ""
                 parsed = _parse_json_robust(content)
                 print(
-                    f"[ReactAgent] Synthèse OK ({m}) — "
+                    f"[ReactAgent] Synthèse LLM OK ({m}) — "
                     f"companies={len(parsed.get('companies', []))} "
                     f"prospects={len(parsed.get('prospects', []))}"
                 )
                 return parsed
             except Exception as exc:
-                print(f"[ReactAgent] Erreur synthèse ({m}) : {exc}")
+                print(f"[ReactAgent] Erreur synthèse LLM ({m}) : {exc}")
                 continue
 
         return {}
 
     def run(self, raw_input: dict[str, Any]) -> dict[str, Any]:
         started_at = time.perf_counter()
-        session_id = str(raw_input.get("session_id") or "default")
+
+        # ── FIX A : thread_id unique par requête ─────────────────────────────
+        # PROBLÈME OBSERVÉ dans les logs :
+        #   Session=crm-chat (thread_id fixe) → MemorySaver accumule TOUS les
+        #   messages de toutes les requêtes dans la même session.
+        #
+        #   Quand l'utilisateur tape "trouver des avocats" :
+        #   1. Le LLM pose une question au lieu d'appeler un outil
+        #   2. all_messages contient AUSSI les ToolMessages de "Responsables RH IT"
+        #   3. _extract_prospects_from_tool_messages retourne les RH → FAUX
+        #
+        # SOLUTION : UUID unique par requête = session mémoire vierge à chaque fois.
+        # Chaque appel à run() est complètement isolé.
+        # ─────────────────────────────────────────────────────────────────────
+        request_thread_id = str(uuid.uuid4())
+
         query = raw_input.get("query") or raw_input.get("prompt") or ""
         if not query:
             query = self._build_query_from_fields(raw_input)
 
-        config = {"configurable": {"thread_id": session_id}}
+        config = {"configurable": {"thread_id": request_thread_id}}
         user_message = self._build_user_message(raw_input, query)
 
-        print(f"\n[ReactAgent] Session={session_id} modèle={self._active_model}")
+        print(f"\n[ReactAgent] thread={request_thread_id[:8]}… modèle={self._active_model}")
         print(f"[ReactAgent] Requête: {user_message[:200]}")
 
         parsed: dict[str, Any] = {}
@@ -610,13 +733,9 @@ class ReactProspectionAgent:
                     parsed = _parse_json_robust(content)
                     companies_count = len(parsed.get("companies") or [])
                     prospects_count = len(parsed.get("prospects") or [])
-                    print(
-                        f"[DEBUG] parsed companies={companies_count} "
-                        f"prospects={prospects_count}"
-                    )
+                    print(f"[DEBUG] parsed companies={companies_count} prospects={prospects_count}")
                     print(f"[DEBUG] content[:300]={content[:300]}")
 
-                # ── FIX A : synthèse forcée uniquement si vraiment vide ───────
                 if _is_empty_result(parsed):
                     print("[ReactAgent] Résultat vide ou JSON invalide — synthèse forcée")
                     parsed = self._force_synthesis(all_messages, model_tried)
@@ -640,19 +759,14 @@ class ReactProspectionAgent:
                         model_tried = next_model
                         continue
 
-                    print(
-                        f"[ReactAgent] Tous les modèles épuisés — "
-                        f"tentative de synthèse sur données existantes"
-                    )
+                    print("[ReactAgent] Tous les modèles épuisés")
                     if last_messages:
                         parsed = self._force_synthesis(last_messages, model_tried)
                     else:
-                        print("[ReactAgent] Aucune donnée collectée, abandon.")
                         parsed = {}
                 else:
                     print(f"[ReactAgent] Erreur non-retryable : {exc}")
                     if last_messages:
-                        print("[ReactAgent] Synthèse de secours sur données existantes")
                         parsed = self._force_synthesis(last_messages, model_tried)
                     else:
                         parsed = {}
@@ -681,7 +795,7 @@ class ReactProspectionAgent:
                 "summary": parsed.get("summary", ""),
                 "tools_used": parsed.get("tools_used", []),
                 "search_type": parsed.get("search_type", "company"),
-                "session_id": session_id,
+                "session_id": request_thread_id,
                 "errors": [],
                 "executed_sources": parsed.get("tools_used", []),
                 "search_trace": [],

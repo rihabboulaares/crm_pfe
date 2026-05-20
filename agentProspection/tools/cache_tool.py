@@ -7,7 +7,7 @@ Utilisé pour :
 
 Redis est OPTIONNEL. Si non disponible, tout fonctionne en mode dégradé.
 """
-
+import hashlib 
 import json
 import os
 from typing import Optional
@@ -72,3 +72,42 @@ class CacheTool:
             }
         except Exception:
             return {"status": "erreur"}
+        
+    
+    # cache_tool.py — APRÈS
+
+
+    def _query_key(self, criteria: dict) -> str:
+    # Tous les paramètres qui changent les résultats attendus
+        relevant = {
+            "secteur":        str(criteria.get("secteur") or "").lower(),
+            "ville":          str(criteria.get("ville") or "").lower(),
+            "search_type":    str(criteria.get("search_type") or "company"),
+            "job_title":      str(criteria.get("job_title") or "").lower(),
+            "max_resultats":  int(criteria.get("max_resultats") or 10),
+            "require_phone":  bool(criteria.get("require_phone")),
+            "require_email":  bool(criteria.get("require_email")),
+            "require_website":bool(criteria.get("require_website")),
+            "require_linkedin":bool(criteria.get("require_linkedin")),
+            "sources":        sorted(criteria.get("sources") or []),
+        }
+        raw = json.dumps(relevant, sort_keys=True)
+        return "query:" + hashlib.sha256(raw.encode()).hexdigest()[:20]
+
+    def get_query_result(self, criteria: dict) -> dict | None:
+        if not self.r:
+            return None
+        key = self._query_key(criteria)
+        val = self.r.get(key)
+        if val:
+            try:
+                return json.loads(val)
+            except json.JSONDecodeError:
+                return None
+        return None
+
+    def set_query_result(self, criteria: dict, result: dict, ttl_heures: int = 6) -> None:
+        if not self.r:
+            return
+        key = self._query_key(criteria)
+        self.r.setex(key, ttl_heures * 3600, json.dumps(result, ensure_ascii=False))

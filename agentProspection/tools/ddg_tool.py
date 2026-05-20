@@ -5,10 +5,14 @@ import unicodedata
 from typing import Optional
 from urllib.parse import urlparse
 
+# ddg_tool.py et social_tool.py — remplacer le bloc try/except import
 try:
     from ddgs import DDGS
 except ImportError:
-    from duckduckgo_search import DDGS
+    try:
+        from duckduckgo_search import DDGS
+    except ImportError:
+        DDGS = None
 
 
 class DDGTool:
