@@ -37,10 +37,18 @@ class AccountNestedSerializer(serializers.ModelSerializer):
 # ProspectCompany Serializer
 # -----------------------
 class ProspectCompanySerializer(serializers.ModelSerializer):
+    source_display = serializers.SerializerMethodField()
+
     class Meta:
-        model = ProspectCompany
+        model  = ProspectCompany
         fields = "__all__"
-        read_only_fields = ["company", "created_at"]
+        read_only_fields = ["company", "created_at", "source_display"]
+
+    def get_source_display(self, obj):
+        return {
+            "commercial":        "Ajouté par un commercial",
+            "agent_prospection": "Agent de prospection",
+        }.get(obj.source, obj.source)
 
     def validate_number_of_employees(self, value):
         if value is not None and value < 0:
@@ -58,23 +66,26 @@ class ProspectCompanySerializer(serializers.ModelSerializer):
 # -----------------------
 class ProspectSerializer(serializers.ModelSerializer):
     prospect_company_name = serializers.CharField(write_only=True, required=True)
-    company = serializers.PrimaryKeyRelatedField(read_only=True)
-    prospect_company = serializers.PrimaryKeyRelatedField(read_only=True)
-    assigned_to_name = serializers.SerializerMethodField()
-    assigned_to = serializers.PrimaryKeyRelatedField(
+    company               = serializers.PrimaryKeyRelatedField(read_only=True)
+    prospect_company      = serializers.PrimaryKeyRelatedField(read_only=True)
+    assigned_to_name      = serializers.SerializerMethodField()
+    assigned_to           = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(),
         required=False,
         allow_null=True,
     )
+    source_display = serializers.SerializerMethodField()
 
     class Meta:
-        model = Prospect
+        model  = Prospect
         fields = [
             "id", "first_name", "last_name", "title", "email", "phone",
             "city", "country",
             "origin", "evaluation", "status",
             "assigned_to", "assigned_to_name",
             "company", "prospect_company", "prospect_company_name",
+            "website", "linkedin_url", "facebook_url", "instagram_url",
+            "source", "source_display",
             "created_at", "updated_at",
         ]
 
@@ -83,9 +94,15 @@ class ProspectSerializer(serializers.ModelSerializer):
             return obj.assigned_to.username
         return None
 
+    def get_source_display(self, obj):
+        return {
+            "commercial":        "Ajouté par un commercial",
+            "agent_prospection": "Agent de prospection",
+        }.get(obj.source, obj.source)
+
     def create(self, validated_data):
         prospect_company_name = validated_data.pop("prospect_company_name")
-        user = self.context["request"].user
+        user        = self.context["request"].user
         crm_company = user.company
 
         prospect_company, _ = ProspectCompany.objects.get_or_create(
@@ -95,6 +112,11 @@ class ProspectSerializer(serializers.ModelSerializer):
 
         if "assigned_to" not in validated_data or validated_data["assigned_to"] is None:
             validated_data["assigned_to"] = user
+
+        if not validated_data.get("source"):
+            validated_data["source"] = (
+                "commercial" if user.role == "COMMERCIAL" else "agent_prospection"
+            )
 
         return Prospect.objects.create(
             **validated_data,

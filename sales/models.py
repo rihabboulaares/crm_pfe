@@ -41,18 +41,27 @@ class ProspectCompany(models.Model):
     company = models.ForeignKey(Company, on_delete=models.CASCADE)  # Company du CRM
     created_at = models.DateTimeField(auto_now_add=True)
      # ── Champs ajoutés pour l'agent ──────────────────────────
-    website           = models.URLField(blank=True, null=True)
-    facebook_url      = models.URLField(blank=True, null=True)
-    instagram_url     = models.URLField(blank=True, null=True)
-    google_place_id   = models.CharField(max_length=150, blank=True, null=True)
-    score_ia          = models.IntegerField(default=0)
-    evaluation        = models.CharField(
+    SOURCE_CHOICES = [
+        ("commercial",        "Ajouté par un commercial"),
+        ("agent_prospection", "Agent de prospection"),
+    ]
+    website         = models.URLField(blank=True, null=True)
+    facebook_url    = models.URLField(blank=True, null=True)
+    instagram_url   = models.URLField(blank=True, null=True)
+    linkedin_url    = models.URLField(blank=True, null=True)
+    google_place_id = models.CharField(max_length=150, blank=True, null=True)
+    score_ia        = models.IntegerField(default=0)
+    evaluation      = models.CharField(
         max_length=10,
         choices=[("hot","Hot"),("warm","Warm"),("cold","Cold")],
         blank=True, null=True
     )
-    next_action       = models.CharField(max_length=50, blank=True, null=True)
-    source            = models.CharField(max_length=50, default="agent_prospection")
+    next_action     = models.CharField(max_length=50, blank=True, null=True)
+    source          = models.CharField(
+        max_length=50,
+        choices=SOURCE_CHOICES,
+        default="commercial",
+    )
     class Meta:
         unique_together = ('name', 'company')  # empêche doublons
 
@@ -101,13 +110,23 @@ class Prospect(models.Model):
     prospect_company = models.ForeignKey(ProspectCompany, on_delete=models.CASCADE, related_name="prospects")
     assigned_to = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     company = models.ForeignKey(Company, on_delete=models.CASCADE)  # company du CRM
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
      # ── Champs ajoutés pour l'agent ──────────────────────────
-    linkedin_url      = models.URLField(blank=True, null=True)
-    facebook_url      = models.URLField(blank=True, null=True)
-    raison_score      = models.TextField(blank=True, null=True)
+    SOURCE_CHOICES = [
+        ("commercial",        "Ajouté par un commercial"),
+        ("agent_prospection", "Agent de prospection"),
+    ]
+    source        = models.CharField(
+        max_length=50,
+        choices=SOURCE_CHOICES,
+        default="commercial",
+    )
+    linkedin_url  = models.URLField(blank=True, null=True)
+    facebook_url  = models.URLField(blank=True, null=True)
+    instagram_url = models.URLField(blank=True, null=True)
+    website       = models.URLField(blank=True, null=True)
+    raison_score  = models.TextField(blank=True, null=True)
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
     

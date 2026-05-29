@@ -1,7 +1,6 @@
 from django.urls import path
-from .views import RechercherView, ImporterView
+from agentProspection.api.views import ProspectAgentView
 
 urlpatterns = [
-    path("rechercher/", RechercherView.as_view()),
-    path("importer/",   ImporterView.as_view()),
+    path("prospect/", ProspectAgentView.as_view(), name="agent-prospect"),
 ]

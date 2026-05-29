@@ -352,10 +352,44 @@ class ProspectCompanyViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return ProspectCompany.objects.filter(company=self.request.user.company)
+        qs = ProspectCompany.objects.filter(company=self.request.user.company)
+
+        search    = self.request.query_params.get("search")
+        industry  = self.request.query_params.get("industry")
+        country   = self.request.query_params.get("country")
+        source    = self.request.query_params.get("source")
+        date_from = self.request.query_params.get("created_at__gte")
+        date_to   = self.request.query_params.get("created_at__lte")
+
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search) |
+                Q(email__icontains=search) |
+                Q(phone__icontains=search) |
+                Q(industry__icontains=search)
+            )
+        if industry:
+            qs = qs.filter(industry=industry)
+        if country:
+            qs = qs.filter(country=country)
+        if source:
+            vals = [v.strip() for v in source.split(",") if v.strip()]
+            qs = qs.filter(source__in=vals) if len(vals) > 1 else qs.filter(source=vals[0])
+        if date_from:
+            qs = qs.filter(created_at__date__gte=date_from)
+        if date_to:
+            qs = qs.filter(created_at__date__lte=date_to)
+
+        ordering = self.request.query_params.get("ordering", "-created_at")
+        allowed  = ["created_at", "-created_at", "name", "-name", "industry", "-industry"]
+        return qs.order_by(ordering if ordering in allowed else "-created_at")
 
     def perform_create(self, serializer):
-        serializer.save(company=self.request.user.company)
+        user   = self.request.user
+        source = serializer.validated_data.get("source")
+        if not source:
+            source = "commercial" if user.role == "COMMERCIAL" else "agent_prospection"
+        serializer.save(company=user.company, source=source)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -381,6 +415,7 @@ class ProspectViewSet(viewsets.ModelViewSet):
         origin           = self.request.query_params.get("origin")
         evaluation       = self.request.query_params.get("evaluation")
         prospect_company = self.request.query_params.get("prospect_company")
+        source           = self.request.query_params.get("source")
 
         if p_status:
             vals = [v.strip() for v in p_status.split(",") if v.strip()]
@@ -397,6 +432,9 @@ class ProspectViewSet(viewsets.ModelViewSet):
         if prospect_company:
             vals = [v.strip() for v in prospect_company.split(",") if v.strip()]
             qs = qs.filter(prospect_company_id__in=vals) if len(vals) > 1 else qs.filter(prospect_company_id=vals[0])
+        if source:
+            vals = [v.strip() for v in source.split(",") if v.strip()]
+            qs = qs.filter(source__in=vals) if len(vals) > 1 else qs.filter(source=vals[0])
         if search:
             qs = qs.filter(
                 Q(first_name__icontains=search) | Q(last_name__icontains=search) |
