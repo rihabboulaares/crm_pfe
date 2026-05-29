@@ -89,6 +89,7 @@ import {
   CalendarToday as CalendarIcon,
   LinkedIn as LinkedInIcon,
   Facebook as FacebookIcon,
+  Instagram as InstagramIcon,
   Language as LanguageIcon,
   FileDownload as FileDownloadIcon,
   PictureAsPdf as PdfIcon,
@@ -112,6 +113,71 @@ import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 import { useTrackActivity } from "../superadmin/Marketingwidgets";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import PaginationBar from "../../components/PaginationBar";
+import { runProspectionAgent } from "../../services/prospectAgentApi";
+
+const SOURCE_CONFIG = {
+  commercial: { label: "Commercial", color: "#1976d2" },
+  agent_prospection: { label: "Agent de prospection", color: "#7b1fa2" },
+};
+
+const SourceBadge = ({ source }) => {
+  const cfg = SOURCE_CONFIG[source] || { label: source, color: "#9e9e9e" };
+  return (
+    <Chip
+      size="small"
+      label={cfg.label}
+      sx={{
+        bgcolor: alpha(cfg.color, 0.1),
+        color: cfg.color,
+        border: `1px solid ${alpha(cfg.color, 0.4)}`,
+        fontWeight: 600,
+        fontSize: "0.72rem",
+        borderRadius: 1,
+      }}
+    />
+  );
+};
+
+SourceBadge.propTypes = {
+  source: PropTypes.string,
+};
+
+const SocialLink = ({ href, icon: Icon, label, color }) => {
+  if (!href) return null;
+  return (
+    <Box
+      component="a"
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      display="flex"
+      alignItems="center"
+      gap={1}
+      sx={{
+        textDecoration: "none",
+        p: 1,
+        borderRadius: 2,
+        border: `1px solid ${alpha(color, 0.3)}`,
+        bgcolor: alpha(color, 0.05),
+        color,
+        transition: "all .15s",
+        "&:hover": { bgcolor: alpha(color, 0.12), borderColor: color },
+      }}
+    >
+      <Icon sx={{ fontSize: 18 }} />
+      <Typography variant="caption" fontWeight={600} sx={{ color }}>
+        {label}
+      </Typography>
+    </Box>
+  );
+};
+
+SocialLink.propTypes = {
+  href: PropTypes.string,
+  icon: PropTypes.elementType.isRequired,
+  label: PropTypes.string.isRequired,
+  color: PropTypes.string.isRequired,
+};
 
 // ==============================
 // CONFIG
@@ -1706,6 +1772,47 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
                   )}
                 </Stack>
               </Card>
+
+              {(prospect.website ||
+                prospect.linkedin_url ||
+                prospect.facebook_url ||
+                prospect.instagram_url) && (
+                <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Typography
+                    variant="subtitle2"
+                    sx={{ color: THEME.primary, mb: 1.5, fontWeight: 600 }}
+                  >
+                    Présence en ligne
+                  </Typography>
+                  <Stack spacing={1}>
+                    <SocialLink
+                      href={prospect.website}
+                      icon={LanguageIcon}
+                      label="Site web"
+                      color="#1976d2"
+                    />
+                    <SocialLink
+                      href={prospect.linkedin_url}
+                      icon={LinkedInIcon}
+                      label="LinkedIn"
+                      color="#0077b5"
+                    />
+                    <SocialLink
+                      href={prospect.facebook_url}
+                      icon={FacebookIcon}
+                      label="Facebook"
+                      color="#1877f2"
+                    />
+                    <SocialLink
+                      href={prospect.instagram_url}
+                      icon={InstagramIcon}
+                      label="Instagram"
+                      color="#e1306c"
+                    />
+                  </Stack>
+                </Card>
+              )}
+
               <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
                 <Typography
                   variant="subtitle2"
@@ -1730,6 +1837,18 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
                       </Typography>
                     </Box>
                   ))}
+                  <Box display="flex" justifyContent="space-between" alignItems="center">
+                    <Typography variant="body2" color="textSecondary">
+                      Source
+                    </Typography>
+                    {prospect.source ? (
+                      <SourceBadge source={prospect.source} />
+                    ) : (
+                      <Typography variant="body2" fontWeight={600}>
+                        —
+                      </Typography>
+                    )}
+                  </Box>
                 </Stack>
               </Card>
             </Stack>
@@ -1908,6 +2027,36 @@ const FiltersDrawer = ({ open, onClose, filters, onApply, onReset, companies, co
                     {getOriginIcon(val, { sx: { fontSize: 16, color: alpha(THEME.primary, 0.6) } })}
                     {lbl}
                   </Box>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+
+        <Grid item xs={12}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Source</InputLabel>
+            <Select
+              multiple
+              value={local.source || []}
+              label="Source"
+              onChange={(e) => setLocal({ ...local, source: e.target.value })}
+              renderValue={(sel) => (
+                <Box display="flex" flexWrap="wrap" gap={0.5}>
+                  {sel.map((v) => (
+                    <Chip
+                      key={v}
+                      label={SOURCE_CONFIG[v]?.label || v}
+                      size="small"
+                      sx={{ borderRadius: 1 }}
+                    />
+                  ))}
+                </Box>
+              )}
+            >
+              {Object.entries(SOURCE_CONFIG).map(([value, cfg]) => (
+                <MenuItem key={value} value={value}>
+                  {cfg.label}
                 </MenuItem>
               ))}
             </Select>
@@ -2149,6 +2298,20 @@ const FiltersDrawer = ({ open, onClose, filters, onApply, onReset, companies, co
                   borderRadius: 1,
                   bgcolor: alpha(THEME.success, 0.1),
                   color: THEME.success,
+                  fontSize: "0.7rem",
+                }}
+              />
+            ))}
+            {local.source?.map((v) => (
+              <Chip
+                key={`src-${v}`}
+                label={`Source: ${SOURCE_CONFIG[v]?.label || v}`}
+                size="small"
+                onDelete={() => setLocal({ ...local, source: local.source.filter((x) => x !== v) })}
+                sx={{
+                  borderRadius: 1,
+                  bgcolor: alpha(THEME.primary, 0.1),
+                  color: THEME.primary,
                   fontSize: "0.7rem",
                 }}
               />
@@ -2723,6 +2886,11 @@ export default function Prospects() {
   const [searchTerm, setSearchTerm] = useState("");
   const [apiFilters, setApiFilters] = useState({});
   const [sortBy, setSortBy] = useState("-created_at");
+  const [agentQuery, setAgentQuery] = useState("");
+  const [agentLoading, setAgentLoading] = useState(false);
+  const [agentResult, setAgentResult] = useState(null);
+  const [agentError, setAgentError] = useState("");
+  const [agentOpen, setAgentOpen] = useState(false);
 
   const [showForm, setShowForm] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -2766,6 +2934,7 @@ export default function Prospects() {
     if (apiFilters.status?.length) f.status = apiFilters.status.join(",");
     if (apiFilters.evaluation?.length) f.evaluation = apiFilters.evaluation.join(",");
     if (apiFilters.origin?.length) f.origin = apiFilters.origin.join(",");
+    if (apiFilters.source?.length) f.source = apiFilters.source.join(",");
     if (apiFilters.prospect_company?.length)
       f.prospect_company = apiFilters.prospect_company.join(",");
     if (apiFilters.assigned_to?.length) f.assigned_to = apiFilters.assigned_to.join(",");
@@ -2846,6 +3015,51 @@ export default function Prospects() {
     setSnackbar({ open: true, message: msg, severity: sev });
 
   // ── Stats ──
+  const loginRequired = Boolean(
+    agentResult?.logs?.some((item) => item.step === "manual_login_required") ||
+      agentResult?.scrape_debug_events?.some((item) => item.requires_login) ||
+      agentResult?.errors?.some((item) => item.step === "manual_login_required")
+  );
+  const loginPlatforms = [
+    ...new Set(
+      [
+        ...(agentResult?.logs || [])
+          .filter((item) => item.step === "manual_login_required")
+          .map((item) => item.platform),
+        ...(agentResult?.scrape_debug_events || [])
+          .filter((item) => item.requires_login)
+          .map((item) => item.platform),
+      ].filter(Boolean)
+    ),
+  ];
+
+  const runAgentFromProspects = async () => {
+    const query = agentQuery.trim();
+    if (!query) {
+      setAgentError("Veuillez saisir une requete");
+      return;
+    }
+
+    setAgentLoading(true);
+    setAgentError("");
+    setAgentResult(null);
+
+    try {
+      const data = await runProspectionAgent(query);
+      setAgentResult(data);
+      await refresh();
+      await fetchCompanies();
+      showSnackbar(data.message || "Prospection terminee", "success");
+    } catch (err) {
+      const messageText =
+        err.response?.data?.message || err.message || "Erreur pendant la prospection";
+      setAgentError(messageText);
+      showSnackbar(messageText, "error");
+    } finally {
+      setAgentLoading(false);
+    }
+  };
+
   const stats = useMemo(
     () => ({
       total,
@@ -3102,6 +3316,7 @@ export default function Prospects() {
     if (apiFilters.status?.length) count += apiFilters.status.length;
     if (apiFilters.evaluation?.length) count += apiFilters.evaluation.length;
     if (apiFilters.origin?.length) count += apiFilters.origin.length;
+    if (apiFilters.source?.length) count += apiFilters.source.length;
     if (apiFilters.prospect_company?.length) count += apiFilters.prospect_company.length;
     if (apiFilters.assigned_to?.length) count += apiFilters.assigned_to.length;
     if (apiFilters.date_from) count++;
@@ -3181,6 +3396,182 @@ export default function Prospects() {
             Nouveau prospect
           </GradientButton>
         </Box>
+
+        {agentOpen && (
+          <StyledCard
+            sx={{
+              position: "fixed",
+              right: { xs: 16, md: 32 },
+              bottom: { xs: 88, md: 104 },
+              width: { xs: "calc(100vw - 32px)", sm: 440 },
+              maxHeight: "calc(100vh - 140px)",
+              overflow: "auto",
+              zIndex: 1300,
+              mb: 0,
+            }}
+          >
+            <CardContent>
+              <Stack spacing={2}>
+                <Box
+                  display="flex"
+                  alignItems="center"
+                  justifyContent="space-between"
+                  gap={2}
+                  flexWrap="wrap"
+                >
+                  <Box>
+                    <Typography variant="h6" fontWeight={700}>
+                      Agent de prospection
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Lancez une recherche, puis la liste des prospects et societes se rafraichit
+                      automatiquement.
+                    </Typography>
+                  </Box>
+                  {agentResult?.company_id && (
+                    <Chip
+                      size="small"
+                      color="primary"
+                      label={`Workspace #${agentResult.company_id}`}
+                    />
+                  )}
+                  <Tooltip title="Fermer l'agent">
+                    <IconButton size="small" onClick={() => setAgentOpen(false)}>
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={2}
+                  value={agentQuery}
+                  onChange={(e) => setAgentQuery(e.target.value)}
+                  placeholder="Exemple : trouve des restaurants a Tunis avec telephone et Facebook"
+                  disabled={agentLoading}
+                />
+
+                <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                  <GradientButton
+                    startIcon={
+                      agentLoading ? <CircularProgress size={16} color="inherit" /> : <SendIcon />
+                    }
+                    onClick={runAgentFromProspects}
+                    disabled={agentLoading}
+                  >
+                    {agentLoading ? "Prospection en cours..." : "Lancer l'agent"}
+                  </GradientButton>
+                  {agentError && (
+                    <Alert severity="error" sx={{ py: 0 }}>
+                      {agentError}
+                    </Alert>
+                  )}
+                </Box>
+
+                {loginRequired && (
+                  <Alert severity="warning">
+                    Connexion {loginPlatforms.join(", ") || "reseau social"} requise. Une fenetre
+                    navigateur s&apos;est ouverte : connectez-vous une seule fois, l&apos;agent
+                    continuera ensuite automatiquement.
+                  </Alert>
+                )}
+
+                {agentResult && (
+                  <Box>
+                    <Grid container spacing={1}>
+                      {[
+                        ["Entreprises trouvees", agentResult.companies_found || 0],
+                        ["Personnes trouvees", agentResult.persons_found || 0],
+                        ["Societes creees", agentResult.import_stats?.companies_created || 0],
+                        ["Societes mises a jour", agentResult.import_stats?.companies_updated || 0],
+                        ["Prospects crees", agentResult.import_stats?.persons_created || 0],
+                        ["Prospects mis a jour", agentResult.import_stats?.persons_updated || 0],
+                        ["Pages crawlees", agentResult.crawled_pages || 0],
+                        ["Resultats rejetes", agentResult.rejected_results || 0],
+                      ].map(([label, value]) => (
+                        <Grid item xs={6} md={3} key={label}>
+                          <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
+                            <Typography variant="caption" color="text.secondary">
+                              {label}
+                            </Typography>
+                            <Typography variant="h6" fontWeight={800}>
+                              {value}
+                            </Typography>
+                          </Paper>
+                        </Grid>
+                      ))}
+                    </Grid>
+
+                    <Collapse
+                      in={Boolean(
+                        agentResult.logs?.length ||
+                          agentResult.gemini_decisions?.length ||
+                          agentResult.scraping_debug?.length ||
+                          agentResult.errors?.length
+                      )}
+                    >
+                      <Box mt={2}>
+                        <details>
+                          <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
+                            Details techniques
+                          </summary>
+                          <Box
+                            component="pre"
+                            sx={{
+                              mt: 1,
+                              p: 1.5,
+                              bgcolor: alpha(THEME.primary, 0.04),
+                              borderRadius: 2,
+                              maxHeight: 260,
+                              overflow: "auto",
+                              fontSize: 12,
+                              whiteSpace: "pre-wrap",
+                            }}
+                          >
+                            {JSON.stringify(
+                              {
+                                logs: agentResult.logs || [],
+                                gemini_decisions: agentResult.gemini_decisions || [],
+                                scraping_debug: agentResult.scraping_debug || [],
+                                errors: agentResult.errors || [],
+                              },
+                              null,
+                              2
+                            )}
+                          </Box>
+                        </details>
+                      </Box>
+                    </Collapse>
+                  </Box>
+                )}
+              </Stack>
+            </CardContent>
+          </StyledCard>
+        )}
+
+        <Tooltip title={agentOpen ? "Agent ouvert" : "Ouvrir l'agent de prospection"}>
+          <IconButton
+            onClick={() => setAgentOpen((open) => !open)}
+            sx={{
+              position: "fixed",
+              right: { xs: 16, md: 32 },
+              bottom: { xs: 20, md: 28 },
+              zIndex: 1301,
+              width: 58,
+              height: 58,
+              color: "white",
+              background: THEME.gradient,
+              boxShadow: `0 12px 28px ${alpha(THEME.primary, 0.35)}`,
+              "&:hover": {
+                background: THEME.gradient,
+                transform: "translateY(-2px)",
+              },
+            }}
+          >
+            {agentLoading ? <CircularProgress size={24} color="inherit" /> : <TriggerIcon />}
+          </IconButton>
+        </Tooltip>
 
         {/* Stats */}
         <Grid container spacing={2} sx={{ mb: 3 }}>
@@ -3450,6 +3841,26 @@ export default function Prospects() {
                       bgcolor: alpha(THEME.success, 0.1),
                       color: THEME.success,
                       border: `1px solid ${alpha(THEME.success, 0.3)}`,
+                      fontSize: "0.72rem",
+                    }}
+                  />
+                ))}
+                {apiFilters.source?.map((v) => (
+                  <Chip
+                    key={`src-${v}`}
+                    label={`Source: ${SOURCE_CONFIG[v]?.label || v}`}
+                    size="small"
+                    onDelete={() =>
+                      setApiFilters({
+                        ...apiFilters,
+                        source: apiFilters.source.filter((x) => x !== v),
+                      })
+                    }
+                    sx={{
+                      borderRadius: 1,
+                      bgcolor: alpha(THEME.primary, 0.1),
+                      color: THEME.primary,
+                      border: `1px solid ${alpha(THEME.primary, 0.3)}`,
                       fontSize: "0.72rem",
                     }}
                   />

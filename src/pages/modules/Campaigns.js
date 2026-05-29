@@ -73,6 +73,9 @@ import {
   Person as PersonIcon,
   CalendarToday as CalendarIcon,
   Language as LanguageIcon,
+  LinkedIn as LinkedInIcon,
+  Facebook as FacebookIcon,
+  Instagram as InstagramIcon,
   LocationOn as LocationIcon,
   Work as WorkIcon,
   AttachMoney as MoneyIcon,
@@ -204,6 +207,70 @@ const formatRevenue = (revenue) => {
 };
 const getInitials = (name) => name?.charAt(0).toUpperCase() || "?";
 
+const SOURCE_CONFIG = {
+  commercial: { label: "Commercial", color: "#1976d2", icon: "person" },
+  agent_prospection: { label: "Agent de prospection", color: "#7b1fa2", icon: "smart_toy" },
+};
+
+const SocialLink = ({ href, icon: Icon, label, color }) => {
+  if (!href) return null;
+  return (
+    <Box
+      component="a"
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      display="flex"
+      alignItems="center"
+      gap={1}
+      sx={{
+        textDecoration: "none",
+        p: 1,
+        borderRadius: 2,
+        border: `1px solid ${alpha(color, 0.3)}`,
+        bgcolor: alpha(color, 0.05),
+        color,
+        transition: "all .15s",
+        "&:hover": { bgcolor: alpha(color, 0.12), borderColor: color },
+      }}
+    >
+      <Icon sx={{ fontSize: 18 }} />
+      <Typography variant="caption" fontWeight={600} sx={{ color }}>
+        {label}
+      </Typography>
+    </Box>
+  );
+};
+
+SocialLink.propTypes = {
+  href: PropTypes.string,
+  icon: PropTypes.elementType.isRequired,
+  label: PropTypes.string.isRequired,
+  color: PropTypes.string.isRequired,
+};
+
+const SourceBadge = ({ source }) => {
+  const cfg = SOURCE_CONFIG[source] || { label: source, color: "#9e9e9e" };
+  return (
+    <Chip
+      size="small"
+      label={cfg.label}
+      sx={{
+        bgcolor: alpha(cfg.color, 0.1),
+        color: cfg.color,
+        border: `1px solid ${alpha(cfg.color, 0.4)}`,
+        fontWeight: 600,
+        fontSize: "0.72rem",
+        borderRadius: 1,
+      }}
+    />
+  );
+};
+
+SourceBadge.propTypes = {
+  source: PropTypes.string,
+};
+
 // ==============================
 // COMPANY DETAILS DRAWER
 // ==============================
@@ -225,6 +292,10 @@ const CompanyDetailsDrawer = ({ open, onClose, company }) => {
     }
   }, [company, open]);
   if (!company) return null;
+
+  const hasSocials =
+    company.website || company.facebook_url || company.instagram_url || company.linkedin_url;
+
   return (
     <Drawer
       anchor="right"
@@ -293,11 +364,14 @@ const CompanyDetailsDrawer = ({ open, onClose, company }) => {
               <Typography variant="body2" color="textSecondary" gutterBottom>
                 {company.industry || "Secteur non spécifié"}
               </Typography>
-              <Chip
-                label={`Créée le ${new Date(company.created_at).toLocaleDateString("fr-FR")}`}
-                size="small"
-                sx={{ bgcolor: alpha(THEME.info, 0.1), color: THEME.info, borderRadius: 1 }}
-              />
+              <Box display="flex" gap={1} flexWrap="wrap" mt={0.5}>
+                {company.source && <SourceBadge source={company.source} />}
+                <Chip
+                  label={`Créée le ${new Date(company.created_at).toLocaleDateString("fr-FR")}`}
+                  size="small"
+                  sx={{ bgcolor: alpha(THEME.info, 0.1), color: THEME.info, borderRadius: 1 }}
+                />
+              </Box>
             </Box>
           </Box>
         </Paper>
@@ -324,7 +398,7 @@ const CompanyDetailsDrawer = ({ open, onClose, company }) => {
                 >
                   Coordonnées
                 </Typography>
-                <Stack spacing={2}>
+                <Stack spacing={1.5}>
                   {company.email && (
                     <Box display="flex" alignItems="center" gap={1}>
                       <EmailIcon sx={{ fontSize: 20, color: THEME.primary }} />
@@ -337,15 +411,55 @@ const CompanyDetailsDrawer = ({ open, onClose, company }) => {
                       <Typography variant="body2">{company.phone}</Typography>
                     </Box>
                   )}
-                  {company.website && (
+                  {(company.city || company.country) && (
                     <Box display="flex" alignItems="center" gap={1}>
-                      <LanguageIcon sx={{ fontSize: 20, color: THEME.primary }} />
-                      <Typography variant="body2">{company.website}</Typography>
+                      <LocationIcon sx={{ fontSize: 20, color: THEME.primary }} />
+                      <Typography variant="body2">
+                        {[company.city, company.country].filter(Boolean).join(", ")}
+                      </Typography>
                     </Box>
                   )}
                 </Stack>
               </Card>
             </Grid>
+            {hasSocials && (
+              <Grid item xs={12}>
+                <Card variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
+                  <Typography
+                    variant="subtitle2"
+                    sx={{ color: THEME.primary, mb: 2, fontWeight: 600 }}
+                  >
+                    Présence en ligne
+                  </Typography>
+                  <Stack spacing={1}>
+                    <SocialLink
+                      href={company.website}
+                      icon={LanguageIcon}
+                      label="Site web"
+                      color="#1976d2"
+                    />
+                    <SocialLink
+                      href={company.linkedin_url}
+                      icon={LinkedInIcon}
+                      label="LinkedIn"
+                      color="#0077b5"
+                    />
+                    <SocialLink
+                      href={company.facebook_url}
+                      icon={FacebookIcon}
+                      label="Facebook"
+                      color="#1877f2"
+                    />
+                    <SocialLink
+                      href={company.instagram_url}
+                      icon={InstagramIcon}
+                      label="Instagram"
+                      color="#e1306c"
+                    />
+                  </Stack>
+                </Card>
+              </Grid>
+            )}
             <Grid item xs={12}>
               <Card variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
                 <Typography
@@ -362,6 +476,16 @@ const CompanyDetailsDrawer = ({ open, onClose, company }) => {
                     <Typography variant="body2" fontWeight={600}>
                       {company.industry || "-"}
                     </Typography>
+                  </Box>
+                  <Box display="flex" justifyContent="space-between" alignItems="center">
+                    <Typography variant="body2" color="textSecondary">
+                      Source
+                    </Typography>
+                    {company.source ? (
+                      <SourceBadge source={company.source} />
+                    ) : (
+                      <Typography variant="body2">-</Typography>
+                    )}
                   </Box>
                 </Stack>
               </Card>
@@ -420,11 +544,14 @@ const CompanyDetailsDrawer = ({ open, onClose, company }) => {
                         {prospect.title || "Sans titre"}
                       </Typography>
                     </Box>
-                    <Chip
-                      label={prospect.status}
-                      size="small"
-                      sx={{ bgcolor: alpha(THEME.info, 0.1), color: THEME.info }}
-                    />
+                    <Stack direction="row" spacing={0.5}>
+                      <Chip
+                        label={prospect.status}
+                        size="small"
+                        sx={{ bgcolor: alpha(THEME.info, 0.1), color: THEME.info }}
+                      />
+                      {prospect.source && <SourceBadge source={prospect.source} />}
+                    </Stack>
                   </Box>
                 </Card>
               ))
@@ -476,6 +603,7 @@ export default function ProspectCompanies() {
     country: "",
     address: "",
     website: "",
+    source: "",
   });
   const [contextMenu, setContextMenu] = useState(null);
   const [contextCompanyId, setContextCompanyId] = useState(null);
@@ -486,6 +614,7 @@ export default function ProspectCompanies() {
     if (searchTerm) f.search = searchTerm;
     if (apiFilters.industry) f.industry = apiFilters.industry;
     if (apiFilters.country) f.country = apiFilters.country;
+    if (apiFilters.source) f.source = apiFilters.source;
     if (apiFilters.date_from) f.created_at__gte = apiFilters.date_from;
     if (apiFilters.date_to) f.created_at__lte = apiFilters.date_to;
     return f;
@@ -573,6 +702,7 @@ export default function ProspectCompanies() {
       country: company.country || "",
       address: company.address || "",
       website: company.website || "",
+      source: company.source || "",
     });
     setSelectedCompanyId(company.id);
     setIsEditing(true);
@@ -588,6 +718,7 @@ export default function ProspectCompanies() {
       }
       const payload = {
         ...formData,
+        source: isEditing ? formData.source : "commercial",
         number_of_employees: formData.number_of_employees
           ? parseInt(formData.number_of_employees)
           : null,
@@ -620,6 +751,7 @@ export default function ProspectCompanies() {
       country: "",
       address: "",
       website: "",
+      source: "",
     });
     setIsEditing(false);
     setSelectedCompanyId(null);
@@ -1030,6 +1162,22 @@ export default function ProspectCompanies() {
                     onDelete={() => {
                       const f = { ...apiFilters };
                       delete f.country;
+                      setApiFilters(f);
+                    }}
+                    sx={{
+                      bgcolor: alpha(THEME.primary, 0.1),
+                      color: THEME.primary,
+                      borderRadius: 1,
+                    }}
+                  />
+                )}
+                {apiFilters.source && (
+                  <Chip
+                    label={`Source: ${SOURCE_CONFIG[apiFilters.source]?.label || apiFilters.source}`}
+                    size="small"
+                    onDelete={() => {
+                      const f = { ...apiFilters };
+                      delete f.source;
                       setApiFilters(f);
                     }}
                     sx={{
@@ -1648,6 +1796,23 @@ export default function ProspectCompanies() {
                   {countries.map((c) => (
                     <MenuItem key={c} value={c}>
                       {c}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Source</InputLabel>
+                <Select
+                  value={localFilters.source || ""}
+                  onChange={(e) => setLocalFilters({ ...localFilters, source: e.target.value })}
+                  label="Source"
+                >
+                  <MenuItem value="">Toutes</MenuItem>
+                  {Object.entries(SOURCE_CONFIG).map(([value, cfg]) => (
+                    <MenuItem key={value} value={value}>
+                      {cfg.label}
                     </MenuItem>
                   ))}
                 </Select>

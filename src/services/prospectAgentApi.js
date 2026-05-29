@@ -9,6 +9,7 @@ const API_BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:8000";
 
 function authHeaders() {
   const token =
+    window.localStorage.getItem("accessToken") ||
     window.localStorage.getItem("access_token") ||
     window.localStorage.getItem("token") ||
     window.localStorage.getItem("access");
@@ -51,16 +52,18 @@ async function request(path, options = {}) {
  * searchProspectsAgent({ query: "restaurants à Tunis avec Facebook" })
  * searchProspectsAgent({ query: "foodbloggers à Sousse" })
  * searchProspectsAgent({ query: "responsables RH hôtels Tunis" })
- *
- 
-* // Mode champs structures (sans query naturelle)
- * searchProspectsAgent({ secteur: "restaurant", ville: "tunis", sources: ["google_maps"] })
  */
 export function searchProspectsAgent(criteria) {
-  return request("/agentProspection/rechercher/", {
+  const query = typeof criteria === "string" ? criteria : criteria?.query;
+
+  return request("/api/agent/prospect/", {
     method: "POST",
-    body: JSON.stringify(criteria),
+    body: JSON.stringify({ query }),
   });
+}
+
+export function runProspectionAgent(query) {
+  return searchProspectsAgent({ query });
 }
 
 /**
