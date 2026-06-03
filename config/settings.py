@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'Notifications',
     'calendar_module',
     "agentProspection",
+    "agentEngagement",
     
 ]
 
@@ -141,9 +142,16 @@ FRONTEND_URL           = 'http://localhost:3000'
 
 # Agent IA Prospection
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
-GEMINI_CHAT_MODEL = os.environ.get("GEMINI_CHAT_MODEL", "gemini-2.5-flash")
-GEMINI_EMBEDDING_MODEL = os.environ.get("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-001")
+GEMINI_MODEL = os.environ.get(
+    "GEMINI_MODEL",
+    os.environ.get("GEMINI_CHAT_MODEL", "gemini-2.5-flash")
+)
 
+GEMINI_CHAT_MODEL = os.environ.get("GEMINI_CHAT_MODEL", GEMINI_MODEL)
+GEMINI_EMBEDDING_MODEL = os.environ.get(
+    "GEMINI_EMBEDDING_MODEL",
+    "models/gemini-embedding-001"
+)
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 PROSPECTION_REDIS_TTL_SECONDS = int(os.environ.get("PROSPECTION_REDIS_TTL_SECONDS", "1800"))
 

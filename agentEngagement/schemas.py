@@ -1,79 +1,56 @@
-from typing import List
-from pydantic import BaseModel, Field, field_validator
+from typing import Literal
+from pydantic import BaseModel, Field
 
 
-class EngagementDecisionSchema(BaseModel):
-    qualified: bool = True
-    priority: str = "medium"
+class EngagementResultSchema(BaseModel):
+    qualified: bool
+    priority: Literal["low", "medium", "high"]
 
-    best_channel: str = "manual"
+    best_channel: Literal[
+        "email",
+        "phone",
+        "linkedin",
+        "facebook",
+        "instagram",
+        "manual",
+    ]
 
-    action_type: str = "create_task"
+    action_type: Literal[
+        "send_email",
+        "call",
+        "send_linkedin",
+        "send_facebook",
+        "send_instagram",
+        "create_task",
+        "no_action",
+    ]
 
-    reason: str = ""
-
-    should_create_task: bool = True
-    should_generate_message: bool = True
+    reason: str
+    should_create_task: bool
+    should_generate_message: bool
     should_send_now: bool = False
 
-    @field_validator(
-        "priority",
-        "best_channel",
-        "action_type",
-        "reason",
-        mode="before",
-    )
-    @classmethod
-    def normalize_strings(cls, value):
-        if value is None:
-            return ""
-        return str(value)
-
-
-class EngagementMessageSchema(BaseModel):
-    channel: str = ""
-
     subject: str = ""
-
     message: str = ""
-
     call_script: str = ""
 
     task_title: str = ""
-
     task_description: str = ""
 
-    @field_validator(
-        "channel",
-        "subject",
-        "message",
-        "call_script",
-        "task_title",
-        "task_description",
-        mode="before",
-    )
-    @classmethod
-    def normalize_strings(cls, value):
-        if value is None:
-            return ""
-        return str(value)
 
-
-class ProspectAnalysisSchema(BaseModel):
+class ProspectProfileData(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
+    title: str = ""
+    email: str = ""
+    phone: str = ""
     company_name: str = ""
+    website: str = ""
+    linkedin_url: str = ""
+    facebook_url: str = ""
+    instagram_url: str = ""
 
-    full_name: str = ""
-
-    industry: str = ""
-
-    activity_summary: str = ""
-
-    signals: List[str] = Field(default_factory=list)
-
-    best_channel: str = ""
-
-    recommended_action: str = ""
-
-    priority: str = "medium"
-
-    reason: str = ""
+    linkedin_data: dict = Field(default_factory=dict)
+    facebook_data: dict = Field(default_factory=dict)
+    instagram_data: dict = Field(default_factory=dict)
+    website_data: dict = Field(default_factory=dict)

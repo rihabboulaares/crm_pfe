@@ -21,4 +21,5 @@ urlpatterns = [
     path("api/agentProspection/", include("agentProspection.urls")),
     path("agentProspection/", include("agentProspection.urls")),
     path("api/agent/", include("agentProspection.api.urls")),
+    path("api/engagement/", include("agentEngagement.urls")),
 ]

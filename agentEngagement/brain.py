@@ -1,156 +1,356 @@
+"""
+agentEngagement/brain.py
+Analyse Gemini : choix canal + message personnalisé + tâche CRM.
+Aucun envoi automatique.
+"""
+
 import json
+import logging
+import os
+import re
+import time
+from typing import Optional
 
-from google import genai
-
+import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted
 from django.conf import settings
 
-from .schemas import (
-    EngagementDecisionSchema,
-    EngagementMessageSchema,
+from .schemas import EngagementResultSchema
+from .prompts import ENGAGEMENT_SYSTEM_PROMPT, build_engagement_prompt
+
+logger = logging.getLogger("agentEngagement.brain")
+
+GEMINI_API_KEY = getattr(settings, "GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+GEMINI_MODEL = getattr(
+    settings,
+    "GEMINI_MODEL",
+    os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
 )
 
 
-class EngagementBrain:
+def _get_model():
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY non configurée")
 
-    def __init__(self):
+    genai.configure(api_key=GEMINI_API_KEY)
 
-        self.client = genai.Client(
-            api_key=settings.GEMINI_API_KEY
-        )
+    return genai.GenerativeModel(
+        model_name=GEMINI_MODEL,
+        generation_config={
+            "temperature": 0.05,
+            "top_p": 0.7,
+            "max_output_tokens": 4096,
+            "response_mime_type": "application/json",
+        },
+    )
 
-    async def analyze_prospect(
-        self,
-        prospect_data: dict,
-        scraped_profiles: dict,
-    ):
 
-        prompt = f"""
-Analyse ce prospect CRM.
+def _generate_with_retry(model, prompt: str, max_retries: int = 3):
+    last_error = None
 
-PROSPECT :
-{json.dumps(prospect_data, ensure_ascii=False)}
+    for attempt in range(1, max_retries + 1):
+        try:
+            return model.generate_content(prompt)
 
-PROFILES :
-{json.dumps(scraped_profiles, ensure_ascii=False)}
+        except ResourceExhausted as exc:
+            last_error = exc
+            wait_time = 35 * attempt
+            logger.warning(
+                "[brain] Quota Gemini atteint. Tentative %s/%s. Attente %s sec.",
+                attempt,
+                max_retries,
+                wait_time,
+            )
+            time.sleep(wait_time)
 
-Détermine :
+    raise last_error
 
-1. si le prospect est intéressant
 
-2. quel est le meilleur canal :
-- phone
-- email
-- linkedin
-- instagram
-- facebook
+def _extract_json(text: str) -> dict:
+    text = (text or "").strip()
+    text = re.sub(r"^```json\s*", "", text)
+    text = re.sub(r"^```\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
 
-3. quelle action faire :
+    try:
+        return json.loads(text)
+    except Exception:
+        start = text.find("{")
+        end = text.rfind("}")
 
-- create_task
-- call
-- send_email
-- send_linkedin
-- send_instagram
-- send_facebook
+        if start != -1 and end != -1 and end > start:
+            candidate = text[start:end + 1]
+            return json.loads(candidate)
 
-Retourne uniquement du JSON :
+        raise ValueError(f"Aucun JSON trouvé : {text[:300]}")
 
+
+def _repair_json_with_gemini(model, raw_text: str) -> dict:
+    repair_prompt = f"""
+Corrige ce contenu pour retourner UNIQUEMENT un JSON valide.
+Aucun markdown.
+Aucun commentaire.
+Ne change pas le sens.
+Complète les champs manquants si nécessaire.
+Les retours à la ligne doivent être échappés avec \\n.
+
+Schéma attendu :
 {{
   "qualified": true,
-  "priority": "high",
+  "priority": "low",
   "best_channel": "linkedin",
   "action_type": "send_linkedin",
-  "reason": "..."
-}}
-"""
-
-        response = self.client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-        )
-
-        text = response.text.strip()
-
-        try:
-            data = json.loads(text)
-
-            return EngagementDecisionSchema(
-                **data
-            ).model_dump()
-
-        except Exception:
-
-            return {
-                "qualified": True,
-                "priority": "medium",
-                "best_channel": "manual",
-                "action_type": "create_task",
-                "reason": "fallback",
-                "should_create_task": True,
-                "should_generate_message": True,
-                "should_send_now": False,
-            }
-
-    async def generate_message(
-        self,
-        prospect_data: dict,
-        analysis: dict,
-    ):
-
-        prompt = f"""
-Tu es un commercial B2B expert.
-
-Prospect :
-
-{json.dumps(prospect_data, ensure_ascii=False)}
-
-Analyse :
-
-{json.dumps(analysis, ensure_ascii=False)}
-
-Génère :
-
-- un message personnalisé
-- un titre de tâche
-- une description de tâche
-
-Retourne uniquement du JSON :
-
-{{
-  "channel": "linkedin",
+  "reason": "string",
+  "should_create_task": true,
+  "should_generate_message": true,
+  "should_send_now": false,
   "subject": "",
-  "message": "",
+  "message": "string",
   "call_script": "",
-  "task_title": "",
-  "task_description": ""
+  "task_title": "string",
+  "task_description": "string"
 }}
-"""
 
-        response = self.client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
+Contenu à corriger :
+{raw_text}
+""".strip()
+
+    response = _generate_with_retry(model, repair_prompt)
+
+    if not response or not getattr(response, "text", None):
+        raise ValueError("Réparation JSON impossible : réponse vide")
+
+    return _extract_json(response.text)
+
+
+def _normalize_gemini_data(data: dict) -> dict:
+    if not isinstance(data, dict):
+        return data
+
+    action_map = {
+        "send_linkedin_message": "send_linkedin",
+        "send_linkedin_msg": "send_linkedin",
+        "linkedin_message": "send_linkedin",
+        "message_linkedin": "send_linkedin",
+        "linkedin": "send_linkedin",
+
+        "send_facebook_message": "send_facebook",
+        "send_facebook_msg": "send_facebook",
+        "facebook_message": "send_facebook",
+        "message_facebook": "send_facebook",
+        "facebook": "send_facebook",
+
+        "send_instagram_message": "send_instagram",
+        "send_instagram_msg": "send_instagram",
+        "instagram_message": "send_instagram",
+        "message_instagram": "send_instagram",
+        "instagram": "send_instagram",
+
+        "send_email_message": "send_email",
+        "email_message": "send_email",
+        "message_email": "send_email",
+        "email": "send_email",
+
+        "phone_call": "call",
+        "call_phone": "call",
+        "create_call_task": "call",
+        "call_task": "call",
+        "phone": "call",
+
+        "manual": "create_task",
+        "manual_task": "create_task",
+        "task": "create_task",
+        "create_manual_task": "create_task",
+    }
+
+    channel_map = {
+        "no_action": "manual",
+        "manual": "manual",
+        "linkedIn": "linkedin",
+        "LinkedIn": "linkedin",
+        "linked_in": "linkedin",
+        "linkedin_message": "linkedin",
+        "Facebook": "facebook",
+        "facebook_message": "facebook",
+        "Instagram": "instagram",
+        "instagram_message": "instagram",
+        "Email": "email",
+        "email_message": "email",
+        "Phone": "phone",
+        "phone_call": "phone",
+    }
+
+    priority_map = {
+        "faible": "low",
+        "basse": "low",
+        "low": "low",
+        "moyenne": "medium",
+        "medium": "medium",
+        "normal": "medium",
+        "haute": "high",
+        "high": "high",
+        "urgent": "high",
+    }
+
+    action = str(data.get("action_type", "")).strip()
+    channel = str(data.get("best_channel", "")).strip()
+    priority = str(data.get("priority", "")).strip()
+
+    if channel:
+        data["best_channel"] = channel_map.get(channel, channel.lower())
+
+    if action:
+        data["action_type"] = action_map.get(action, action)
+
+    if priority:
+        data["priority"] = priority_map.get(priority.lower(), priority.lower())
+
+    data.setdefault("qualified", False)
+    data.setdefault("priority", "medium")
+    data.setdefault("best_channel", "manual")
+    data.setdefault("action_type", "create_task")
+    data.setdefault("reason", "Analyse IA effectuée.")
+    data.setdefault("should_create_task", True)
+    data.setdefault("should_generate_message", True)
+    data.setdefault("should_send_now", False)
+    data.setdefault("subject", "")
+    data.setdefault("message", "")
+    data.setdefault("call_script", "")
+    data.setdefault("task_title", "")
+    data.setdefault("task_description", "")
+
+    data["should_send_now"] = False
+
+    expected_action = {
+        "email": "send_email",
+        "phone": "call",
+        "linkedin": "send_linkedin",
+        "facebook": "send_facebook",
+        "instagram": "send_instagram",
+        "manual": "create_task",
+    }
+
+    channel = data.get("best_channel")
+    action = data.get("action_type")
+
+    if channel in expected_action:
+        if action not in {expected_action[channel], "create_task", "no_action"}:
+            data["action_type"] = expected_action[channel]
+
+    if data.get("qualified") is False:
+        data["best_channel"] = "manual"
+        data["action_type"] = "no_action"
+        data["should_create_task"] = False
+        data["should_generate_message"] = False
+        data["should_send_now"] = False
+
+    if data.get("best_channel") == "phone":
+        data["action_type"] = "call"
+        data["message"] = ""
+
+        if not data.get("call_script"):
+            data["call_script"] = (
+                "Bonjour, je vous appelle suite à l'analyse de votre profil. "
+                "J'aimerais échanger brièvement avec vous pour comprendre vos besoins."
+            )
+
+    if data.get("best_channel") == "email":
+        data["action_type"] = "send_email"
+
+        if not data.get("subject"):
+            data["subject"] = "Échange rapide"
+
+        if not data.get("message"):
+            data["message"] = (
+                "Bonjour,\n\n"
+                "Je me permets de vous contacter après avoir consulté votre profil. "
+                "Seriez-vous disponible pour un court échange ?\n\n"
+                "Cordialement,"
+            )
+
+    if data.get("best_channel") in {"linkedin", "facebook", "instagram"}:
+        data["action_type"] = expected_action[data["best_channel"]]
+
+        if not data.get("message"):
+            data["message"] = (
+                "Bonjour, j'ai consulté votre profil et je pense qu'un échange "
+                "pourrait être intéressant. Seriez-vous disponible pour en discuter ?"
+            )
+
+    if not data.get("task_title"):
+        data["task_title"] = f"Contacter le prospect via {data.get('best_channel')}"
+
+    if not data.get("task_description"):
+        data["task_description"] = (
+            f"Tâche préparée par l'agent IA. Canal recommandé : "
+            f"{data.get('best_channel')}. Raison : {data.get('reason')}"
         )
 
-        text = response.text.strip()
+    return data
+
+
+def _compact_profile_data(profile_data: dict) -> dict:
+    data = dict(profile_data or {})
+
+    for key in ["linkedin_data", "facebook_data", "instagram_data", "website_data"]:
+        sub = data.get(key) or {}
+
+        if isinstance(sub, dict):
+            preview = sub.get("page_text_preview", "")
+
+            if preview:
+                sub["page_text_preview"] = preview[:1200]
+
+            posts = sub.get("recent_posts", [])
+
+            if isinstance(posts, list):
+                sub["recent_posts"] = [str(p)[:400] for p in posts[:3]]
+
+            data[key] = sub
+
+    return data
+
+
+def analyze_and_generate(profile_data: dict) -> Optional[EngagementResultSchema]:
+    try:
+        model = _get_model()
+        compact_data = _compact_profile_data(profile_data)
+
+        prompt = f"{ENGAGEMENT_SYSTEM_PROMPT}\n\n{build_engagement_prompt(compact_data)}"
+
+        logger.info(
+            "[brain] Analyse Gemini pour %s %s",
+            compact_data.get("first_name", ""),
+            compact_data.get("last_name", ""),
+        )
+
+        response = _generate_with_retry(model, prompt)
+
+        if not response or not getattr(response, "text", None):
+            raise ValueError("Réponse Gemini vide")
+
+        raw_text = response.text
 
         try:
-
-            data = json.loads(text)
-
-            return EngagementMessageSchema(
-                **data
-            ).model_dump()
-
+            data = _extract_json(raw_text)
         except Exception:
+            logger.warning("[brain] JSON Gemini invalide, tentative de réparation")
+            data = _repair_json_with_gemini(model, raw_text)
 
-            return {
-                "channel": analysis.get(
-                    "best_channel",
-                    "manual",
-                ),
-                "subject": "",
-                "message": "",
-                "call_script": "",
-                "task_title": "Contacter prospect",
-                "task_description": "Action commerciale",
-            }
+        data = _normalize_gemini_data(data)
+
+        result = EngagementResultSchema(**data)
+        result.should_send_now = False
+
+        logger.info(
+            "[brain] Résultat qualified=%s channel=%s action=%s",
+            result.qualified,
+            result.best_channel,
+            result.action_type,
+        )
+
+        return result
+
+    except Exception as exc:
+        logger.exception("[brain] Erreur analyze_and_generate : %s", exc)
+        return None

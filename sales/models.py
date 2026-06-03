@@ -98,15 +98,17 @@ class Prospect(models.Model):
     ]
 
     ENGAGEMENT_STATUS_CHOICES = [
-        ("new", "New"),
-        ("queued", "Queued"),
-        ("analyzing", "Analyzing"),
-        ("task_created", "Task Created"),
-        ("message_ready", "Message Ready"),
-        ("contacted", "Contacted"),
-        ("waiting_reply", "Waiting Reply"),
-        ("failed", "Failed"),
-    ]
+    ("new", "New"),
+    ("queued", "Queued"),
+    ("analyzing", "Analyzing"),
+    ("qualified", "Qualified"),
+    ("not_qualified", "Not Qualified"),
+    ("task_created", "Task Created"),
+    ("message_ready", "Message Ready"),
+    ("contacted", "Contacted"),
+    ("waiting_reply", "Waiting Reply"),
+    ("failed", "Failed"),
+]
 
     SOURCE_CHOICES = [
         ("commercial", "Ajouté par un commercial"),
@@ -133,7 +135,8 @@ class Prospect(models.Model):
     last_engagement_at = models.DateTimeField(null=True, blank=True)
     last_engagement_channel = models.CharField(max_length=50, blank=True, null=True)
     generated_message = models.TextField(blank=True, null=True)
-
+    engagement_error = models.TextField(blank=True, null=True)
+    engagement_subject = models.CharField(max_length=255, blank=True, null=True)
     source = models.CharField(
         max_length=50,
         choices=SOURCE_CHOICES,
