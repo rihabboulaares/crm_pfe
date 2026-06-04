@@ -33,6 +33,12 @@ class ProspectCompany(models.Model):
     SOURCE_CHOICES = [
         ("commercial", "Ajouté par un commercial"),
         ("agent_prospection", "Agent de prospection"),
+        ("google_maps", "Google Maps"),
+        ("linkedin", "LinkedIn"),
+        ("instagram", "Instagram"),
+        ("facebook", "Facebook"),
+        ("web", "Web"),
+        ("other", "Autre"),
     ]
 
     name = models.CharField(max_length=255)
@@ -98,21 +104,35 @@ class Prospect(models.Model):
     ]
 
     ENGAGEMENT_STATUS_CHOICES = [
-    ("new", "New"),
-    ("queued", "Queued"),
-    ("analyzing", "Analyzing"),
-    ("qualified", "Qualified"),
-    ("not_qualified", "Not Qualified"),
-    ("task_created", "Task Created"),
-    ("message_ready", "Message Ready"),
-    ("contacted", "Contacted"),
-    ("waiting_reply", "Waiting Reply"),
-    ("failed", "Failed"),
-]
+        ("new", "New"),
+        ("preparing", "Preparing"),
+        ("message_ready", "Message Ready"),
+        ("sending", "Sending"),
+        ("message_sent", "Message Sent"),
+        ("message_failed", "Message Failed"),
+        ("replied", "Replied"),
+        ("follow_up_required", "Follow-up Required"),
+        ("closed", "Closed"),
+        # Legacy agent statuses kept readable for existing rows.
+        ("queued", "Queued"),
+        ("analyzing", "Analyzing"),
+        ("qualified", "Qualified"),
+        ("not_qualified", "Not Qualified"),
+        ("task_created", "Task Created"),
+        ("contacted", "Contacted"),
+        ("waiting_reply", "Waiting Reply"),
+        ("failed", "Failed"),
+    ]
 
     SOURCE_CHOICES = [
         ("commercial", "Ajouté par un commercial"),
         ("agent_prospection", "Agent de prospection"),
+        ("google_maps", "Google Maps"),
+        ("linkedin", "LinkedIn"),
+        ("instagram", "Instagram"),
+        ("facebook", "Facebook"),
+        ("web", "Web"),
+        ("other", "Autre"),
     ]
 
     first_name = models.CharField(max_length=50)
@@ -122,6 +142,7 @@ class Prospect(models.Model):
     phone = models.CharField(max_length=20, blank=True, null=True)
     city = models.CharField(max_length=100, blank=True, null=True)
     country = models.CharField(max_length=100, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
 
     origin = models.CharField(max_length=50, choices=ORIGIN_CHOICES, blank=True, null=True)
     evaluation = models.CharField(max_length=20, choices=EVALUATION_CHOICES, blank=True, null=True)
@@ -137,6 +158,14 @@ class Prospect(models.Model):
     generated_message = models.TextField(blank=True, null=True)
     engagement_error = models.TextField(blank=True, null=True)
     engagement_subject = models.CharField(max_length=255, blank=True, null=True)
+    social_profile_summary = models.TextField(blank=True, null=True)
+    social_profile_interests = models.JSONField(default=list, blank=True)
+    social_profile_activity_level = models.CharField(max_length=50, blank=True, null=True)
+    social_profile_tone = models.CharField(max_length=50, blank=True, null=True)
+    social_profile_relevance = models.CharField(max_length=50, blank=True, null=True)
+    social_profile_hook = models.TextField(blank=True, null=True)
+    social_profile_analysis = models.JSONField(default=dict, blank=True)
+    social_profile_last_analyzed_at = models.DateTimeField(blank=True, null=True)
     source = models.CharField(
         max_length=50,
         choices=SOURCE_CHOICES,
@@ -146,10 +175,13 @@ class Prospect(models.Model):
     facebook_url = models.URLField(blank=True, null=True)
     instagram_url = models.URLField(blank=True, null=True)
     website = models.URLField(blank=True, null=True)
+    source_url = models.URLField(blank=True, null=True)
+    google_maps_url = models.URLField(blank=True, null=True)
+    notes = models.TextField(blank=True, null=True)
     raison_score = models.TextField(blank=True, null=True)
 
     prospect_company = models.ForeignKey(
-        ProspectCompany, on_delete=models.CASCADE, related_name="prospects"
+        ProspectCompany, on_delete=models.SET_NULL, null=True, blank=True, related_name="prospects"
     )
     assigned_to = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     company = models.ForeignKey(Company, on_delete=models.CASCADE)
@@ -242,15 +274,28 @@ class Contact(models.Model):
 # ==============================
 class Task(models.Model):
     TASK_TYPE_CHOICES = [
-        ("classic", "Tâche classique"),
-        ("quota", "Tâche quota / objectif"),
+        ("classic", "Tache classique"),
+        ("quota", "Tache quota / objectif"),
+        ("call", "Appel"),
+        ("linkedin_message", "Message LinkedIn"),
+        ("email", "Email"),
+        ("facebook_message", "Message Facebook"),
+        ("instagram_message", "Message Instagram"),
+        ("follow_up", "Relance"),
+        ("meeting", "RDV"),
+        ("note", "Note"),
+        ("other", "Autre"),
     ]
 
     STATUS_CHOICES = [
         ("todo", "To Do"),
+        ("pending", "Pending"),
+        ("ready", "Ready"),
         ("in_progress", "In Progress"),
         ("done", "Done"),
+        ("completed", "Completed"),
         ("cancelled", "Cancelled"),
+        ("failed", "Failed"),
     ]
 
     PRIORITY_CHOICES = [
@@ -283,6 +328,16 @@ class Task(models.Model):
     # ==============================
     closing_report = models.TextField(blank=True, null=True)
     closed_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    source = models.CharField(max_length=60, blank=True, null=True)
+    linked_engagement_message = models.TextField(blank=True, null=True)
+    engagement_log = models.ForeignKey(
+        "agentEngagement.EngagementLog",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tasks",
+    )
 
     # ==============================
     # TÂCHE PARENTE
@@ -311,6 +366,13 @@ class Task(models.Model):
     # Liens CRM
     prospect = models.ForeignKey(
         "Prospect", on_delete=models.SET_NULL, null=True, blank=True
+    )
+    prospect_company = models.ForeignKey(
+        "ProspectCompany",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tasks",
     )
     contact = models.ForeignKey(
         "Contact", on_delete=models.SET_NULL, null=True, blank=True
@@ -344,7 +406,7 @@ class Task(models.Model):
     # ==============================
     @property
     def is_overdue(self):
-        if self.due_date and self.status not in ("done", "cancelled"):
+        if self.due_date and self.status not in ("done", "completed", "cancelled"):
             return timezone.now() > self.due_date
         return False
 
@@ -368,16 +430,21 @@ class Task(models.Model):
     def check_quota_completion(self):
         if self.task_type == "quota" and self.quota_target is not None:
             if self.quota_progress >= self.quota_target:
-                self.status = "done"
+                self.status = "completed"
+                now = timezone.now()
                 if not self.closed_at:
-                    self.closed_at = timezone.now()
-                self.save(update_fields=["status", "closed_at"])
+                    self.closed_at = now
+                if not self.completed_at:
+                    self.completed_at = now
+                self.save(update_fields=["status", "closed_at", "completed_at"])
 
     def close(self, report="", user=None):
-        self.status = "done"
+        self.status = "completed"
         self.closing_report = report
-        self.closed_at = timezone.now()
-        self.save(update_fields=["status", "closing_report", "closed_at"])
+        now = timezone.now()
+        self.closed_at = now
+        self.completed_at = now
+        self.save(update_fields=["status", "closing_report", "closed_at", "completed_at"])
         TaskActivity.objects.create(
             task=self,
             activity_type="status_change",

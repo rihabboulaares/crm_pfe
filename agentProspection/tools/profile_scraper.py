@@ -16,6 +16,11 @@ from agentProspection.tools.extractors import (
     detect_platform,
     clean_text,
 )
+from agentEngagement.social.session_manager import (
+    ensure_linkedin_session_async,
+    get_linkedin_profile_dir,
+    linkedin_login_required_response,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -61,6 +66,9 @@ def login_timeout_minutes() -> float:
 
 
 def browser_profile_dir(user_id: int | str | None, platform: str) -> str:
+    if platform == "linkedin":
+        return str(get_linkedin_profile_dir(user_id or "anonymous"))
+
     root = Path(os.getenv("SOCIAL_BROWSER_PROFILE_DIR", "browser_profiles"))
     safe_user = str(user_id or "anonymous").strip().replace("/", "_").replace("\\", "_")
     return str(root / f"user_{safe_user}" / platform)
@@ -228,11 +236,12 @@ async def wait_for_manual_login(page, platform: str, timeout_minutes: float = 5)
 async def get_authenticated_context(playwright, user_id: int | str | None, platform: str):
     profile_dir = browser_profile_dir(user_id, platform)
     Path(profile_dir).mkdir(parents=True, exist_ok=True)
+    is_linkedin = platform == "linkedin"
 
     return await playwright.chromium.launch_persistent_context(
         user_data_dir=profile_dir,
-        headless=headless_enabled(),
-        slow_mo=100,
+        headless=False if is_linkedin else headless_enabled(),
+        slow_mo=300 if is_linkedin else 100,
         viewport={"width": 1400, "height": 900},
         locale="fr-FR",
         user_agent=(
@@ -276,6 +285,13 @@ class SocialSessionManager:
     async def ensure_login_once(self, platform: str, test_url: str) -> bool:
         if login_once_per_platform_enabled() and self.login_checked.get(platform):
             return self.login_success.get(platform, False)
+
+        if platform == "linkedin":
+            logged = await ensure_linkedin_session_async(int(self.user_id or 0))
+            self.login_checked[platform] = True
+            self.login_required[platform] = not logged
+            self.login_success[platform] = logged
+            return logged
 
         context = await self.get_context(platform)
         page = await context.new_page()
@@ -469,6 +485,9 @@ class ProfileScraperTool(BaseTool):
             "source_confidence": 0.3,
             "requires_login": requires_login,
         }
+
+        if platform == "linkedin" and requires_login:
+            data.update(linkedin_login_required_response())
 
         if platform == "linkedin":
             data["linkedin_url"] = url

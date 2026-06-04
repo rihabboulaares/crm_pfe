@@ -10,6 +10,8 @@
 #   6. move-stage : mise à jour du stage CRM pour TOUTES les étapes (déjà présent)
 #   7. Création tâches templates à chaque changement d'étape (déjà présent)
 
+from datetime import timedelta
+
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -737,14 +739,16 @@ class TaskViewSet(viewsets.ModelViewSet):
         priority    = self.request.query_params.get("priority")
         assigned_to = self.request.query_params.get("assigned_to")
         search      = self.request.query_params.get("search")
-        task_type   = self.request.query_params.get("task_type")
+        task_type   = self.request.query_params.get("task_type") or self.request.query_params.get("type")
         opportunity = self.request.query_params.get("opportunity")
+        due_date    = self.request.query_params.get("due_date")
 
         if task_status: qs = qs.filter(status=task_status)
         if priority:    qs = qs.filter(priority=priority)
         if assigned_to: qs = qs.filter(assigned_to_id=assigned_to)
         if task_type:   qs = qs.filter(task_type=task_type)
         if opportunity: qs = qs.filter(opportunity_id=opportunity)
+        if due_date:    qs = qs.filter(due_date__date=due_date)
         if search:
             qs = qs.filter(Q(title__icontains=search) | Q(description__icontains=search))
 
@@ -762,6 +766,10 @@ class TaskViewSet(viewsets.ModelViewSet):
                 serializer.validated_data["assigned_to"] = prospect.assigned_to
             else:
                 serializer.validated_data["assigned_to"] = user
+        if prospect:
+            if prospect.company != user.company:
+                raise PermissionDenied("Ce prospect n'appartient pas a votre societe.")
+            serializer.validated_data["prospect_company"] = prospect.prospect_company
 
     # Si toujours pas d'assigné, utiliser l'utilisateur courant
         if not serializer.validated_data.get("assigned_to"):
@@ -788,9 +796,11 @@ class TaskViewSet(viewsets.ModelViewSet):
         if user.role == "COMMERCIAL" and task.assigned_to != user:
             raise PermissionDenied("Vous ne pouvez modifier que vos propres tâches.")
         instance = serializer.save()
-        if instance.status == "done" and not instance.closed_at:
-            instance.closed_at = timezone.now()
-            instance.save(update_fields=["closed_at"])
+        if instance.status in ("done", "completed") and not instance.closed_at:
+            now = timezone.now()
+            instance.closed_at = now
+            instance.completed_at = now
+            instance.save(update_fields=["closed_at", "completed_at"])
 
     @action(detail=True, methods=["post"], url_path="close")
     def close(self, request, pk=None):
@@ -800,17 +810,77 @@ class TaskViewSet(viewsets.ModelViewSet):
             return Response({"error": "Permission refusée."}, status=status.HTTP_403_FORBIDDEN)
         if task.status == "cancelled":
             return Response({"error": "Une tâche annulée ne peut pas être clôturée."}, status=400)
-        if task.status == "done":
+        if task.status in ("done", "completed"):
             return Response({"error": "Cette tâche est déjà clôturée."}, status=400)
         report          = request.data.get("closing_report", "")
-        task.status         = "done"
+        task.status         = "completed"
         task.closing_report = report
-        task.closed_at      = timezone.now()
-        task.save(update_fields=["status", "closing_report", "closed_at", "updated_at"])
+        now = timezone.now()
+        task.closed_at      = now
+        task.completed_at   = now
+        task.save(update_fields=["status", "closing_report", "closed_at", "completed_at", "updated_at"])
         TaskActivity.objects.create(
             task=task, activity_type="status_change", performed_by=user,
             notes=f"Tâche clôturée.{f' Rapport : {report}' if report else ''}",
         )
+        return Response(self.get_serializer(task).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="complete")
+    def complete(self, request, pk=None):
+        task = self.get_object()
+        user = request.user
+        if task.assigned_to != user and user.role not in ("ADMIN", "MANAGER"):
+            return Response({"error": "Permission refusee."}, status=status.HTTP_403_FORBIDDEN)
+        if task.status in ("completed", "done", "cancelled"):
+            return Response({"error": "Cette tache ne peut pas etre terminee."}, status=400)
+
+        now = timezone.now()
+        task.status = "completed"
+        task.completed_at = now
+        task.closed_at = now
+        task.closing_report = request.data.get("closing_report", task.closing_report)
+        task.save(update_fields=["status", "completed_at", "closed_at", "closing_report", "updated_at"])
+
+        TaskActivity.objects.create(
+            task=task,
+            activity_type="status_change",
+            performed_by=user,
+            prospect=task.prospect,
+            notes=request.data.get("note") or "Tache marquee comme terminee.",
+        )
+
+        if task.task_type == "call" and task.prospect:
+            from .engagement_tasks import upsert_prospect_task
+
+            name = f"{task.prospect.first_name} {task.prospect.last_name}".strip()
+            if task.prospect.email:
+                upsert_prospect_task(
+                    task.prospect,
+                    "email",
+                    f"Envoyer un email a {name}",
+                    "Suivi apres appel commercial.",
+                    user=user,
+                    status="pending",
+                    due_date=timezone.now() + timedelta(days=1),
+                )
+            elif task.prospect.linkedin_url:
+                upsert_prospect_task(
+                    task.prospect,
+                    "linkedin_message",
+                    f"Envoyer un message LinkedIn a {name}",
+                    "Suivi apres appel commercial.",
+                    user=user,
+                    status="pending",
+                    due_date=timezone.now() + timedelta(days=1),
+                )
+
+        try:
+            from .engagement_tasks import sync_task_calendar
+
+            sync_task_calendar(task)
+        except Exception:
+            pass
+
         return Response(self.get_serializer(task).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["patch"], url_path="update-quota")

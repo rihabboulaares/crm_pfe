@@ -14,5 +14,5 @@ class MessageData:
         self.task_description = result.task_description or ""
 
 
-def build_message_data(result):
+def build_message_data(result, social_analysis=None, **kwargs):
     return MessageData(result)

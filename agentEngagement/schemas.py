@@ -42,6 +42,7 @@ class ProspectProfileData(BaseModel):
     first_name: str = ""
     last_name: str = ""
     title: str = ""
+    description: str = ""
     email: str = ""
     phone: str = ""
     company_name: str = ""

@@ -41,24 +41,33 @@ def create_engagement_task(prospect, result, user):
     title = result.task_title or f"Contacter {prospect.first_name} via {result.best_channel}"
 
     description_parts = [
-        f"🤖 Agent Engagement",
-        f"📡 Canal : {result.best_channel}",
-        f"⭐ Priorité : {result.priority}",
-        f"🎯 Action : {result.action_type}",
-        f"💡 Raison : {result.reason}",
+        "Agent Engagement",
+        f"Canal : {result.best_channel}",
+        f"Priorite : {result.priority}",
+        f"Action : {result.action_type}",
+        f"Raison : {result.reason}",
     ]
 
     if result.subject:
-        description_parts.append(f"📧 Objet : {result.subject}")
+        description_parts.append(f"Objet : {result.subject}")
+
+    social_summary = getattr(prospect, "social_profile_summary", "")
+    social_hook = getattr(prospect, "social_profile_hook", "")
+
+    if social_summary:
+        description_parts.append(f"Resume profil : {social_summary}")
+
+    if social_hook:
+        description_parts.append(f"Accroche recommandee : {social_hook}")
 
     if result.message:
-        description_parts.append(f"✉️ Message préparé :\n{result.message}")
+        description_parts.append(f"Message prepare :\n{result.message}")
 
     if result.call_script:
-        description_parts.append(f"📞 Script d'appel :\n{result.call_script}")
+        description_parts.append(f"Script d'appel :\n{result.call_script}")
 
     if result.task_description:
-        description_parts.append(f"📋 Contexte : {result.task_description}")
+        description_parts.append(f"Contexte : {result.task_description}")
 
     priority = result.priority or "medium"
     due_date = timezone.now() + timedelta(days=PRIORITY_DUE_DAYS.get(priority, 2))
@@ -76,10 +85,9 @@ def create_engagement_task(prospect, result, user):
         company=prospect.company,
     )
 
-    logger.info("[task_manager] Tâche #%s créée pour Prospect #%s", task.pk, prospect.pk)
+    logger.info("[task_manager] Task #%s created for Prospect #%s", task.pk, prospect.pk)
 
     return task
-
 
 def create_task_activity(task, prospect, result, user, sent: bool = False):
     Task, TaskActivity = _get_models()
@@ -88,18 +96,27 @@ def create_task_activity(task, prospect, result, user, sent: bool = False):
     activity_type = CHANNEL_ACTIVITY_TYPE.get(channel, "note")
 
     notes = [
-        "🤖 Agent Engagement",
-        "✅ Envoyé" if sent else "📝 Message préparé - validation commerciale requise",
-        f"📡 Canal : {channel}",
-        f"🎯 Action : {result.action_type}",
-        f"💡 Raison : {result.reason}",
+        "Agent Engagement",
+        "Envoye" if sent else "Message prepare - validation commerciale requise",
+        f"Canal : {channel}",
+        f"Action : {result.action_type}",
+        f"Raison : {result.reason}",
     ]
 
+    social_summary = getattr(prospect, "social_profile_summary", "")
+    social_hook = getattr(prospect, "social_profile_hook", "")
+
+    if social_summary:
+        notes.append(f"Resume profil : {social_summary}")
+
+    if social_hook:
+        notes.append(f"Accroche recommandee : {social_hook}")
+
     if result.message:
-        notes.append(f"✉️ Message :\n{result.message}")
+        notes.append(f"Message :\n{result.message}")
 
     if result.call_script:
-        notes.append(f"📞 Script :\n{result.call_script}")
+        notes.append(f"Script :\n{result.call_script}")
 
     kwargs = {
         "task": task,

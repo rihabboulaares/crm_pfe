@@ -301,22 +301,37 @@ def _compact_profile_data(profile_data: dict) -> dict:
             if preview:
                 sub["page_text_preview"] = preview[:1200]
 
-            posts = sub.get("recent_posts", [])
+            posts = sub.get("recent_posts") or sub.get("posts") or []
 
             if isinstance(posts, list):
-                sub["recent_posts"] = [str(p)[:400] for p in posts[:3]]
+                compact_posts = []
+                for post in posts[:10]:
+                    if isinstance(post, dict):
+                        text = str(post.get("text") or post.get("content") or "")[:1200]
+                        compact_posts.append(
+                            {
+                                "url": post.get("url") or post.get("link") or post.get("permalink") or "",
+                                "text": text,
+                                "hashtags": (post.get("hashtags") or [])[:10],
+                                "date": post.get("date") or post.get("created_at") or "",
+                            }
+                        )
+                    else:
+                        compact_posts.append({"text": str(post)[:1200], "hashtags": []})
+                sub["recent_posts"] = compact_posts
+                sub["posts"] = compact_posts
 
             data[key] = sub
 
     return data
 
 
-def analyze_and_generate(profile_data: dict) -> Optional[EngagementResultSchema]:
+def analyze_and_generate(profile_data: dict, social_analysis: dict = None) -> Optional[EngagementResultSchema]:
     try:
         model = _get_model()
         compact_data = _compact_profile_data(profile_data)
 
-        prompt = f"{ENGAGEMENT_SYSTEM_PROMPT}\n\n{build_engagement_prompt(compact_data)}"
+        prompt = f"{ENGAGEMENT_SYSTEM_PROMPT}\n\n{build_engagement_prompt(compact_data, social_analysis=social_analysis)}"
 
         logger.info(
             "[brain] Analyse Gemini pour %s %s",

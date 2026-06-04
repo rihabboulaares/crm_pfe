@@ -1,4 +1,7 @@
-# users/views.py
+﻿# users/views.py
+import logging
+from smtplib import SMTPException
+
 from rest_framework import generics, viewsets, status, filters
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
@@ -23,6 +26,23 @@ from .serializers import (
     TeamSerializer,
 )
 from .permissions import IsAdmin
+
+logger = logging.getLogger(__name__)
+
+
+def send_mail_safely(*, subject, message, recipient_list):
+    try:
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=recipient_list,
+            fail_silently=False,
+        )
+        return True, None
+    except SMTPException as exc:
+        logger.warning("Email sending failed: %s", exc)
+        return False, str(exc)
 
 
 # =====================================================
@@ -92,14 +112,25 @@ def invite_member(request):
 
     link = f"http://localhost:3000/accept-invite/{invitation.token}"
 
-    send_mail(
+    email_sent, email_error = send_mail_safely(
         subject="Invitation CRM",
-        message=f"Vous avez été invité à rejoindre la team {team.name}. Cliquez ici : {link}",
-        from_email=settings.EMAIL_HOST_USER,
+        message=f"Vous avez ete invite a rejoindre la team {team.name}. Cliquez ici : {link}",
         recipient_list=[email],
     )
 
-    return Response({"message": "Invitation envoyée"})
+    response = {
+        "message": "Invitation envoyee" if email_sent else "Invitation creee",
+        "email_sent": email_sent,
+        "token": str(invitation.token),
+        "invite_link": link,
+    }
+
+    if not email_sent:
+        response["warning"] = "Email non envoye: verifiez les identifiants SMTP Gmail."
+        if settings.DEBUG:
+            response["email_error"] = email_error
+
+    return Response(response, status=status.HTTP_201_CREATED)
 
 
 # =====================================================
@@ -143,18 +174,26 @@ def accept_invite(request, token):
     user.verification_code = code
     user.save()
 
-    send_mail(
-        subject="Code de vérification",
-        message=f"Votre code de vérification est : {code}",
-        from_email=settings.EMAIL_HOST_USER,
+    email_sent, email_error = send_mail_safely(
+        subject="Code de verification",
+        message=f"Votre code de verification est : {code}",
         recipient_list=[user.email],
     )
 
-    return Response({
+    response = {
         "message": "Compte créé avec succès",
         "email": user.email,
         "user_id": user.id,
-    })
+        "email_sent": email_sent,
+    }
+
+    if not email_sent:
+        response["warning"] = "Code cree mais email non envoye: verifiez les identifiants SMTP Gmail."
+        if settings.DEBUG:
+            response["verification_code"] = code
+            response["email_error"] = email_error
+
+    return Response(response)
 
 
 # =====================================================

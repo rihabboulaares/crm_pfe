@@ -4,7 +4,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 from .models import (
-    Opportunity, OpportunityPipeline, Pipeline,
+    Opportunity, OpportunityPipeline, Pipeline, Prospect,
     StageHistory, PipelineAlert,
 )
 
@@ -12,6 +12,18 @@ logger = logging.getLogger(__name__)
 
 _SYNC_IN_PROGRESS_ATTR = "_pipeline_sync_in_progress"
 _CRM_STAGE_ORDER = ["new", "qualified", "proposal", "negotiation"]
+
+
+@receiver(post_save, sender=Prospect)
+def create_engagement_tasks_for_new_prospect(sender, instance, created, **kwargs):
+    if not created:
+        return
+    try:
+        from .engagement_tasks import create_initial_engagement_tasks
+
+        create_initial_engagement_tasks(instance, user=instance.assigned_to)
+    except Exception:
+        logger.exception("[SIGNAL] Impossible de creer les taches engagement du prospect #%s", instance.pk)
 
 
 def _get_pipeline_stage_for_crm(crm_stage, pipeline):

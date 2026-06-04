@@ -6,10 +6,14 @@ logger = logging.getLogger("agentEngagement.memory")
 
 BLOCKING_STATUSES = {
     "message_ready",
+    "message_sent",
+    "sending",
+    "replied",
+    "follow_up_required",
+    "closed",
     "task_created",
     "contacted",
     "waiting_reply",
-    "not_qualified",
 }
 
 
@@ -63,7 +67,7 @@ def save_prepared_message(prospect, result):
 
 
 def mark_contacted(prospect, channel: str):
-    prospect.engagement_status = "contacted"
+    prospect.engagement_status = "message_sent"
     prospect.last_engagement_channel = channel
     prospect.last_engagement_at = timezone.now()
 

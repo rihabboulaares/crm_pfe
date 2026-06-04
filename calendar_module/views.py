@@ -6,12 +6,14 @@ import datetime
 
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import filters, status, viewsets
+from rest_framework import filters, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .models import CalendarEvent
 from .serializers import CalendarEventSerializer
+from sales.models import Task
 
 
 class CalendarEventViewSet(viewsets.ModelViewSet):
@@ -54,6 +56,7 @@ class CalendarEventViewSet(viewsets.ModelViewSet):
         "company",
     )
     serializer_class = CalendarEventSerializer
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends  = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = [
         "event_type", "priority", "pipeline_stage",
@@ -66,7 +69,7 @@ class CalendarEventViewSet(viewsets.ModelViewSet):
     # ── Filtrage par date + multi-valeurs ─────────────────────────────────
 
     def get_queryset(self):
-        qs    = super().get_queryset()
+        qs    = super().get_queryset().filter(company=self.request.user.company)
         params = self.request.query_params
 
         # Plage de dates (FullCalendar envoie start/end en ISO 8601)
@@ -229,3 +232,63 @@ class CalendarEventViewSet(viewsets.ModelViewSet):
             .order_by("-total")
         )
         return Response(list(result))
+
+
+class CalendarTasksView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        qs = (
+            Task.objects.filter(company=request.user.company, due_date__isnull=False)
+            .select_related("prospect", "assigned_to")
+            .order_by("due_date")
+        )
+        if request.user.role == "COMMERCIAL":
+            qs = qs.filter(assigned_to=request.user)
+
+        status_filter = request.query_params.get("status")
+        task_type = request.query_params.get("type") or request.query_params.get("task_type")
+        priority = request.query_params.get("priority")
+        assigned_to = request.query_params.get("assigned_to")
+        show_completed = request.query_params.get("show_completed")
+        start = request.query_params.get("start")
+        end = request.query_params.get("end")
+        if status_filter:
+            qs = qs.filter(status__in=status_filter.split(","))
+        if task_type:
+            qs = qs.filter(task_type__in=task_type.split(","))
+        if priority:
+            qs = qs.filter(priority__in=priority.split(","))
+        if assigned_to:
+            qs = qs.filter(assigned_to_id=assigned_to)
+        if show_completed == "false":
+            qs = qs.exclude(status__in=["done", "completed", "cancelled"])
+        if start:
+            qs = qs.filter(due_date__gte=start)
+        if end:
+            qs = qs.filter(due_date__lte=end)
+
+        now = timezone.now()
+        data = []
+        for task in qs:
+            prospect_name = ""
+            if task.prospect:
+                prospect_name = f"{task.prospect.first_name} {task.prospect.last_name}".strip()
+            data.append(
+                {
+                    "id": task.id,
+                    "title": task.title,
+                    "description": task.description,
+                    "start": task.due_date,
+                    "end": task.due_date + datetime.timedelta(minutes=30),
+                    "type": task.task_type,
+                    "status": task.status,
+                    "priority": task.priority,
+                    "is_overdue": task.due_date < now and task.status not in ("done", "completed", "cancelled"),
+                    "prospect_id": task.prospect_id,
+                    "prospect_name": prospect_name,
+                    "assigned_to": task.assigned_to_id,
+                    "assigned_name": task.assigned_to.username if task.assigned_to else "",
+                }
+            )
+        return Response(data)

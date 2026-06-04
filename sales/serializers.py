@@ -48,6 +48,12 @@ class ProspectCompanySerializer(serializers.ModelSerializer):
         return {
             "commercial":        "Ajouté par un commercial",
             "agent_prospection": "Agent de prospection",
+            "google_maps": "Google Maps",
+            "linkedin": "LinkedIn",
+            "instagram": "Instagram",
+            "facebook": "Facebook",
+            "web": "Web",
+            "other": "Autre",
         }.get(obj.source, obj.source)
 
     def validate_number_of_employees(self, value):
@@ -65,9 +71,17 @@ class ProspectCompanySerializer(serializers.ModelSerializer):
 # Prospect Serializer
 # -----------------------
 class ProspectSerializer(serializers.ModelSerializer):
-    prospect_company_name = serializers.CharField(write_only=True, required=True)
+    name = serializers.CharField(write_only=True, required=False, allow_blank=False)
+    prospect_company_name = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, allow_null=True
+    )
+    website_url = serializers.URLField(write_only=True, required=False, allow_blank=True, allow_null=True)
     company               = serializers.PrimaryKeyRelatedField(read_only=True)
-    prospect_company      = serializers.PrimaryKeyRelatedField(read_only=True)
+    prospect_company      = serializers.PrimaryKeyRelatedField(
+        queryset=ProspectCompany.objects.all(),
+        required=False,
+        allow_null=True,
+    )
     assigned_to_name      = serializers.SerializerMethodField()
     assigned_to           = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(),
@@ -75,19 +89,70 @@ class ProspectSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
     source_display = serializers.SerializerMethodField()
+    prospect_company_detail = ProspectCompanySerializer(source="prospect_company", read_only=True)
+    engagement_message = serializers.CharField(source="generated_message", read_only=True)
+    engagement_channel = serializers.CharField(source="last_engagement_channel", read_only=True)
+    next_task = serializers.SerializerMethodField()
 
     class Meta:
         model  = Prospect
         fields = [
-            "id", "first_name", "last_name", "title", "email", "phone",
-            "city", "country",
+            "id", "name", "first_name", "last_name", "title", "email", "phone",
+            "city", "country", "description",
             "origin", "evaluation", "status",
             "assigned_to", "assigned_to_name",
-            "company", "prospect_company", "prospect_company_name",
-            "website", "linkedin_url", "facebook_url", "instagram_url",
+            "company", "prospect_company", "prospect_company_name", "prospect_company_detail",
+            "website", "website_url", "source_url", "linkedin_url", "facebook_url",
+            "instagram_url", "google_maps_url", "notes",
             "source", "source_display",
+            "engagement_status", "engagement_channel", "engagement_message",
+            "engagement_error", "engagement_subject", "last_engagement_at",
+            "social_profile_summary", "social_profile_interests",
+            "social_profile_activity_level", "social_profile_tone",
+            "social_profile_relevance", "social_profile_hook",
+            "social_profile_analysis", "social_profile_last_analyzed_at",
+            "next_task",
             "created_at", "updated_at",
         ]
+        read_only_fields = [
+            "engagement_status",
+            "engagement_channel",
+            "engagement_message",
+            "engagement_error",
+            "engagement_subject",
+            "last_engagement_at",
+            "social_profile_summary",
+            "social_profile_interests",
+            "social_profile_activity_level",
+            "social_profile_tone",
+            "social_profile_relevance",
+            "social_profile_hook",
+            "social_profile_analysis",
+            "social_profile_last_analyzed_at",
+            "next_task",
+            "prospect_company_detail",
+            "source_display",
+        ]
+        extra_kwargs = {
+            "first_name": {"required": False, "allow_blank": True},
+            "last_name": {"required": False, "allow_blank": True},
+            "email": {"required": False, "allow_blank": True, "allow_null": True},
+            "phone": {"required": False, "allow_blank": True, "allow_null": True},
+            "title": {"required": False, "allow_blank": True, "allow_null": True},
+            "city": {"required": False, "allow_blank": True, "allow_null": True},
+            "country": {"required": False, "allow_blank": True, "allow_null": True},
+            "description": {"required": False, "allow_blank": True, "allow_null": True},
+            "origin": {"required": False, "allow_blank": True, "allow_null": True},
+            "evaluation": {"required": False, "allow_blank": True, "allow_null": True},
+            "source": {"required": False, "allow_blank": True, "allow_null": True},
+            "website": {"required": False, "allow_blank": True, "allow_null": True},
+            "source_url": {"required": False, "allow_blank": True, "allow_null": True},
+            "linkedin_url": {"required": False, "allow_blank": True, "allow_null": True},
+            "facebook_url": {"required": False, "allow_blank": True, "allow_null": True},
+            "instagram_url": {"required": False, "allow_blank": True, "allow_null": True},
+            "google_maps_url": {"required": False, "allow_blank": True, "allow_null": True},
+            "notes": {"required": False, "allow_blank": True, "allow_null": True},
+        }
 
     def get_assigned_to_name(self, obj):
         if obj.assigned_to:
@@ -98,17 +163,83 @@ class ProspectSerializer(serializers.ModelSerializer):
         return {
             "commercial":        "Ajouté par un commercial",
             "agent_prospection": "Agent de prospection",
+            "google_maps": "Google Maps",
+            "linkedin": "LinkedIn",
+            "instagram": "Instagram",
+            "facebook": "Facebook",
+            "web": "Web",
+            "other": "Autre",
         }.get(obj.source, obj.source)
 
+    def get_next_task(self, obj):
+        task = (
+            obj.task_set.filter(status__in=["pending", "ready", "in_progress", "todo"])
+            .order_by("due_date", "created_at")
+            .first()
+        )
+        if not task:
+            return None
+        return {
+            "id": task.id,
+            "title": task.title,
+            "type": task.task_type,
+            "status": task.status,
+            "priority": task.priority,
+            "due_date": task.due_date,
+        }
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        crm_company = getattr(getattr(request, "user", None), "company", None)
+
+        name = (attrs.pop("name", "") or "").strip()
+        website_url = attrs.pop("website_url", None)
+        if website_url and not attrs.get("website"):
+            attrs["website"] = website_url
+
+        for optional_field in [
+            "email", "phone", "title", "city", "country", "description", "origin", "evaluation",
+            "source", "website", "source_url", "linkedin_url", "facebook_url",
+            "instagram_url", "google_maps_url", "notes",
+        ]:
+            if attrs.get(optional_field) == "":
+                attrs[optional_field] = None
+
+        first_name = (attrs.get("first_name") or "").strip()
+        last_name = (attrs.get("last_name") or "").strip()
+        if name and not (first_name or last_name):
+            parts = name.split(maxsplit=1)
+            attrs["first_name"] = parts[0]
+            attrs["last_name"] = parts[1] if len(parts) > 1 else ""
+        elif first_name or last_name:
+            attrs["first_name"] = first_name
+            attrs["last_name"] = last_name
+        elif self.instance:
+            pass
+        else:
+            raise serializers.ValidationError({"name": "Le nom du prospect est obligatoire."})
+
+        prospect_company = attrs.get("prospect_company")
+        if prospect_company and crm_company and prospect_company.company_id != crm_company.id:
+            raise serializers.ValidationError(
+                {"prospect_company": "Cette societe prospect n'appartient pas a votre CRM."}
+            )
+        return attrs
+
+    def _resolve_prospect_company(self, validated_data, crm_company):
+        prospect_company_name = (validated_data.pop("prospect_company_name", "") or "").strip()
+        prospect_company = validated_data.pop("prospect_company", None)
+        if prospect_company_name:
+            prospect_company, _ = ProspectCompany.objects.get_or_create(
+                name=prospect_company_name,
+                company=crm_company,
+            )
+        return prospect_company
+
     def create(self, validated_data):
-        prospect_company_name = validated_data.pop("prospect_company_name")
         user        = self.context["request"].user
         crm_company = user.company
-
-        prospect_company, _ = ProspectCompany.objects.get_or_create(
-            name=prospect_company_name,
-            company=crm_company,
-        )
+        prospect_company = self._resolve_prospect_company(validated_data, crm_company)
 
         if "assigned_to" not in validated_data or validated_data["assigned_to"] is None:
             validated_data["assigned_to"] = user
@@ -120,9 +251,24 @@ class ProspectSerializer(serializers.ModelSerializer):
 
         return Prospect.objects.create(
             **validated_data,
+            engagement_status="new",
+            generated_message=None,
+            last_engagement_channel=None,
+            engagement_error=None,
+            last_engagement_at=None,
             company=crm_company,
             prospect_company=prospect_company,
         )
+
+    def update(self, instance, validated_data):
+        crm_company = self.context["request"].user.company
+        if "prospect_company_name" in validated_data or "prospect_company" in validated_data:
+            instance.prospect_company = self._resolve_prospect_company(validated_data, crm_company)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
 
 
 # -----------------------
@@ -274,6 +420,8 @@ class TaskSerializer(serializers.ModelSerializer):
     # ✅ Expose is_overdue et quota_percentage
     is_overdue         = serializers.BooleanField(read_only=True)
     quota_percentage   = serializers.IntegerField(read_only=True)
+    prospect_name      = serializers.SerializerMethodField()
+    prospect_company_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Task
@@ -284,8 +432,10 @@ class TaskSerializer(serializers.ModelSerializer):
             "assigned_to", "assigned_to_detail",
             "created_by", "created_by_detail",
             "parent_task", "closing_report", "closed_at",
+            "completed_at", "source", "linked_engagement_message", "engagement_log",
             "calls_count", "emails_count", "meetings_count", "notes_count",
-            "prospect", "contact", "opportunity",
+            "prospect", "prospect_name", "prospect_company", "prospect_company_name",
+            "contact", "opportunity",
             "company", "created_at", "updated_at",
             "activities", "comments",
             "follow_up_tasks_count", "is_overdue",
@@ -294,11 +444,23 @@ class TaskSerializer(serializers.ModelSerializer):
             "assigned_to_detail", "created_by", "created_by_detail",
             "company", "created_at", "updated_at",
             "activities", "comments", "follow_up_tasks_count",
-            "is_overdue", "quota_percentage",
+            "is_overdue", "quota_percentage", "prospect_name", "prospect_company_name",
         ]
 
     def get_follow_up_tasks_count(self, obj):
         return obj.follow_up_tasks.count()
+
+    def get_prospect_name(self, obj):
+        if obj.prospect:
+            return f"{obj.prospect.first_name} {obj.prospect.last_name}".strip()
+        return None
+
+    def get_prospect_company_name(self, obj):
+        if obj.prospect_company:
+            return obj.prospect_company.name
+        if obj.prospect and obj.prospect.prospect_company:
+            return obj.prospect.prospect_company.name
+        return None
 
 
 # ──────────────────────────────────────────────────────────

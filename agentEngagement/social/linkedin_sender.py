@@ -1,31 +1,24 @@
-from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-SESSIONS_DIR = BASE_DIR / "sessions" / "linkedin"
-SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def get_profile_dir(user_id: int) -> Path:
-    path = SESSIONS_DIR / f"user_{user_id}"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+from .session_manager import ensure_linkedin_session, get_linkedin_profile_dir
 
 
 class LinkedInSender:
     def __init__(self, user_id: int, headless: bool = False):
         self.user_id = user_id
         self.headless = headless
-        self.profile_dir = get_profile_dir(user_id)
+        self.profile_dir = get_linkedin_profile_dir(user_id)
 
     def send(self, profile_url: str, message: str, send: bool = False) -> str:
+        if not ensure_linkedin_session(self.user_id):
+            return "linkedin_login_required"
+
         with sync_playwright() as p:
             context = p.chromium.launch_persistent_context(
                 user_data_dir=str(self.profile_dir),
-                headless=self.headless,
-                slow_mo=120,
-                viewport={"width": 1366, "height": 900},
+                headless=False,
+                slow_mo=300,
+                viewport={"width": 1400, "height": 900},
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--start-maximized",
@@ -36,7 +29,7 @@ class LinkedInSender:
 
             try:
                 if not self.ensure_login(page):
-                    return "login_required"
+                    return "linkedin_login_required"
 
                 print(f"👤 Ouverture profil : {profile_url}")
                 page.goto(profile_url, wait_until="domcontentloaded", timeout=90000)

@@ -1,20 +1,13 @@
-from pathlib import Path
 from playwright.sync_api import sync_playwright
-import time
 import random
+import time
 
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-SESSION_DIR = BASE_DIR / "sessions"
-SESSION_DIR.mkdir(exist_ok=True)
+from .manual_login import instagram_login_required, wait_manual_login
+from .session_manager import get_social_profile_dir
 
 
 def human_delay(min_ms=800, max_ms=2000):
     time.sleep(random.uniform(min_ms / 1000, max_ms / 1000))
-
-
-def get_storage_file(user_id: int):
-    return SESSION_DIR / f"instagram_session_user_{user_id}.json"
 
 
 def close_popups(page):
@@ -135,124 +128,109 @@ def send_instagram_message(
     user_id: int,
     send: bool = False,
 ) -> str:
-    storage_file = get_storage_file(user_id)
+    profile_dir = get_social_profile_dir("instagram", user_id)
+    keep_context_open = False
+    playwright = sync_playwright().start()
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
+    try:
+        context = playwright.chromium.launch_persistent_context(
+            user_data_dir=str(profile_dir),
             headless=False,
-            slow_mo=80,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
-
-        context_kwargs = {
-            "user_agent": (
+            slow_mo=300,
+            user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/124.0.0.0 Safari/537.36"
             ),
-            "viewport": {"width": 1280, "height": 800},
-        }
+            viewport={"width": 1280, "height": 800},
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--start-maximized",
+            ],
+        )
+        page = context.pages[0] if context.pages else context.new_page()
 
-        if storage_file.exists():
-            context_kwargs["storage_state"] = str(storage_file)
+        try:
+            page.goto(profile_url, wait_until="domcontentloaded", timeout=60000)
 
-        context = browser.new_context(**context_kwargs)
-        page = context.new_page()
+            if instagram_login_required(page):
+                ok = wait_manual_login(page, "instagram")
 
-        page.goto("https://www.instagram.com/", wait_until="domcontentloaded")
-        human_delay(3000, 4000)
-        close_popups(page)
+                if not ok:
+                    keep_context_open = True
+                    return "instagram_login_required"
 
-        if "login" in page.url or page.locator("input[name='username']").count() > 0:
-            page.goto("https://www.instagram.com/accounts/login/", wait_until="domcontentloaded")
-            input("Connecte-toi à Instagram puis appuie sur ENTER...")
-            context.storage_state(path=str(storage_file))
-            human_delay(2000, 3000)
+                page.goto(profile_url, wait_until="domcontentloaded", timeout=60000)
+
+            page.wait_for_timeout(8000)
             close_popups(page)
 
-        page.goto(profile_url, wait_until="domcontentloaded")
-        human_delay(3000, 4000)
-        close_popups(page)
+            if page.locator("h2:has-text('introuvable'), h2:has-text('Not Found')").count() > 0:
+                return "not_found"
 
-        if page.locator("h2:has-text('introuvable'), h2:has-text('Not Found')").count() > 0:
-            context.storage_state(path=str(storage_file))
-            browser.close()
-            return "not_found"
+            msg_btn = click_message_button(page)
 
-        msg_btn = click_message_button(page)
+            if not msg_btn:
+                page.screenshot(path=f"debug_ig_no_btn_user_{user_id}.png")
+                return "no_message_button"
 
-        if not msg_btn:
-            page.screenshot(path=f"debug_ig_no_btn_user_{user_id}.png")
-            context.storage_state(path=str(storage_file))
-            browser.close()
-            return "no_message_button"
-
-        msg_btn.click()
-        human_delay(1500, 2500)
-
-        if handle_contacter_modal(page):
+            msg_btn.click()
             human_delay(1500, 2500)
 
-        request_confirmed = handle_message_request_popup(page)
+            if handle_contacter_modal(page):
+                human_delay(1500, 2500)
 
-        if request_confirmed:
             try:
+                handle_message_request_popup(page)
                 page.wait_for_url("**/direct/t/**", timeout=6000)
             except Exception:
                 pass
+
             human_delay(1000, 2000)
-        else:
-            try:
-                page.wait_for_url("**/direct/t/**", timeout=6000)
-            except Exception:
-                pass
-            human_delay(1000, 2000)
+            close_popups(page)
 
-        close_popups(page)
+            input_box = wait_for_message_input(page, timeout_ms=15000)
 
-        input_box = wait_for_message_input(page, timeout_ms=15000)
+            if not input_box:
+                page.screenshot(path=f"debug_ig_no_input_user_{user_id}.png")
+                return "message_failed"
 
-        if not input_box:
-            page.screenshot(path=f"debug_ig_no_input_user_{user_id}.png")
-            context.storage_state(path=str(storage_file))
-            browser.close()
-            return "message_failed"
+            input_box.click()
+            human_delay(400, 700)
+            page.keyboard.type(message, delay=35)
+            human_delay(600, 1200)
 
-        input_box.click()
-        human_delay(400, 700)
-        page.keyboard.type(message, delay=35)
-        human_delay(600, 1200)
+            if not send:
+                return "message_ready"
 
-        if not send:
-            context.storage_state(path=str(storage_file))
-            browser.close()
-            return "message_ready"
+            sent = False
 
-        sent = False
+            selectors = [
+                "button:has-text('Envoyer')",
+                "button:has-text('Send')",
+                "[aria-label='Envoyer']",
+                "[aria-label='Send']",
+                "div[role='dialog'] button:has-text('Envoyer')",
+            ]
 
-        selectors = [
-            "button:has-text('Envoyer')",
-            "button:has-text('Send')",
-            "[aria-label='Envoyer']",
-            "[aria-label='Send']",
-            "div[role='dialog'] button:has-text('Envoyer')",
-        ]
+            for sel in selectors:
+                try:
+                    btn = page.locator(sel).last
+                    if btn.is_visible(timeout=2000) and btn.is_enabled():
+                        btn.click()
+                        sent = True
+                        break
+                except Exception:
+                    pass
 
-        for sel in selectors:
-            try:
-                btn = page.locator(sel).last
-                if btn.is_visible(timeout=2000) and btn.is_enabled():
-                    btn.click()
-                    sent = True
-                    break
-            except Exception:
-                pass
+            if not sent:
+                input_box.press("Enter")
 
-        if not sent:
-            input_box.press("Enter")
-
-        human_delay(2000, 3000)
-        context.storage_state(path=str(storage_file))
-        browser.close()
-
-        return "message_sent"
+            human_delay(2000, 3000)
+            return "message_sent"
+        finally:
+            if not keep_context_open:
+                context.close()
+    finally:
+        if not keep_context_open:
+            playwright.stop()
