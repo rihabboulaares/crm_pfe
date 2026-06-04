@@ -65,12 +65,15 @@ def serialize_prospect(prospect, request):
     data["engagement_channel"] = prospect.last_engagement_channel
     data["company_name"] = prospect.prospect_company.name if prospect.prospect_company else ""
     data["social_profile_summary"] = prospect.social_profile_summary or ""
+    data["social_profile_description"] = prospect.social_profile_description or ""
     data["social_profile_interests"] = prospect.social_profile_interests or []
     data["social_profile_activity_level"] = prospect.social_profile_activity_level or ""
     data["social_profile_tone"] = prospect.social_profile_tone or ""
     data["social_profile_relevance"] = prospect.social_profile_relevance or ""
     data["social_profile_hook"] = prospect.social_profile_hook or ""
+    data["social_profile_topics"] = prospect.social_profile_topics or []
     data["social_profile_analysis"] = prospect.social_profile_analysis or {}
+    data["social_profile_last_analyzed_at"] = prospect.social_profile_last_analyzed_at
     return data
 
 

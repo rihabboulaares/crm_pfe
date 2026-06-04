@@ -108,10 +108,15 @@ JSON EXACT :
 SOCIAL_PROFILE_ANALYSIS_PROMPT = """
 Tu es un assistant d'analyse commerciale de profils sociaux.
 
-Analyse les informations publiques d'un prospect a partir de son profil et de ses publications recentes.
+Analyse les donnees publiques du prospect et ses posts recents.
 
-Objectif :
-Creer une analyse courte qui aide un commercial a ecrire un message personnalise, naturel et pertinent.
+Tu dois produire une description utile pour un commercial afin de comprendre rapidement :
+- qui est ce prospect ;
+- son domaine ;
+- ses centres d'interet ;
+- son niveau d'activite ;
+- les sujets qu'il publie ;
+- comment personnaliser un message.
 
 Donnees du prospect :
 {prospect_data}
@@ -119,15 +124,20 @@ Donnees du prospect :
 Donnees sociales scrapees :
 {scraped_data}
 
-Retourne uniquement un JSON valide avec les champs suivants :
+Ne pas inventer d'informations.
+Si les donnees sont insuffisantes, l'indiquer clairement.
+
+Retourne uniquement un JSON valide :
 {
-  "summary": "resume court du profil en 1 ou 2 phrases",
+  "summary": "resume court en 1 ou 2 phrases",
+  "description": "description complete du profil en 4 a 8 lignes",
+  "profile_type": "type du prospect",
   "interests": ["centre d'interet 1", "centre d'interet 2"],
   "activity_level": "active | medium | low | inactive | unknown",
   "communication_tone": "professional | friendly | technical | formal | casual | neutral",
   "recent_topics": ["sujet recent 1", "sujet recent 2"],
   "commercial_relevance": "high | medium | low | unknown",
-  "personalized_hook": "une phrase d'accroche personnalisee",
+  "personalized_hook": "phrase d'accroche personnalisee basee sur les donnees reelles",
   "message_recommendation": "conseil court pour ecrire le message",
   "confidence": 0.0
 }
@@ -149,10 +159,20 @@ def build_engagement_prompt(profile_data: dict, social_analysis: dict = None) ->
         social_section = f"""
 
 ANALYSE SOCIALE DU PROSPECT :
+Resume social : {social_analysis.get("summary") or "N/A"}
+Description complete : {social_analysis.get("description") or "N/A"}
+Type de prospect : {social_analysis.get("profile_type") or "N/A"}
+Centres d'interet : {social_analysis.get("interests") or []}
+Sujets recents : {social_analysis.get("recent_topics") or []}
+Activite : {social_analysis.get("activity_level") or "unknown"}
+Accroche recommandee : {social_analysis.get("personalized_hook") or "N/A"}
+
+Details JSON :
 {_format_data(social_analysis)}
 
 Utilise cette analyse seulement si elle est fiable.
 Si elle est vide ou incertaine, ignore-la.
+Si la description sociale existe, personnalise le message avec cette description.
 Ne mentionne jamais que les donnees viennent d'un scraping.
 Ecris un message naturel, court et professionnel.
 """.rstrip()

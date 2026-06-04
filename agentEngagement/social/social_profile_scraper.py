@@ -33,19 +33,21 @@ def _normalize_posts(posts):
     normalized = []
     for item in (posts or [])[:10]:
         if isinstance(item, dict):
-            text = item.get("text") or item.get("content") or ""
+            text = item.get("text") or item.get("caption") or item.get("content") or ""
             date = item.get("date") or item.get("created_at") or ""
             hashtags = item.get("hashtags") or _hashtags_from_text(text)
-            normalized.append(
-                {
-                    "url": item.get("url") or item.get("link") or item.get("permalink") or "",
-                    "text": str(text)[:1200],
-                    "date": str(date)[:80] if date else "",
-                    "hashtags": hashtags[:10],
-                    "likes": item.get("likes"),
-                    "comments": item.get("comments"),
-                }
-            )
+
+            if text:
+                normalized.append(
+                    {
+                        "url": item.get("url") or item.get("link") or item.get("permalink") or "",
+                        "text": str(text)[:1200],
+                        "date": str(date or "")[:80],
+                        "hashtags": hashtags[:10],
+                        "likes": item.get("likes"),
+                        "comments": item.get("comments"),
+                    }
+                )
         elif item:
             text = str(item)
             normalized.append(
@@ -93,6 +95,15 @@ def _normalize_success(platform, profile_url, data):
     )
     headline = data.get("headline") or data.get("title") or data.get("header") or ""
     visible_text = data.get("main_text") or data.get("page_text_preview") or data.get("header") or ""
+    profile_description = " ".join(
+        [
+            str(display_name or ""),
+            str(headline or ""),
+            str(bio or ""),
+            str(data.get("about") or ""),
+            str(data.get("experience") or ""),
+        ]
+    )[:3000]
 
     return {
         "success": True,
@@ -103,6 +114,7 @@ def _normalize_success(platform, profile_url, data):
         "headline": headline,
         "bio": bio,
         "description": data.get("description") or bio,
+        "profile_description": profile_description,
         "visible_text": str(visible_text)[:2500],
         "page_text_preview": str(data.get("page_text_preview") or "")[:2500],
         "main_text": str(data.get("main_text") or "")[:2500],

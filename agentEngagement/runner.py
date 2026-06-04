@@ -100,30 +100,57 @@ def should_reuse_social_analysis(prospect):
 
 def _save_social_analysis(prospect, analysis):
     prospect.social_profile_summary = analysis.get("summary", "")
+    prospect.social_profile_description = analysis.get("description", "")
     prospect.social_profile_interests = analysis.get("interests", [])
     prospect.social_profile_activity_level = analysis.get("activity_level", "unknown")
     prospect.social_profile_tone = analysis.get("communication_tone", "neutral")
     prospect.social_profile_relevance = analysis.get("commercial_relevance", "unknown")
     prospect.social_profile_hook = analysis.get("personalized_hook", "")
+    prospect.social_profile_topics = analysis.get("recent_topics", [])
     prospect.social_profile_analysis = analysis
     prospect.social_profile_last_analyzed_at = timezone.now()
 
     prospect.save(
         update_fields=[
             "social_profile_summary",
+            "social_profile_description",
             "social_profile_interests",
             "social_profile_activity_level",
             "social_profile_tone",
             "social_profile_relevance",
             "social_profile_hook",
+            "social_profile_topics",
             "social_profile_analysis",
             "social_profile_last_analyzed_at",
         ]
     )
 
 
+def get_existing_social_analysis(prospect):
+    analysis = getattr(prospect, "social_profile_analysis", None) or {}
+
+    if analysis:
+        return analysis
+
+    if getattr(prospect, "social_profile_description", None) or getattr(prospect, "social_profile_summary", None):
+        return {
+            "success": True,
+            "summary": prospect.social_profile_summary or "",
+            "description": prospect.social_profile_description or "",
+            "interests": prospect.social_profile_interests or [],
+            "activity_level": prospect.social_profile_activity_level or "unknown",
+            "communication_tone": prospect.social_profile_tone or "neutral",
+            "commercial_relevance": prospect.social_profile_relevance or "unknown",
+            "personalized_hook": prospect.social_profile_hook or "",
+            "recent_topics": prospect.social_profile_topics or [],
+        }
+
+    return None
+
+
 def enrich_prospect_with_social_analysis(prospect, channel=None, force=False, existing_scraped_data=None):
     try:
+        logger.info("[social-analysis] started Prospect #%s", prospect.pk)
         if not force and should_reuse_social_analysis(prospect):
             logger.info("[social-analysis] reused existing analysis for Prospect #%s", prospect.pk)
             return {
@@ -149,12 +176,12 @@ def enrich_prospect_with_social_analysis(prospect, channel=None, force=False, ex
                 "analysis": None,
             }
 
-        logger.info("[social-analysis] gemini analysis started")
+        logger.info("[social-analysis] Gemini analysis started")
         analysis = analyze_social_profile_with_gemini(prospect=prospect, scraped_data=scraped_data)
 
         if analysis.get("success"):
             _save_social_analysis(prospect, analysis)
-            logger.info("[social-analysis] analysis saved")
+            logger.info("[social-analysis] summary saved Prospect #%s", prospect.pk)
         else:
             logger.warning("[social-analysis] gemini analysis failed: %s", analysis.get("error"))
             logger.info("[social-analysis] skipped, continuing old flow")
@@ -193,12 +220,12 @@ def prepare_engagement(prospect, user, scrape=True) -> dict:
                 "engagement_status": prospect.engagement_status,
             }
 
-        previous_engagement_status = prospect.engagement_status
         set_status(prospect, "preparing")
 
         scraped_data = {}
+        social_analysis = get_existing_social_analysis(prospect)
 
-        if scrape:
+        if scrape and not social_analysis:
             scraper = EngagementScraper()
             scraped_data = scraper.scrape_prospect_profiles(prospect , user_id=user.id,)
 
@@ -228,13 +255,15 @@ def prepare_engagement(prospect, user, scrape=True) -> dict:
                     selected_channel = candidate
                     break
 
-        social_context = enrich_prospect_with_social_analysis(
-            prospect=prospect,
-            channel=selected_channel,
-            force=previous_engagement_status == "not_qualified",
-            existing_scraped_data=scraped_data.get(selected_channel) if selected_channel else None,
-        )
-        social_analysis = social_context.get("analysis") if social_context.get("success") else None
+        if social_analysis:
+            logger.info("[brain] using existing social analysis")
+        else:
+            social_context = enrich_prospect_with_social_analysis(
+                prospect=prospect,
+                channel=selected_channel,
+                existing_scraped_data=scraped_data.get(selected_channel) if selected_channel else None,
+            )
+            social_analysis = social_context.get("analysis") if social_context.get("success") else None
 
         result = analyze_and_generate(profile_data, social_analysis=social_analysis)
 

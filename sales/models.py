@@ -159,11 +159,13 @@ class Prospect(models.Model):
     engagement_error = models.TextField(blank=True, null=True)
     engagement_subject = models.CharField(max_length=255, blank=True, null=True)
     social_profile_summary = models.TextField(blank=True, null=True)
+    social_profile_description = models.TextField(blank=True, null=True)
     social_profile_interests = models.JSONField(default=list, blank=True)
     social_profile_activity_level = models.CharField(max_length=50, blank=True, null=True)
     social_profile_tone = models.CharField(max_length=50, blank=True, null=True)
     social_profile_relevance = models.CharField(max_length=50, blank=True, null=True)
     social_profile_hook = models.TextField(blank=True, null=True)
+    social_profile_topics = models.JSONField(default=list, blank=True)
     social_profile_analysis = models.JSONField(default=dict, blank=True)
     social_profile_last_analyzed_at = models.DateTimeField(blank=True, null=True)
     source = models.CharField(

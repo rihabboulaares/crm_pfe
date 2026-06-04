@@ -73,8 +73,20 @@ class EngagementScraper:
         }
 
         if prospect.linkedin_url:
-            result["linkedin"] = self.scrape_linkedin(prospect.linkedin_url, user_id)
-            logger.info("[scraper] LinkedIn scraped for Prospect #%s", prospect.pk)
+            linkedin_result = self.scrape_linkedin(prospect.linkedin_url, user_id)
+            if linkedin_result.get("success") is False or linkedin_result.get("error"):
+                result["linkedin"] = {
+                    "success": False,
+                    "platform": "linkedin",
+                    "status": linkedin_result.get("status"),
+                    "error": linkedin_result.get("error")
+                    or linkedin_result.get("message")
+                    or "linkedin_scrape_failed",
+                }
+                logger.warning("[scraper] LinkedIn failed but workflow continues")
+            else:
+                result["linkedin"] = linkedin_result.get("data", linkedin_result)
+                logger.info("[scraper] LinkedIn scraped for Prospect #%s", prospect.pk)
 
         if prospect.facebook_url:
             logger.info("[scraper] Facebook scraping started")
@@ -202,7 +214,29 @@ class EngagementScraper:
                 except Exception:
                     pass
 
+                try:
+                    about = page.locator("section:has-text('A propos'), section:has-text('À propos'), section:has-text('About')").first
+                    if about.is_visible(timeout=2000):
+                        data["about"] = about.inner_text(timeout=3000).strip()[:3000]
+                except Exception:
+                    pass
+
+                try:
+                    experience = page.locator("section:has-text('Experience'), section:has-text('Expérience'), section:has-text('Experience')").first
+                    if experience.is_visible(timeout=2000):
+                        data["experience"] = experience.inner_text(timeout=3000).strip()[:4000]
+                except Exception:
+                    pass
+
+                try:
+                    education = page.locator("section:has-text('Formation'), section:has-text('Education')").first
+                    if education.is_visible(timeout=2000):
+                        data["education"] = education.inner_text(timeout=3000).strip()[:3000]
+                except Exception:
+                    pass
+
                 data["recent_posts"] = self._extract_linkedin_posts(page)
+                data["posts"] = data["recent_posts"]
 
                 return data
 
@@ -251,8 +285,15 @@ class EngagementScraper:
             for i in range(count):
                 try:
                     text = candidates.nth(i).inner_text(timeout=1200).strip()
-                    if len(text) > 40 and text not in posts:
-                        posts.append(text[:800])
+                    if len(text) > 40 and text not in [post.get("text") for post in posts]:
+                        posts.append(
+                            {
+                                "url": "",
+                                "text": text[:1000],
+                                "hashtags": sorted(set(re.findall(r"#([\w\-]+)", text)))[:10],
+                                "platform": "linkedin",
+                            }
+                        )
                 except Exception:
                     pass
         except Exception:
@@ -447,8 +488,15 @@ class EngagementScraper:
             for i in range(count):
                 try:
                     text = candidates.nth(i).inner_text(timeout=1000).strip()
-                    if len(text) > 40 and text not in posts:
-                        posts.append(text[:800])
+                    if len(text) > 40 and text not in [post.get("text") for post in posts]:
+                        posts.append(
+                            {
+                                "url": "",
+                                "text": text[:1000],
+                                "hashtags": sorted(set(re.findall(r"#([\w\-]+)", text)))[:10],
+                                "platform": "facebook",
+                            }
+                        )
                 except Exception:
                     pass
         except Exception:
@@ -492,6 +540,7 @@ class EngagementScraper:
 
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                logger.info("[scraper][instagram] profile opened")
 
                 if instagram_login_required(page):
                     ok = wait_manual_login(page, "instagram")
@@ -585,6 +634,9 @@ class EngagementScraper:
                 print("[scraper] bio =", data.get("bio"))
                 print("[scraper] followers =", data.get("followers"))
                 print("[scraper] external_url =", data.get("external_url"))
+                logger.info("[scraper][instagram] username=%s", data.get("username"))
+                logger.info("[scraper][instagram] bio=%s", data.get("bio"))
+                logger.info("[scraper][instagram] posts_count=%s", len(data.get("recent_posts") or []))
 
                 if not is_valid_social_profile_data(data):
                     return {
@@ -665,6 +717,8 @@ class EngagementScraper:
                 except Exception:
                     pass
 
+            logger.info("[scraper][instagram] post links found: %s", len(links))
+
             for href in links[:8]:
                 post_page = None
                 try:
@@ -688,7 +742,7 @@ class EngagementScraper:
                         }
                     )
                 except Exception:
-                    pass
+                    logger.warning("[scraper][instagram] post scrape failed %s", href)
                 finally:
                     if post_page:
                         try:
@@ -697,6 +751,7 @@ class EngagementScraper:
                             pass
 
             if posts:
+                logger.info("[scraper][instagram] posts scraped: %s", len(posts))
                 return posts
 
             candidates = page.locator("main span, article span, header span")
@@ -721,6 +776,7 @@ class EngagementScraper:
 
             return fallback[:10]
         except Exception:
+            logger.warning("[scraper][instagram] extract posts failed")
             return posts
 
     # =====================

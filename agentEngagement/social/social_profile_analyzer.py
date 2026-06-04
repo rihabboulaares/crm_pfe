@@ -21,6 +21,8 @@ GEMINI_MODEL = getattr(
 DEFAULT_ANALYSIS = {
     "success": False,
     "summary": "",
+    "description": "",
+    "profile_type": "",
     "interests": [],
     "activity_level": "unknown",
     "communication_tone": "neutral",
@@ -85,6 +87,8 @@ def _normalize_analysis(data):
     return {
         "success": True,
         "summary": str(data.get("summary") or "")[:800],
+        "description": str(data.get("description") or "")[:2000],
+        "profile_type": str(data.get("profile_type") or "")[:150],
         "interests": list(data.get("interests") or [])[:10],
         "activity_level": data.get("activity_level") or "unknown",
         "communication_tone": data.get("communication_tone") or "neutral",

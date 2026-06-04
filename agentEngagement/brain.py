@@ -364,6 +364,7 @@ def analyze_and_generate(profile_data: dict, social_analysis: dict = None) -> Op
             result.action_type,
         )
 
+        logger.info("[brain] personalized message generated")
         return result
 
     except Exception as exc:
