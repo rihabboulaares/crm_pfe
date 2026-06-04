@@ -9,6 +9,9 @@ import AppBar from "@mui/material/AppBar";
 import Toolbar from "@mui/material/Toolbar";
 import IconButton from "@mui/material/IconButton";
 import Icon from "@mui/material/Icon";
+import Avatar from "@mui/material/Avatar";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 
 import MDBox from "components/MDBox";
 import MDInput from "components/MDInput";
@@ -37,6 +40,16 @@ function DashboardNavbar({ absolute, light, isMini }) {
   const [controller, dispatch] = useMaterialUIController();
   const { miniSidenav, transparentNavbar, fixedNavbar, openConfigurator, darkMode } = controller;
   const route = useLocation().pathname.split("/").slice(1);
+  const [storedUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("user") || localStorage.getItem("currentUser") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const displayName =
+    storedUser?.username || storedUser?.first_name || storedUser?.email || storedUser?.company || "CRM";
+  const displayRole = storedUser?.role || storedUser?.company_name || "Workspace";
 
   useEffect(() => {
     if (fixedNavbar) {
@@ -89,10 +102,43 @@ function DashboardNavbar({ absolute, light, isMini }) {
           <MDBox sx={(theme) => navbarRow(theme, { isMini })}>
             {/* Search */}
             <MDBox pr={1}>
-              <MDInput label="Search here" />
+              <MDInput label="Rechercher" />
             </MDBox>
 
             <MDBox color={light ? "white" : "inherit"} display="flex" alignItems="center" gap={0.5}>
+              <Box
+                sx={{
+                  display: { xs: "none", md: "flex" },
+                  alignItems: "center",
+                  gap: 1,
+                  px: 1,
+                  py: 0.5,
+                  mr: 0.5,
+                  borderRadius: 2,
+                  border: "1px solid rgba(229,231,235,0.9)",
+                  bgcolor: "#fff",
+                }}
+              >
+                <Avatar
+                  sx={{
+                    width: 30,
+                    height: 30,
+                    bgcolor: "#C1121F",
+                    fontSize: "0.8rem",
+                    fontWeight: 800,
+                  }}
+                >
+                  {String(displayName).charAt(0).toUpperCase()}
+                </Avatar>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#1F2937" }}>
+                    {displayName}
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.66rem", color: "#6B7280", lineHeight: 1 }}>
+                    {displayRole}
+                  </Typography>
+                </Box>
+              </Box>
               {/* Profil */}
               <Link to="/profile">
                 <IconButton sx={navbarIconButton} size="small" disableRipple>

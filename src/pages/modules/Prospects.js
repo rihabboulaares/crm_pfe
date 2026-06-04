@@ -105,6 +105,7 @@ import {
   Error as ErrorIcon,
   Info as InfoIcon,
   LocationOn as LocationOnIcon,
+  OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 
 import MDBox from "components/MDBox";
@@ -116,8 +117,49 @@ import PaginationBar from "../../components/PaginationBar";
 import { runProspectionAgent } from "../../services/prospectAgentApi";
 
 const SOURCE_CONFIG = {
-  commercial: { label: "Commercial", color: "#1976d2" },
-  agent_prospection: { label: "Agent de prospection", color: "#7b1fa2" },
+  google_maps: { label: "Google Maps", color: "#d32f2f" },
+  linkedin: { label: "LinkedIn", color: "#0077b5" },
+  instagram: { label: "Instagram", color: "#e1306c" },
+  facebook: { label: "Facebook", color: "#1877f2" },
+  web: { label: "Web", color: "#c62828" },
+  other: { label: "Autre", color: "#6d4c41" },
+  commercial: { label: "Commercial", color: "#b71c1c" },
+  agent_prospection: { label: "Agent de prospection", color: "#8e0000" },
+};
+
+const PROSPECT_SOURCE_OPTIONS = [
+  ["google_maps", "Google Maps"],
+  ["linkedin", "LinkedIn"],
+  ["instagram", "Instagram"],
+  ["facebook", "Facebook"],
+  ["web", "Web"],
+  ["other", "Autre"],
+];
+
+const TASK_TYPE_OPTIONS = [
+  ["classic", "Tache classique"],
+  ["call", "Appel"],
+  ["linkedin_message", "Message LinkedIn"],
+  ["email", "Email"],
+  ["facebook_message", "Message Facebook"],
+  ["instagram_message", "Message Instagram"],
+  ["follow_up", "Relance"],
+  ["meeting", "RDV"],
+  ["note", "Note"],
+  ["other", "Autre"],
+];
+
+const getProspectDisplayName = (prospect) =>
+  [prospect?.first_name, prospect?.last_name].filter(Boolean).join(" ").trim() || "Sans nom";
+
+const getProspectInitials = (prospect) => {
+  const name = getProspectDisplayName(prospect);
+  return name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
 };
 
 const SourceBadge = ({ source }) => {
@@ -183,11 +225,18 @@ SocialLink.propTypes = {
 // CONFIG
 // ==============================
 const API_BASE_URL = "http://127.0.0.1:8000/api/sales";
+const API_ENGAGEMENT_URL = "http://127.0.0.1:8000/api/engagement";
 const API_USER_ME = "http://127.0.0.1:8000/api/users/me/";
 const API_ASSIGNABLE = "http://127.0.0.1:8000/api/users/assignable-users/";
 
 const api = axios.create({ baseURL: API_BASE_URL });
 api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+const engagementApi = axios.create({ baseURL: API_ENGAGEMENT_URL });
+engagementApi.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
@@ -446,6 +495,16 @@ const ProspectTableRow = ({
   onContextMenu,
 }) => {
   const isAdminOrManager = currentUser && ["ADMIN", "MANAGER"].includes(currentUser.role);
+  const displayName = getProspectDisplayName(prospect);
+  const linkedCompanyName = companyName || prospect.prospect_company_detail?.name;
+  const sourceLinks = [
+    { href: prospect.source_url, icon: OpenInNewIcon, label: "Source", color: THEME.primary },
+    { href: prospect.google_maps_url, icon: LocationOnIcon, label: "Maps", color: "#d32f2f" },
+    { href: prospect.website, icon: LanguageIcon, label: "Web", color: "#1976d2" },
+    { href: prospect.linkedin_url, icon: LinkedInIcon, label: "LinkedIn", color: "#0077b5" },
+    { href: prospect.facebook_url, icon: FacebookIcon, label: "Facebook", color: "#1877f2" },
+    { href: prospect.instagram_url, icon: InstagramIcon, label: "Instagram", color: "#e1306c" },
+  ].filter((link) => link.href);
   return (
     <StyledTableRow
       onDoubleClick={() => onView(prospect)}
@@ -465,12 +524,11 @@ const ProspectTableRow = ({
               flexShrink: 0,
             }}
           >
-            {prospect.first_name?.[0]}
-            {prospect.last_name?.[0]}
+            {getProspectInitials(prospect)}
           </Avatar>
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="body2" fontWeight={600} noWrap>
-              {prospect.first_name} {prospect.last_name}
+              {displayName}
             </Typography>
             <Typography variant="caption" color="textSecondary" noWrap>
               {prospect.title || "Sans titre"}
@@ -498,6 +556,11 @@ const ProspectTableRow = ({
               </Typography>
             </Box>
           )}
+          {!prospect.email && !prospect.phone && (
+            <Typography variant="caption" color="textSecondary">
+              —
+            </Typography>
+          )}
         </Stack>
       </TableCell>
 
@@ -524,9 +587,34 @@ const ProspectTableRow = ({
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, maxWidth: 130 }}>
           <BusinessIcon sx={{ fontSize: 14, color: alpha(THEME.primary, 0.6), flexShrink: 0 }} />
           <Typography variant="body2" noWrap>
-            {companyName || "Indépendant"}
+            {linkedCompanyName || "Sans societe"}
           </Typography>
         </Box>
+      </TableCell>
+
+      <TableCell>
+        {prospect.description ? (
+          <Tooltip title={prospect.description}>
+            <Typography
+              variant="caption"
+              sx={{
+                display: "-webkit-box",
+                maxWidth: 220,
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+                color: "text.secondary",
+                lineHeight: 1.35,
+              }}
+            >
+              {prospect.description}
+            </Typography>
+          </Tooltip>
+        ) : (
+          <Typography variant="caption" color="textSecondary">
+            -
+          </Typography>
+        )}
       </TableCell>
 
       {/* Assigné à */}
@@ -587,16 +675,66 @@ const ProspectTableRow = ({
         />
       </TableCell>
 
-      {/* Origine */}
+      {/* Prochaine tache */}
       <TableCell>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          {getOriginIcon(prospect.origin, {
-            sx: { fontSize: 14, color: alpha(THEME.primary, 0.6) },
-          })}
-          <Typography variant="caption" noWrap>
-            {getOriginLabel(prospect.origin)}
+        {prospect.next_task ? (
+          <Chip
+            size="small"
+            label={prospect.next_task.title}
+            sx={{
+              maxWidth: 190,
+              borderRadius: 1,
+              bgcolor: alpha(THEME.primary, 0.08),
+              color: THEME.primaryDark,
+              border: `1px solid ${alpha(THEME.primary, 0.25)}`,
+              fontWeight: 600,
+              "& .MuiChip-label": {
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              },
+            }}
+          />
+        ) : (
+          <Typography variant="caption" color="textSecondary">
+            Aucune
           </Typography>
-        </Box>
+        )}
+      </TableCell>
+
+      {/* Source */}
+      <TableCell>
+        <Stack spacing={0.75} sx={{ minWidth: 150 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
+            {prospect.source ? (
+              <SourceBadge source={prospect.source} />
+            ) : (
+              <Typography variant="caption" color="textSecondary">
+                —
+              </Typography>
+            )}
+            {sourceLinks.slice(0, 4).map(({ href, icon: Icon, label, color }) => (
+              <Tooltip key={`${label}-${href}`} title={label}>
+                <IconButton
+                  component="a"
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  size="small"
+                  onClick={(e) => e.stopPropagation()}
+                  sx={{
+                    width: 24,
+                    height: 24,
+                    color,
+                    bgcolor: alpha(color, 0.08),
+                    border: `1px solid ${alpha(color, 0.22)}`,
+                  }}
+                >
+                  <Icon sx={{ fontSize: 14 }} />
+                </IconButton>
+              </Tooltip>
+            ))}
+          </Box>
+        </Stack>
       </TableCell>
 
       {/* Création */}
@@ -961,8 +1099,10 @@ TriggerNotification.propTypes = { trigger: PropTypes.object, onDismiss: PropType
 // PlanCallForm
 // ==============================
 const PlanCallForm = ({ prospect, onCreated, onCancel }) => {
+  const prospectName = getProspectDisplayName(prospect);
   const [form, setForm] = useState({
-    title: `Appel — ${prospect.first_name} ${prospect.last_name}`,
+    title: `Tache - ${prospectName}`,
+    task_type: "follow_up",
     due_date: "",
     priority: "medium",
     description: "",
@@ -977,7 +1117,7 @@ const PlanCallForm = ({ prospect, onCreated, onCancel }) => {
       const taskRes = await api.post("/tasks/", {
         title: form.title,
         description: form.description || "",
-        task_type: "classic",
+        task_type: form.task_type,
         status: "todo",
         priority: form.priority,
         due_date: form.due_date,
@@ -990,7 +1130,7 @@ const PlanCallForm = ({ prospect, onCreated, onCancel }) => {
       // 3. Notifier le parent
       onCreated(taskRes.data);
     } catch (err) {
-      console.error("Erreur création tâche appel:", err);
+      console.error("Erreur creation tache prospect:", err);
     } finally {
       setLoading(false);
     }
@@ -999,7 +1139,7 @@ const PlanCallForm = ({ prospect, onCreated, onCancel }) => {
   return (
     <Box sx={{ border: `1px solid ${alpha(THEME.primary, 0.2)}`, borderRadius: 2, p: 2 }}>
       <Typography variant="subtitle2" fontWeight={600} sx={{ color: THEME.primary, mb: 1.5 }}>
-        Planifier un appel
+        Planifier une tache
       </Typography>
       <Stack spacing={1.5}>
         <TextField
@@ -1009,6 +1149,20 @@ const PlanCallForm = ({ prospect, onCreated, onCancel }) => {
           value={form.title}
           onChange={(e) => setForm({ ...form, title: e.target.value })}
         />
+        <FormControl fullWidth size="small">
+          <InputLabel>Type</InputLabel>
+          <Select
+            value={form.task_type}
+            label="Type"
+            onChange={(e) => setForm({ ...form, task_type: e.target.value })}
+          >
+            {TASK_TYPE_OPTIONS.map(([value, label]) => (
+              <MenuItem key={value} value={value}>
+                {label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
         <TextField
           fullWidth
           size="small"
@@ -1056,9 +1210,9 @@ const PlanCallForm = ({ prospect, onCreated, onCancel }) => {
             size="small"
             onClick={handleSubmit}
             disabled={loading || !form.due_date}
-            startIcon={loading ? <CircularProgress size={14} color="inherit" /> : <PhoneIcon />}
+            startIcon={loading ? <CircularProgress size={14} color="inherit" /> : <TaskIcon />}
           >
-            Planifier l&apos;appel
+            Planifier
           </GradientButton>
         </Box>
       </Stack>
@@ -1542,14 +1696,19 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
   const [showPlanCall, setShowPlanCall] = useState(false);
   const [taskToRecord, setTaskToRecord] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [socialAnalysis, setSocialAnalysis] = useState(null);
+  const [socialAnalysisLoading, setSocialAnalysisLoading] = useState(false);
+  const [socialAnalysisError, setSocialAnalysisError] = useState("");
 
   useEffect(() => {
     if (open) {
       setActiveTab(0);
       setShowPlanCall(false);
       setTaskToRecord(null);
+      setSocialAnalysis(prospect?.social_profile_analysis || null);
+      setSocialAnalysisError("");
     }
-  }, [open, prospect?.id]);
+  }, [open, prospect?.id, prospect?.social_profile_analysis]);
 
   const getCompanyName = useCallback(
     (id) => {
@@ -1575,6 +1734,28 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
     setTaskToRecord(null);
     setRefreshKey((k) => k + 1);
     setActiveTab(2);
+  };
+
+  const handleAnalyzeSocial = async () => {
+    if (!prospect?.id) return;
+
+    setSocialAnalysisLoading(true);
+    setSocialAnalysisError("");
+
+    try {
+      const res = await engagementApi.post(`/prospects/${prospect.id}/analyze-social/`, {});
+      const analysis = res.data?.analysis || {};
+      setSocialAnalysis(analysis);
+      if (!res.data?.success) {
+        setSocialAnalysisError(res.data?.error || "Analyse sociale indisponible.");
+      }
+    } catch (err) {
+      setSocialAnalysisError(
+        err.response?.data?.error || err.message || "Erreur pendant l'analyse sociale."
+      );
+    } finally {
+      setSocialAnalysisLoading(false);
+    }
   };
 
   const tabs = ["Informations", "Tâches & Appels", "Activités"];
@@ -1627,12 +1808,11 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
                   fontWeight: 700,
                 }}
               >
-                {prospect.first_name?.[0]}
-                {prospect.last_name?.[0]}
+                {getProspectInitials(prospect)}
               </Avatar>
               <Box flex={1} minWidth={0}>
                 <Typography variant="h6" fontWeight={700} noWrap>
-                  {prospect.first_name} {prospect.last_name}
+                  {getProspectDisplayName(prospect)}
                 </Typography>
                 <Typography variant="caption" color="textSecondary" noWrap display="block">
                   {prospect.title || "Sans titre"}{" "}
@@ -1674,11 +1854,11 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
           {!showPlanCall && !taskToRecord && (
             <GradientButton
               fullWidth
-              startIcon={<PhoneIcon />}
+              startIcon={<TaskIcon />}
               onClick={() => setShowPlanCall(true)}
               sx={{ mb: 1.5 }}
             >
-              Planifier un appel
+              Planifier une tache
             </GradientButton>
           )}
 
@@ -1762,18 +1942,20 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
                       </Typography>
                     </Box>
                   )}
-                  {getCompanyName(prospect.prospect_company) && (
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <BusinessIcon sx={{ fontSize: 18, color: alpha(THEME.primary, 0.6) }} />
-                      <Typography variant="body2">
-                        {getCompanyName(prospect.prospect_company)}
-                      </Typography>
-                    </Box>
-                  )}
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <BusinessIcon sx={{ fontSize: 18, color: alpha(THEME.primary, 0.6) }} />
+                    <Typography variant="body2">
+                      {getCompanyName(prospect.prospect_company) ||
+                        prospect.prospect_company_detail?.name ||
+                        "Sans societe"}
+                    </Typography>
+                  </Box>
                 </Stack>
               </Card>
 
-              {(prospect.website ||
+              {(prospect.source_url ||
+                prospect.google_maps_url ||
+                prospect.website ||
                 prospect.linkedin_url ||
                 prospect.facebook_url ||
                 prospect.instagram_url) && (
@@ -1785,6 +1967,18 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
                     Présence en ligne
                   </Typography>
                   <Stack spacing={1}>
+                    <SocialLink
+                      href={prospect.source_url}
+                      icon={OpenInNewIcon}
+                      label="Lien source"
+                      color={THEME.primary}
+                    />
+                    <SocialLink
+                      href={prospect.google_maps_url}
+                      icon={LocationOnIcon}
+                      label="Google Maps"
+                      color="#d32f2f"
+                    />
                     <SocialLink
                       href={prospect.website}
                       icon={LanguageIcon}
@@ -1810,6 +2004,132 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
                       color="#e1306c"
                     />
                   </Stack>
+                </Card>
+              )}
+
+              {prospect.description && (
+                <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Typography
+                    variant="subtitle2"
+                    sx={{ color: THEME.primary, mb: 1.5, fontWeight: 600 }}
+                  >
+                    Description du prospect
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary" sx={{ whiteSpace: "pre-wrap" }}>
+                    {prospect.description}
+                  </Typography>
+                </Card>
+              )}
+
+              <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                <Box display="flex" alignItems="center" justifyContent="space-between" gap={1.5} mb={1.5}>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <AssessmentIcon sx={{ fontSize: 18, color: THEME.primary }} />
+                    <Typography variant="subtitle2" sx={{ color: THEME.primary, fontWeight: 700 }}>
+                      Analyse sociale IA
+                    </Typography>
+                  </Box>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={handleAnalyzeSocial}
+                    disabled={socialAnalysisLoading}
+                    startIcon={
+                      socialAnalysisLoading ? <CircularProgress size={14} /> : <RefreshIcon />
+                    }
+                    sx={{
+                      textTransform: "none",
+                      borderColor: alpha(THEME.primary, 0.3),
+                      color: THEME.primary,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Relancer
+                  </Button>
+                </Box>
+
+                {socialAnalysisError && (
+                  <Alert severity="warning" sx={{ mb: 1.5, borderRadius: 2 }}>
+                    {socialAnalysisError}
+                  </Alert>
+                )}
+
+                {socialAnalysis?.summary ? (
+                  <Stack spacing={1.2}>
+                    <Typography variant="body2" color="textSecondary">
+                      {socialAnalysis.summary}
+                    </Typography>
+
+                    {Boolean(socialAnalysis.interests?.length) && (
+                      <Box display="flex" gap={0.75} flexWrap="wrap">
+                        {socialAnalysis.interests.map((interest) => (
+                          <Chip
+                            key={interest}
+                            size="small"
+                            label={interest}
+                            sx={{
+                              bgcolor: alpha(THEME.primary, 0.08),
+                              color: THEME.primaryDark,
+                              fontWeight: 600,
+                            }}
+                          />
+                        ))}
+                      </Box>
+                    )}
+
+                    <Stack spacing={0.75}>
+                      {[
+                        ["Activite", socialAnalysis.activity_level],
+                        ["Ton recommande", socialAnalysis.communication_tone],
+                        ["Pertinence", socialAnalysis.commercial_relevance],
+                      ].map(([label, value]) => (
+                        <Box key={label} display="flex" justifyContent="space-between" gap={2}>
+                          <Typography variant="caption" color="textSecondary">
+                            {label}
+                          </Typography>
+                          <Typography variant="caption" fontWeight={700}>
+                            {value || "unknown"}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Stack>
+
+                    {socialAnalysis.personalized_hook && (
+                      <Box
+                        sx={{
+                          p: 1.25,
+                          borderRadius: 2,
+                          bgcolor: alpha(THEME.primary, 0.04),
+                          border: `1px solid ${alpha(THEME.primary, 0.12)}`,
+                        }}
+                      >
+                        <Typography variant="caption" color="textSecondary" display="block">
+                          Accroche proposee
+                        </Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                          {socialAnalysis.personalized_hook}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Stack>
+                ) : (
+                  <Typography variant="body2" color="textSecondary">
+                    Aucune analyse sociale disponible pour ce prospect.
+                  </Typography>
+                )}
+              </Card>
+
+              {prospect.notes && (
+                <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Typography
+                    variant="subtitle2"
+                    sx={{ color: THEME.primary, mb: 1.5, fontWeight: 600 }}
+                  >
+                    Notes internes
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary" sx={{ whiteSpace: "pre-wrap" }}>
+                    {prospect.notes}
+                  </Typography>
                 </Card>
               )}
 
@@ -2432,9 +2752,10 @@ const ProspectFormDrawer = ({
 }) => {
   const isAdminOrManager = currentUser && ["ADMIN", "MANAGER"].includes(currentUser.role);
   const safeCommercials = Array.isArray(commercials) ? commercials : [];
-  const isCompanyStepValid = selectedCompany || companyData.name;
-  const isContactStepValid =
-    prospectData.first_name && prospectData.last_name && prospectData.email;
+  const isCompanyStepValid = true;
+  const isContactStepValid = Boolean(
+    [prospectData.first_name, prospectData.last_name].filter(Boolean).join(" ").trim()
+  );
   const canSubmit = isCompanyStepValid && isContactStepValid;
   return (
     <Drawer
@@ -2479,7 +2800,7 @@ const ProspectFormDrawer = ({
                 }}
               >
                 <Typography variant="h6" sx={{ color: THEME.primary, mb: 2, fontWeight: 600 }}>
-                  Société
+                  Societe (optionnelle)
                 </Typography>
                 <Autocomplete
                   options={companies}
@@ -2488,14 +2809,14 @@ const ProspectFormDrawer = ({
                   onChange={(e, val) => onCompanySelect(val)}
                   size="small"
                   renderInput={(params) => (
-                    <TextField {...params} placeholder="Rechercher une société..." sx={{ mb: 2 }} />
+                    <TextField {...params} placeholder="Rechercher une societe..." sx={{ mb: 2 }} />
                   )}
                 />
                 <Divider sx={{ my: 2 }}>OU</Divider>
                 <TextField
                   fullWidth
                   size="small"
-                  placeholder="Créer une nouvelle société"
+                  placeholder="Creer une nouvelle societe"
                   value={companyData.name}
                   onChange={(e) => onCompanyDataChange({ ...companyData, name: e.target.value })}
                   sx={{ mb: 2 }}
@@ -2575,7 +2896,7 @@ const ProspectFormDrawer = ({
                     <TextField
                       fullWidth
                       size="small"
-                      label="Prénom"
+                      label="Nom du prospect"
                       value={prospectData.first_name}
                       required
                       disabled={!isCompanyStepValid}
@@ -2588,9 +2909,8 @@ const ProspectFormDrawer = ({
                     <TextField
                       fullWidth
                       size="small"
-                      label="Nom"
+                      label="Nom complementaire"
                       value={prospectData.last_name}
-                      required
                       disabled={!isCompanyStepValid}
                       onChange={(e) =>
                         onProspectDataChange({ ...prospectData, last_name: e.target.value })
@@ -2616,7 +2936,6 @@ const ProspectFormDrawer = ({
                       label="Email"
                       type="email"
                       value={prospectData.email}
-                      required
                       disabled={!isCompanyStepValid}
                       onChange={(e) =>
                         onProspectDataChange({ ...prospectData, email: e.target.value })
@@ -2756,6 +3075,102 @@ const ProspectFormDrawer = ({
                       )}
                     </Grid>
                   )}
+                  <Grid item xs={12}>
+                    <Divider sx={{ my: 1 }}>Source et liens</Divider>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth size="small">
+                      <Select
+                        value={prospectData.source || ""}
+                        onChange={(e) =>
+                          onProspectDataChange({ ...prospectData, source: e.target.value })
+                        }
+                        displayEmpty
+                        renderValue={(v) => (v ? SOURCE_CONFIG[v]?.label || v : "Source")}
+                      >
+                        <MenuItem value="">
+                          <em>Non renseignee</em>
+                        </MenuItem>
+                        {PROSPECT_SOURCE_OPTIONS.map(([value, label]) => (
+                          <MenuItem key={value} value={value}>
+                            {label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Lien source"
+                      value={prospectData.source_url || ""}
+                      onChange={(e) =>
+                        onProspectDataChange({ ...prospectData, source_url: e.target.value })
+                      }
+                    />
+                  </Grid>
+                  {[
+                    ["google_maps_url", "Lien Google Maps"],
+                    ["linkedin_url", "LinkedIn"],
+                    ["facebook_url", "Facebook"],
+                    ["instagram_url", "Instagram"],
+                    ["website", "Site web"],
+                  ].map(([field, label]) => (
+                    <Grid item xs={12} sm={6} key={field}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label={label}
+                        value={prospectData[field] || ""}
+                        onChange={(e) =>
+                          onProspectDataChange({ ...prospectData, [field]: e.target.value })
+                        }
+                      />
+                    </Grid>
+                  ))}
+                  <Grid item xs={12}>
+                    <TextareaAutosize
+                      minRows={3}
+                      placeholder="Description du prospect (profil, besoin, contexte commercial)..."
+                      value={prospectData.description || ""}
+                      onChange={(e) =>
+                        onProspectDataChange({ ...prospectData, description: e.target.value })
+                      }
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        borderRadius: 8,
+                        border: `1px solid ${alpha(THEME.primary, 0.3)}`,
+                        fontFamily: "inherit",
+                        fontSize: "0.875rem",
+                        resize: "vertical",
+                        outline: "none",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextareaAutosize
+                      minRows={3}
+                      placeholder="Notes internes (optionnel)..."
+                      value={prospectData.notes || ""}
+                      onChange={(e) =>
+                        onProspectDataChange({ ...prospectData, notes: e.target.value })
+                      }
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        borderRadius: 8,
+                        border: `1px solid ${alpha(THEME.primary, 0.3)}`,
+                        fontFamily: "inherit",
+                        fontSize: "0.875rem",
+                        resize: "vertical",
+                        outline: "none",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                  </Grid>
                 </Grid>
               </Card>
             </Grid>
@@ -2908,9 +3323,18 @@ export default function Prospects() {
     phone: "",
     city: "",
     country: "",
+    description: "",
     origin: "",
     evaluation: "",
     status: "new",
+    source: "",
+    source_url: "",
+    google_maps_url: "",
+    website: "",
+    linkedin_url: "",
+    facebook_url: "",
+    instagram_url: "",
+    notes: "",
     assigned_to: "",
   };
   const emptyCompanyData = { name: "", industry: "", phone: "", email: "", city: "", country: "" };
@@ -3190,9 +3614,18 @@ export default function Prospects() {
       phone: p.phone || "",
       city: p.city || "",
       country: p.country || "",
+      description: p.description || "",
       origin: p.origin || "",
       evaluation: p.evaluation || "",
       status: p.status || "new",
+      source: p.source || "",
+      source_url: p.source_url || "",
+      google_maps_url: p.google_maps_url || "",
+      website: p.website || "",
+      linkedin_url: p.linkedin_url || "",
+      facebook_url: p.facebook_url || "",
+      instagram_url: p.instagram_url || "",
+      notes: p.notes || "",
       assigned_to: p.assigned_to || "",
     });
     setSelectedCompany(
@@ -3207,6 +3640,7 @@ export default function Prospects() {
     e.preventDefault();
     try {
       let companyName = null;
+      let companyId = selectedCompany?.id || null;
       if (selectedCompany) {
         companyName = selectedCompany.name;
       } else if (companyData.name) {
@@ -3216,23 +3650,53 @@ export default function Prospects() {
           annual_revenue: null,
         });
         companyName = r.data.name;
+        companyId = r.data.id;
       }
-      if (!prospectData.first_name || !prospectData.last_name || !prospectData.email) {
-        showNotification("Prénom, Nom et Email sont obligatoires", "error");
+      const prospectName = [prospectData.first_name, prospectData.last_name]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      if (!prospectName) {
+        showNotification("Le nom du prospect est obligatoire", "error");
+        return;
+      }
+      const urlFields = [
+        ["source_url", "Lien source"],
+        ["google_maps_url", "Lien Google Maps"],
+        ["website", "Site web"],
+        ["linkedin_url", "LinkedIn"],
+        ["facebook_url", "Facebook"],
+        ["instagram_url", "Instagram"],
+      ];
+      const invalidUrl = urlFields.find(
+        ([field]) => prospectData[field] && !/^https?:\/\//i.test(prospectData[field])
+      );
+      if (invalidUrl) {
+        showNotification(`${invalidUrl[1]} doit commencer par http:// ou https://`, "error");
         return;
       }
       const payload = {
         first_name: prospectData.first_name,
-        last_name: prospectData.last_name,
+        last_name: prospectData.last_name || "",
         title: prospectData.title || null,
-        email: prospectData.email,
+        email: prospectData.email || null,
         phone: prospectData.phone || null,
         city: prospectData.city || null,
         country: prospectData.country || null,
+        description: prospectData.description || null,
         origin: prospectData.origin || null,
         evaluation: prospectData.evaluation || null,
         status: prospectData.status,
-        prospect_company_name: companyName,
+        source: prospectData.source || null,
+        source_url: prospectData.source_url || null,
+        google_maps_url: prospectData.google_maps_url || null,
+        website: prospectData.website || null,
+        linkedin_url: prospectData.linkedin_url || null,
+        facebook_url: prospectData.facebook_url || null,
+        instagram_url: prospectData.instagram_url || null,
+        notes: prospectData.notes || null,
+        prospect_company: companyId || null,
+        prospect_company_name: companyName || "",
         ...(isAdminOrManager && prospectData.assigned_to
           ? { assigned_to: prospectData.assigned_to }
           : {}),
@@ -3945,13 +4409,15 @@ export default function Prospects() {
 
                     <TableCell sx={{ width: 140 }}>Société</TableCell>
                     {isAdminOrManager && <TableCell sx={{ width: 140 }}>Assigné à</TableCell>}
+                    <TableCell sx={{ width: 240 }}>Description</TableCell>
                     <TableCell sx={{ width: 100 }} align="center">
                       Évaluation
                     </TableCell>
                     <TableCell sx={{ width: 100 }} align="center">
                       Statut
                     </TableCell>
-                    <TableCell sx={{ width: 110 }}>Origine</TableCell>
+                    <TableCell sx={{ width: 210 }}>Prochaine tache</TableCell>
+                    <TableCell sx={{ width: 180 }}>Source</TableCell>
                     <TableCell sx={{ width: 100 }}>Création</TableCell>
                     <TableCell sx={{ width: 200 }} align="center">
                       Actions
@@ -3961,7 +4427,7 @@ export default function Prospects() {
                 <TableBody>
                   {prospectsList.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={isAdminOrManager ? 10 : 9} align="center" sx={{ py: 5 }}>
+                      <TableCell colSpan={isAdminOrManager ? 12 : 11} align="center" sx={{ py: 5 }}>
                         <Box textAlign="center">
                           <PeopleIcon
                             sx={{ fontSize: 48, color: alpha(THEME.primary, 0.3), mb: 2 }}

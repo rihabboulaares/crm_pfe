@@ -1,199 +1,122 @@
+/* eslint-disable prettier/prettier */
 // src/pages/AcceptInvite.js
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 
 import {
-  Card,
-  Checkbox,
-  Box,
-  Typography,
-  Stepper,
-  Step,
-  StepLabel,
-  StepConnector,
-  stepConnectorClasses,
   Alert,
   alpha,
-  Paper,
-  Avatar,
-  Divider,
-  Chip,
+  Box,
+  Button,
+  Card,
+  Checkbox,
+  FormControlLabel,
   IconButton,
   InputAdornment,
-  CircularProgress,
+  LinearProgress,
+  Stack,
+  Step,
+  StepLabel,
+  Stepper,
+  TextField,
+  Typography,
 } from "@mui/material";
 import {
-  Person as PersonIcon,
-  Lock as LockIcon,
-  Email as EmailIcon,
-  CheckCircle as CheckCircleIcon,
-  ArrowBack as ArrowBackIcon,
-  Verified as VerifiedIcon,
-  Security as SecurityIcon,
+  ArrowBack,
+  CheckCircle,
+  Email,
+  Lock,
+  Person,
+  Send,
+  Shield,
+  Verified,
   Visibility,
   VisibilityOff,
 } from "@mui/icons-material";
 import { styled } from "@mui/material/styles";
 
-import MDBox from "components/MDBox";
-import MDTypography from "components/MDTypography";
-import MDInput from "components/MDInput";
-import MDButton from "components/MDButton";
+import { useMaterialUIController, setLayout } from "context";
 
-import CoverLayout from "layouts/authentication/components/CoverLayout";
-
-import bgImage from "assets/images/bg-sign-up-cover.jpeg";
-
-// ==============================
-// THÈME PERSONNALISÉ
-// ==============================
-const THEME = {
-  primary: "#d32f2f",
-  primaryLight: "#ff6659",
-  primaryDark: "#9a0007",
-  secondary: "#ffebee",
-  gradient: "linear-gradient(135deg, #d32f2f 0%, #b71c1c 100%)",
-  success: "#4caf50",
-  warning: "#ff9800",
-  info: "#2196f3",
-  error: "#f44336",
+const crmTheme = {
+  primary: {
+    main: "#c0392b",
+    light: "#e05b4a",
+    subtle: "#f7e8e8",
+    gradient: "linear-gradient(135deg, #c0392b 0%, #5a0002 100%)",
+  },
+  success: { main: "#18a558", subtle: "#dcfce7" },
+  warning: { main: "#f59e0b", subtle: "#fff7ed" },
+  error: { main: "#dc2626", subtle: "#fee2e2" },
   neutral: {
-    50: "#fafafa",
-    100: "#f5f5f5",
-    200: "#e5e5e5",
-    300: "#d4d4d4",
-    400: "#a3a3a3",
-    500: "#737373",
-    600: "#525252",
-    700: "#404040",
-    800: "#262626",
-    900: "#171717",
+    50: "#faf7f4",
+    200: "#e8d5d5",
+    300: "#d8bebe",
+    400: "#b89090",
+    500: "#7a5a5a",
+    600: "#5f3d3d",
+    800: "#1a0808",
   },
 };
 
-// ==============================
-// STYLES PERSONNALISÉS
-// ==============================
-const StyledCard = styled(Card)(({ theme }) => ({
+const StyledCard = styled(Card)(() => ({
   borderRadius: 24,
-  boxShadow: `0 8px 16px ${alpha(THEME.primary, 0.1)}`,
-  border: `1px solid ${alpha(THEME.primary, 0.1)}`,
+  background: "rgba(255, 255, 255, 0.96)",
+  boxShadow: `0 18px 45px ${alpha("#5a0002", 0.12)}`,
+  border: `1px solid ${crmTheme.primary.subtle}`,
   overflow: "hidden",
-  position: "relative",
-  "&::before": {
-    content: '""',
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "4px",
-    background: THEME.gradient,
-  },
 }));
 
-const GradientHeader = styled(Box)(({ theme }) => ({
-  background: THEME.gradient,
-  borderRadius: "16px 16px 16px 16px",
-  padding: theme.spacing(3),
-  color: "white",
-  textAlign: "center",
-  marginBottom: theme.spacing(3),
-  boxShadow: `0 4px 12px ${alpha(THEME.primary, 0.3)}`,
-}));
-
-const GradientButton = styled(MDButton)(({ theme }) => ({
-  background: THEME.gradient,
-  color: "white",
-  borderRadius: 12,
-  padding: "10px 24px",
-  fontWeight: 600,
+const StyledButton = styled(Button)(() => ({
+  borderRadius: 14,
+  padding: "12px 24px",
   textTransform: "none",
-  boxShadow: `0 4px 12px ${alpha(THEME.primary, 0.3)}`,
+  fontSize: "1rem",
+  fontWeight: 800,
+  background: crmTheme.primary.gradient,
+  color: "white",
+  boxShadow: `0 14px 28px ${alpha(crmTheme.primary.main, 0.24)}`,
   "&:hover": {
-    background: THEME.gradient,
-    boxShadow: `0 6px 16px ${alpha(THEME.primary, 0.4)}`,
+    background: crmTheme.primary.gradient,
+    boxShadow: `0 18px 34px ${alpha(crmTheme.primary.main, 0.3)}`,
+    transform: "translateY(-1px)",
   },
   "&:disabled": {
-    opacity: 0.6,
+    background: crmTheme.neutral[300],
+    color: crmTheme.neutral[500],
+    boxShadow: "none",
   },
+  transition: "all 0.2s ease",
 }));
 
-const ColorStepConnector = styled(StepConnector)(({ theme }) => ({
-  [`&.${stepConnectorClasses.alternativeLabel}`]: {
-    top: 22,
-  },
-  [`& .${stepConnectorClasses.line}`]: {
-    height: 3,
-    border: 0,
-    backgroundColor: alpha(THEME.primary, 0.1),
-    borderRadius: 1,
-  },
-  [`&.${stepConnectorClasses.active} .${stepConnectorClasses.line}`]: {
-    background: THEME.gradient,
-  },
-  [`&.${stepConnectorClasses.completed} .${stepConnectorClasses.line}`]: {
-    background: THEME.gradient,
-  },
-}));
-
-const ColorStepIcon = styled(Box)(({ theme, active, completed }) => ({
-  width: 40,
-  height: 40,
-  borderRadius: "50%",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  backgroundColor: completed ? THEME.success : active ? THEME.primary : alpha(THEME.primary, 0.1),
-  color: completed || active ? "white" : THEME.primary,
-  transition: "all 0.3s ease",
-  fontSize: 18,
-  fontWeight: 600,
-  boxShadow: active ? `0 4px 12px ${alpha(THEME.primary, 0.3)}` : "none",
-}));
-
-const StyledInput = styled(MDInput)(({ theme }) => ({
-  "& .MuiInput-root": {
-    "&:before": {
-      borderBottomColor: alpha(THEME.primary, 0.3),
+const StyledTextField = styled(TextField)(() => ({
+  "& .MuiOutlinedInput-root": {
+    borderRadius: 14,
+    backgroundColor: "#fff",
+    transition: "all 0.2s ease",
+    "&:hover .MuiOutlinedInput-notchedOutline": {
+      borderColor: crmTheme.primary.light,
     },
-    "&:hover:not(.Mui-disabled):before": {
-      borderBottomColor: THEME.primaryLight,
-    },
-    "&:after": {
-      borderBottomColor: THEME.primary,
+    "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+      borderColor: crmTheme.primary.main,
+      borderWidth: 2,
     },
   },
-  "& .MuiInputLabel-root": {
-    "&.Mui-focused": {
-      color: THEME.primary,
-    },
+  "& .MuiInputLabel-root.Mui-focused": {
+    color: crmTheme.primary.main,
   },
 }));
 
-const InfoChip = styled(Chip)(({ theme, color = "primary" }) => ({
-  borderRadius: 8,
-  fontWeight: 500,
-  height: 32,
-  margin: theme.spacing(0.5),
-  backgroundColor: alpha(THEME[color], 0.1),
-  color: THEME[color],
-  border: `1px solid ${alpha(THEME[color], 0.3)}`,
-}));
-
-// Étapes du processus
-const STEPS = [
-  {
-    label: "Création du compte",
-    description: "Choisissez votre identifiant et mot de passe",
-  },
-  {
-    label: "Vérification email",
-    description: "Validez votre adresse email",
-  },
-];
+const passwordValidationLabels = {
+  minLength: "8+ caracteres",
+  hasNumber: "Chiffre",
+  hasUpperCase: "Majuscule",
+  hasLowerCase: "Minuscule",
+  hasSpecialChar: "Caractere special",
+};
 
 function AcceptInvite() {
+  const [, dispatch] = useMaterialUIController();
   const { token } = useParams();
   const navigate = useNavigate();
 
@@ -202,15 +125,14 @@ function AcceptInvite() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [code, setCode] = useState("");
-  const [email, setEmail] = useState(""); // email récupéré depuis le token
-  const [userId, setUserId] = useState(null); // ID de l'utilisateur créé
+  const [email, setEmail] = useState("");
   const [message, setMessage] = useState({ text: "", type: "success" });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [focusedField, setFocusedField] = useState(null);
 
-  // Validation du mot de passe
   const [passwordStrength, setPasswordStrength] = useState(0);
   const [passwordValidations, setPasswordValidations] = useState({
     minLength: false,
@@ -220,7 +142,10 @@ function AcceptInvite() {
     hasSpecialChar: false,
   });
 
-  // Vérifier la force du mot de passe
+  useEffect(() => {
+    setLayout(dispatch, "page");
+  }, [dispatch]);
+
   useEffect(() => {
     if (!password) {
       setPasswordStrength(0);
@@ -243,51 +168,28 @@ function AcceptInvite() {
     };
 
     setPasswordValidations(validations);
-
-    const strength = Object.values(validations).filter(Boolean).length;
-    setPasswordStrength(strength);
+    setPasswordStrength(Object.values(validations).filter(Boolean).length);
   }, [password]);
 
   const getPasswordStrengthColor = () => {
-    switch (passwordStrength) {
-      case 0:
-      case 1:
-        return THEME.error;
-      case 2:
-      case 3:
-        return THEME.warning;
-      case 4:
-      case 5:
-        return THEME.success;
-      default:
-        return THEME.neutral[500];
-    }
+    if (passwordStrength <= 1) return crmTheme.error.main;
+    if (passwordStrength <= 3) return crmTheme.warning.main;
+    return crmTheme.success.main;
   };
 
   const getPasswordStrengthText = () => {
-    switch (passwordStrength) {
-      case 0:
-      case 1:
-        return "Très faible";
-      case 2:
-        return "Faible";
-      case 3:
-        return "Moyen";
-      case 4:
-        return "Fort";
-      case 5:
-        return "Très fort";
-      default:
-        return "";
-    }
+    if (!password) return "";
+    if (passwordStrength <= 1) return "Tres faible";
+    if (passwordStrength === 2) return "Faible";
+    if (passwordStrength === 3) return "Moyen";
+    if (passwordStrength === 4) return "Fort";
+    return "Tres fort";
   };
 
-  // --- Création du compte à partir de l'invitation ---
   const handleAccept = async (e) => {
     e.preventDefault();
     setMessage({ text: "", type: "success" });
 
-    // Validation
     if (!username || !password || !confirmPassword) {
       setMessage({ text: "Tous les champs sont obligatoires", type: "error" });
       return;
@@ -299,7 +201,7 @@ function AcceptInvite() {
     }
 
     if (passwordStrength < 3) {
-      setMessage({ text: "Veuillez choisir un mot de passe plus sécurisé", type: "error" });
+      setMessage({ text: "Veuillez choisir un mot de passe plus securise", type: "error" });
       return;
     }
 
@@ -316,31 +218,21 @@ function AcceptInvite() {
         password,
       });
 
-      console.log("Réponse accept-invite:", response.data); // Pour déboguer
-
-      // Récupérer l'email et l'ID utilisateur depuis la réponse
-      // Adaptez ces lignes selon la structure réelle de votre réponse API
-      if (response.data && response.data.email) {
+      if (response.data?.email) {
         setEmail(response.data.email);
-      } else if (response.data && response.data.user && response.data.user.email) {
+      } else if (response.data?.user?.email) {
         setEmail(response.data.user.email);
       }
 
-      if (response.data && response.data.user_id) {
-        setUserId(response.data.user_id);
-      } else if (response.data && response.data.id) {
-        setUserId(response.data.id);
-      }
-
       setMessage({
-        text: "Compte créé avec succès ! Un code de vérification vous a été envoyé par email.",
+        text: "Compte cree avec succes. Un code de verification vous a ete envoye par email.",
         type: "success",
       });
 
-      // Passer à l'étape 2 après un délai
       setTimeout(() => {
         setStep(2);
-      }, 1500);
+        setMessage({ text: "", type: "success" });
+      }, 1200);
     } catch (error) {
       console.error("Erreur accept-invite:", error.response?.data);
       setMessage({
@@ -356,56 +248,44 @@ function AcceptInvite() {
     }
   };
 
-  // --- Vérification email ---
   const handleVerify = async (e) => {
     e.preventDefault();
     setMessage({ text: "", type: "success" });
 
     if (!code) {
-      setMessage({ text: "Veuillez entrer le code de vérification", type: "error" });
+      setMessage({ text: "Veuillez entrer le code de verification", type: "error" });
       return;
     }
 
-    // Vérifier que nous avons un email
     if (!email) {
       setMessage({
-        text: "Email non disponible. Veuillez réessayer ou contacter le support.",
+        text: "Email non disponible. Veuillez reessayer ou contacter le support.",
         type: "error",
       });
       return;
     }
 
-    console.log("Tentative de vérification avec:", { email, code }); // Pour déboguer
-
     setLoading(true);
 
     try {
-      // Envoyer l'email et le code pour vérification
-      const response = await axios.post("http://127.0.0.1:8000/api/users/verify-email/", {
-        email: email, // Utiliser l'email récupéré
-        code: code,
+      await axios.post("http://127.0.0.1:8000/api/users/verify-email/", {
+        email,
+        code,
       });
 
-      console.log("Réponse verify-email:", response.data); // Pour déboguer
+      setMessage({ text: "Email verifie avec succes !", type: "success" });
 
-      setMessage({ text: "Email vérifié avec succès !", type: "success" });
-
-      // Rediriger vers la page de connexion après un délai
       setTimeout(() => {
         navigate("/authentication/sign-in");
       }, 1500);
     } catch (error) {
       console.error("Erreur verify-email:", error.response?.data);
-
-      // Afficher un message d'erreur plus précis
-      const errorMessage =
-        error.response?.data?.error ||
-        error.response?.data?.detail ||
-        error.response?.data?.message ||
-        "Code de vérification invalide";
-
       setMessage({
-        text: errorMessage,
+        text:
+          error.response?.data?.error ||
+          error.response?.data?.detail ||
+          error.response?.data?.message ||
+          "Code de verification invalide",
         type: "error",
       });
     } finally {
@@ -421,11 +301,10 @@ function AcceptInvite() {
 
     setLoading(true);
     try {
-      // Appel pour renvoyer le code de vérification
       await axios.post("http://127.0.0.1:8000/api/users/resend-verification/", {
-        email: email,
+        email,
       });
-      setMessage({ text: "Nouveau code envoyé !", type: "success" });
+      setMessage({ text: "Nouveau code envoye !", type: "success" });
     } catch (error) {
       console.error("Erreur resend:", error.response?.data);
       setMessage({
@@ -437,384 +316,343 @@ function AcceptInvite() {
     }
   };
 
+  const steps = ["Compte", "Verification"];
+  const inputIconColor = (field) =>
+    focusedField === field ? crmTheme.primary.main : crmTheme.neutral[400];
+
   return (
-    <CoverLayout image={bgImage}>
-      <StyledCard>
-        <MDBox p={4}>
-          {/* Logo ou icône */}
-          <Box display="flex" justifyContent="center" mb={2}>
-            <Avatar
-              sx={{
-                width: 80,
-                height: 80,
-                background: THEME.gradient,
-                boxShadow: `0 4px 12px ${alpha(THEME.primary, 0.3)}`,
-              }}
-            >
-              {step === 1 ? (
-                <PersonIcon sx={{ fontSize: 40 }} />
-              ) : (
-                <VerifiedIcon sx={{ fontSize: 40 }} />
-              )}
-            </Avatar>
+    <Box className="auth-page auth-invite-page">
+      <Box className="auth-header">
+        <Stack direction="row" alignItems="center" spacing={1.2}>
+          <Box className="public-logo-mark">V</Box>
+          <Typography className="public-logo-text">ViewiseCRM</Typography>
+        </Stack>
+        <Button className="public-secondary-button" onClick={() => navigate("/login")}>
+          Se connecter
+        </Button>
+      </Box>
+
+      <Box className="auth-main">
+        <Box className="auth-split auth-invite">
+          <Box className="auth-red-panel">
+            <Box className="auth-panel-brand">
+              <Box className="public-logo-mark light">V</Box>
+              <Typography>ViewiseCRM</Typography>
+            </Box>
+            <Box className="auth-panel-content">
+              <Box className="auth-panel-badge">Invitation equipe</Box>
+              <Typography component="h1">Finalisez votre acces en quelques instants.</Typography>
+              <Typography>
+                Creez votre compte, verifiez votre adresse email et rejoignez directement l&apos;espace
+                de travail de votre equipe.
+              </Typography>
+              <Box className="auth-panel-features">
+                {[
+                  "Invitation securisee",
+                  "Compte rattache a votre equipe",
+                  "Verification email obligatoire",
+                  "Acces CRM immediat apres validation",
+                ].map((item) => (
+                  <Box key={item}>{item}</Box>
+                ))}
+              </Box>
+            </Box>
           </Box>
 
-          {/* Stepper */}
-          <Stepper activeStep={step - 1} connector={<ColorStepConnector />} sx={{ mb: 4 }}>
-            {STEPS.map((stepItem, index) => (
-              <Step key={index}>
-                <StepLabel
-                  StepIconComponent={({ active, completed }) => (
-                    <ColorStepIcon active={active} completed={completed}>
-                      {completed ? <CheckCircleIcon /> : index + 1}
-                    </ColorStepIcon>
-                  )}
+          <Box className="auth-form-area">
+            <StyledCard className="auth-card invitation-card">
+              <Box sx={{ p: 4 }}>
+                <Stepper
+                  activeStep={step - 1}
+                  alternativeLabel
+                  sx={{
+                    mb: 3,
+                    "& .MuiStepLabel-root .Mui-completed": { color: crmTheme.success.main },
+                    "& .MuiStepLabel-root .Mui-active": { color: crmTheme.primary.main },
+                  }}
                 >
-                  <Typography variant="subtitle2" fontWeight={600}>
-                    {stepItem.label}
+                  {steps.map((label) => (
+                    <Step key={label}>
+                      <StepLabel>{label}</StepLabel>
+                    </Step>
+                  ))}
+                </Stepper>
+
+                <Box sx={{ mb: 3 }}>
+                  <Typography className="auth-title">
+                    {step === 1 ? "Accepter l'invitation" : "Verifier votre email"}
                   </Typography>
-                  <Typography variant="caption" color="textSecondary">
-                    {stepItem.description}
+                  <Typography className="auth-subtitle">
+                    {step === 1
+                      ? "Choisissez vos identifiants pour activer votre acces ViewiseCRM."
+                      : "Entrez le code recu par email pour terminer l'activation."}
                   </Typography>
-                </StepLabel>
-              </Step>
-            ))}
-          </Stepper>
+                </Box>
 
-          {/* Message d'alerte */}
-          {message.text && (
-            <Alert
-              severity={message.type}
-              sx={{
-                mb: 3,
-                borderRadius: 2,
-                border: `1px solid ${alpha(
-                  message.type === "success" ? THEME.success : THEME.error,
-                  0.3
-                )}`,
-              }}
-            >
-              {message.text}
-            </Alert>
-          )}
+                {message.text && (
+                  <Alert className="crm-alert" severity={message.type} sx={{ mb: 3 }}>
+                    {message.text}
+                  </Alert>
+                )}
 
-          {/* Étape 1 : Création du compte */}
-          {step === 1 && (
-            <MDBox component="form" role="form" onSubmit={handleAccept}>
-              <MDBox mb={3}>
-                <StyledInput
-                  type="text"
-                  label="Nom d'utilisateur"
-                  variant="standard"
-                  fullWidth
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  required
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <PersonIcon sx={{ color: THEME.primary }} />
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </MDBox>
-
-              <MDBox mb={2}>
-                <StyledInput
-                  type={showPassword ? "text" : "password"}
-                  label="Mot de passe"
-                  variant="standard"
-                  fullWidth
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <LockIcon sx={{ color: THEME.primary }} />
-                      </InputAdornment>
-                    ),
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton
-                          onClick={() => setShowPassword(!showPassword)}
-                          edge="end"
-                          size="small"
-                        >
-                          {showPassword ? <VisibilityOff /> : <Visibility />}
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </MDBox>
-
-              {/* Indicateur de force du mot de passe */}
-              {password && (
-                <Box sx={{ mb: 2 }}>
-                  <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                    <Typography variant="caption" color="textSecondary">
-                      Force du mot de passe
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      fontWeight={600}
-                      sx={{ color: getPasswordStrengthColor() }}
-                    >
-                      {getPasswordStrengthText()}
-                    </Typography>
-                  </Box>
-                  <Box
-                    sx={{
-                      height: 4,
-                      borderRadius: 2,
-                      bgcolor: alpha(THEME.neutral[500], 0.1),
-                      position: "relative",
-                      mb: 1,
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        height: "100%",
-                        width: `${(passwordStrength / 5) * 100}%`,
-                        borderRadius: 2,
-                        background: THEME.gradient,
-                        transition: "width 0.3s ease",
-                      }}
-                    />
-                  </Box>
-                  <Box display="flex" flexWrap="wrap" gap={0.5}>
-                    {Object.entries(passwordValidations).map(([key, value]) => (
-                      <Chip
-                        key={key}
-                        size="small"
-                        label={
-                          key === "minLength"
-                            ? "8+ caractères"
-                            : key === "hasNumber"
-                            ? "Chiffre"
-                            : key === "hasUpperCase"
-                            ? "Majuscule"
-                            : key === "hasLowerCase"
-                            ? "Minuscule"
-                            : "Caractère spécial"
-                        }
-                        sx={{
-                          height: 20,
-                          fontSize: "0.7rem",
-                          bgcolor: value ? alpha(THEME.success, 0.1) : alpha(THEME.error, 0.1),
-                          color: value ? THEME.success : THEME.error,
-                          border: `1px solid ${
-                            value ? alpha(THEME.success, 0.3) : alpha(THEME.error, 0.3)
-                          }`,
+                {step === 1 && (
+                  <form onSubmit={handleAccept}>
+                    <Stack spacing={3}>
+                      <StyledTextField
+                        className="auth-input"
+                        fullWidth
+                        label="Nom d'utilisateur"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        onFocus={() => setFocusedField("username")}
+                        onBlur={() => setFocusedField(null)}
+                        required
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <Person sx={{ color: inputIconColor("username"), fontSize: 20 }} />
+                            </InputAdornment>
+                          ),
                         }}
                       />
-                    ))}
-                  </Box>
-                </Box>
-              )}
 
-              <MDBox mb={3}>
-                <StyledInput
-                  type={showConfirmPassword ? "text" : "password"}
-                  label="Confirmer le mot de passe"
-                  variant="standard"
-                  fullWidth
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  error={confirmPassword && password !== confirmPassword}
-                  helperText={
-                    confirmPassword && password !== confirmPassword
-                      ? "Les mots de passe ne correspondent pas"
-                      : ""
-                  }
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <LockIcon sx={{ color: THEME.primary }} />
-                      </InputAdornment>
-                    ),
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton
-                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          edge="end"
-                          size="small"
+                      <Box>
+                        <StyledTextField
+                          className="auth-input"
+                          fullWidth
+                          label="Mot de passe"
+                          type={showPassword ? "text" : "password"}
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          onFocus={() => setFocusedField("password")}
+                          onBlur={() => setFocusedField(null)}
+                          required
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <Lock sx={{ color: inputIconColor("password"), fontSize: 20 }} />
+                              </InputAdornment>
+                            ),
+                            endAdornment: (
+                              <InputAdornment position="end">
+                                <IconButton
+                                  onClick={() => setShowPassword(!showPassword)}
+                                  edge="end"
+                                  sx={{
+                                    color: crmTheme.neutral[500],
+                                    "&:hover": { color: crmTheme.primary.main },
+                                  }}
+                                >
+                                  {showPassword ? <VisibilityOff /> : <Visibility />}
+                                </IconButton>
+                              </InputAdornment>
+                            ),
+                          }}
+                        />
+
+                        {password && (
+                          <Box sx={{ mt: 1.2 }}>
+                            <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                              <Typography variant="caption" sx={{ color: crmTheme.neutral[500] }}>
+                                Force du mot de passe
+                              </Typography>
+                              <Typography
+                                variant="caption"
+                                sx={{ color: getPasswordStrengthColor(), fontWeight: 800 }}
+                              >
+                                {getPasswordStrengthText()}
+                              </Typography>
+                            </Box>
+                            <LinearProgress
+                              variant="determinate"
+                              value={(passwordStrength / 5) * 100}
+                              sx={{
+                                height: 6,
+                                borderRadius: 3,
+                                backgroundColor: crmTheme.neutral[200],
+                                "& .MuiLinearProgress-bar": {
+                                  borderRadius: 3,
+                                  backgroundColor: getPasswordStrengthColor(),
+                                },
+                              }}
+                            />
+                            <Box className="invite-password-rules">
+                              {Object.entries(passwordValidations).map(([key, valid]) => (
+                                <Box
+                                  key={key}
+                                  className={valid ? "invite-password-rule valid" : "invite-password-rule"}
+                                >
+                                  <CheckCircle fontSize="inherit" />
+                                  {passwordValidationLabels[key]}
+                                </Box>
+                              ))}
+                            </Box>
+                          </Box>
+                        )}
+                      </Box>
+
+                      <StyledTextField
+                        className="auth-input"
+                        fullWidth
+                        label="Confirmer le mot de passe"
+                        type={showConfirmPassword ? "text" : "password"}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        onFocus={() => setFocusedField("confirmPassword")}
+                        onBlur={() => setFocusedField(null)}
+                        required
+                        error={Boolean(confirmPassword && password !== confirmPassword)}
+                        helperText={
+                          confirmPassword && password !== confirmPassword
+                            ? "Les mots de passe ne correspondent pas"
+                            : ""
+                        }
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <Lock
+                                sx={{ color: inputIconColor("confirmPassword"), fontSize: 20 }}
+                              />
+                            </InputAdornment>
+                          ),
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <IconButton
+                                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                edge="end"
+                                sx={{
+                                  color: crmTheme.neutral[500],
+                                  "&:hover": { color: crmTheme.primary.main },
+                                }}
+                              >
+                                {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
+                              </IconButton>
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={agreed}
+                            onChange={(e) => setAgreed(e.target.checked)}
+                            sx={{
+                              color: crmTheme.neutral[400],
+                              "&.Mui-checked": { color: crmTheme.primary.main },
+                            }}
+                          />
+                        }
+                        label={
+                          <Typography variant="body2" sx={{ color: crmTheme.neutral[600] }}>
+                            J&apos;accepte les conditions d&apos;utilisation
+                          </Typography>
+                        }
+                      />
+
+                      <StyledButton
+                        className="auth-button"
+                        type="submit"
+                        fullWidth
+                        disabled={loading}
+                        startIcon={<Send />}
+                      >
+                        {loading ? "Creation en cours..." : "Creer mon compte"}
+                      </StyledButton>
+                    </Stack>
+                  </form>
+                )}
+
+                {step === 2 && (
+                  <form onSubmit={handleVerify}>
+                    <Stack spacing={3}>
+                      <Box className="invite-email-summary">
+                        <Box className="invite-email-icon">
+                          <Email />
+                        </Box>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="caption" sx={{ color: crmTheme.neutral[500] }}>
+                            Code envoye a
+                          </Typography>
+                          <Typography sx={{ color: crmTheme.neutral[800], fontWeight: 900 }}>
+                            {email || "Email non disponible"}
+                          </Typography>
+                        </Box>
+                      </Box>
+
+                      <StyledTextField
+                        className="auth-input"
+                        fullWidth
+                        label="Code de verification"
+                        value={code}
+                        onChange={(e) => setCode(e.target.value)}
+                        onFocus={() => setFocusedField("code")}
+                        onBlur={() => setFocusedField(null)}
+                        required
+                        helperText="Un code a 6 chiffres vous a ete envoye par email"
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <Shield sx={{ color: inputIconColor("code"), fontSize: 20 }} />
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+
+                      <Box className="invite-resend-row">
+                        <Typography variant="caption" sx={{ color: crmTheme.neutral[500] }}>
+                          Vous n&apos;avez pas recu le code ?
+                        </Typography>
+                        <Button
+                          variant="text"
+                          onClick={handleResendCode}
+                          disabled={loading || !email}
+                          sx={{
+                            color: crmTheme.primary.main,
+                            textTransform: "none",
+                            fontWeight: 900,
+                            p: 0,
+                            minWidth: 0,
+                          }}
                         >
-                          {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </MDBox>
+                          Renvoyer
+                        </Button>
+                      </Box>
 
-              <Box display="flex" alignItems="center" mb={3}>
-                <Checkbox
-                  checked={agreed}
-                  onChange={(e) => setAgreed(e.target.checked)}
-                  sx={{
-                    color: alpha(THEME.primary, 0.3),
-                    "&.Mui-checked": {
-                      color: THEME.primary,
-                    },
-                  }}
-                />
-                <Typography variant="button" fontWeight="regular" color="text">
-                  J&apos;accepte les&nbsp;
-                </Typography>
-                <Typography
-                  component="a"
-                  href="#"
-                  variant="button"
-                  fontWeight="bold"
-                  sx={{ color: THEME.primary, cursor: "pointer", textDecoration: "none" }}
-                >
-                  conditions d&apos;utilisation
-                </Typography>
-              </Box>
+                      <StyledButton
+                        className="auth-button"
+                        type="submit"
+                        fullWidth
+                        disabled={loading || !email}
+                        startIcon={<Verified />}
+                      >
+                        {loading ? "Verification..." : "Verifier mon email"}
+                      </StyledButton>
 
-              <GradientButton type="submit" fullWidth disabled={loading}>
-                {loading ? (
-                  <CircularProgress size={24} sx={{ color: "white" }} />
-                ) : (
-                  "Créer mon compte"
+                      <Button
+                        variant="text"
+                        onClick={() => {
+                          setStep(1);
+                          setMessage({ text: "", type: "success" });
+                        }}
+                        startIcon={<ArrowBack />}
+                        sx={{
+                          color: crmTheme.neutral[600],
+                          textTransform: "none",
+                          fontWeight: 800,
+                        }}
+                      >
+                        Retour a la creation du compte
+                      </Button>
+                    </Stack>
+                  </form>
                 )}
-              </GradientButton>
-
-              <Divider sx={{ my: 3 }}>
-                <InfoChip label="Déjà invité ?" size="small" color="primary" />
-              </Divider>
-
-              <Box textAlign="center">
-                <Typography variant="button" color="textSecondary">
-                  Vous avez déjà un compte ?{" "}
-                </Typography>
-                <Typography
-                  component="a"
-                  href="/authentication/sign-in"
-                  variant="button"
-                  fontWeight="bold"
-                  sx={{ color: THEME.primary, cursor: "pointer", textDecoration: "none", ml: 1 }}
-                >
-                  Se connecter
-                </Typography>
               </Box>
-            </MDBox>
-          )}
-
-          {/* Étape 2 : Vérification email */}
-          {step === 2 && (
-            <MDBox component="form" role="form" onSubmit={handleVerify}>
-              <Paper
-                sx={{
-                  p: 2,
-                  bgcolor: alpha(THEME.primary, 0.04),
-                  borderRadius: 2,
-                  border: `1px solid ${alpha(THEME.primary, 0.1)}`,
-                  mb: 3,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 2,
-                }}
-              >
-                <Avatar sx={{ bgcolor: alpha(THEME.primary, 0.1), color: THEME.primary }}>
-                  <EmailIcon />
-                </Avatar>
-                <Box sx={{ flex: 1 }}>
-                  <Typography variant="caption" color="textSecondary">
-                    Email de vérification envoyé à
-                  </Typography>
-                  <Typography variant="body2" fontWeight={600}>
-                    {email || "Chargement..."}
-                  </Typography>
-                  {!email && (
-                    <Typography variant="caption" color="error">
-                      Email non disponible
-                    </Typography>
-                  )}
-                </Box>
-              </Paper>
-
-              <MDBox mb={3}>
-                <StyledInput
-                  type="text"
-                  label="Code de vérification"
-                  variant="standard"
-                  fullWidth
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  required
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <SecurityIcon sx={{ color: THEME.primary }} />
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </MDBox>
-
-              <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-                <Typography variant="caption" color="textSecondary">
-                  Vous n&apos;avez pas reçu le code ?
-                </Typography>
-                <Typography
-                  component="a"
-                  onClick={handleResendCode}
-                  variant="caption"
-                  fontWeight="bold"
-                  sx={{
-                    color: THEME.primary,
-                    cursor: "pointer",
-                    textDecoration: "none",
-                    "&:hover": { textDecoration: "underline" },
-                  }}
-                >
-                  Renvoyer
-                </Typography>
-              </Box>
-
-              <GradientButton type="submit" fullWidth disabled={loading || !email}>
-                {loading ? (
-                  <CircularProgress size={24} sx={{ color: "white" }} />
-                ) : (
-                  "Vérifier mon email"
-                )}
-              </GradientButton>
-
-              <Box mt={3} textAlign="center">
-                <Typography
-                  component="a"
-                  onClick={() => setStep(1)}
-                  variant="button"
-                  sx={{
-                    color: THEME.primary,
-                    cursor: "pointer",
-                    textDecoration: "none",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 1,
-                    "&:hover": { textDecoration: "underline" },
-                  }}
-                >
-                  <ArrowBackIcon fontSize="small" />
-                  Retour à la création du compte
-                </Typography>
-              </Box>
-            </MDBox>
-          )}
-
-          {/* Indicateur de sécurité */}
-          <Box mt={3} display="flex" justifyContent="center" gap={2}>
-            <InfoChip icon={<LockIcon />} label="Sécurisé" size="small" color="success" />
-            <InfoChip icon={<VerifiedIcon />} label="Vérifié" size="small" color="info" />
+            </StyledCard>
           </Box>
-        </MDBox>
-      </StyledCard>
-    </CoverLayout>
+        </Box>
+      </Box>
+    </Box>
   );
 }
 

@@ -1,121 +1,83 @@
+/* eslint-disable prettier/prettier */
 // src/layouts/authentication/sign-up/index.js
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import PropTypes from "prop-types";
 
 import {
-  Card,
-  Box,
-  Typography,
-  TextField,
-  Button,
   Alert,
-  Stack,
-  Avatar,
-  Divider,
-  InputAdornment,
-  IconButton,
-  Stepper,
-  Step,
-  StepLabel,
-  LinearProgress,
+  Box,
+  Button,
+  Card,
   Checkbox,
   FormControlLabel,
-  Fade,
-  Zoom,
+  IconButton,
+  InputAdornment,
+  LinearProgress,
+  Stack,
+  Step,
+  StepLabel,
+  Stepper,
+  TextField,
+  Typography,
 } from "@mui/material";
 import {
-  Person,
+  ArrowBack,
+  CheckCircle,
   Email,
   Lock,
+  Person,
+  Send,
+  Verified,
   Visibility,
   VisibilityOff,
-  Verified,
-  Send,
-  Business,
-  CheckCircle,
-  ArrowBack,
 } from "@mui/icons-material";
 import { styled, alpha } from "@mui/material/styles";
 
-import CoverLayout from "layouts/authentication/components/CoverLayout";
+import { useMaterialUIController, setLayout } from "context";
 
-import bgImage from "assets/images/bg-sign-up-cover.jpeg";
-
-// Palette de couleurs identique au profil et au sign-in
 const crmTheme = {
   primary: {
-    main: "#dc2626",
-    light: "#ef4444",
-    lighter: "#f87171",
-    subtle: "#fee2e2",
-    pale: "#fef2f2",
-    gradient: "linear-gradient(135deg, #dc2626 0%, #ef4444 100%)",
+    main: "#c0392b",
+    light: "#e05b4a",
+    subtle: "#f7e8e8",
+    gradient: "linear-gradient(135deg, #c0392b 0%, #5a0002 100%)",
   },
-  secondary: {
-    main: "#b91c1c",
-    light: "#dc2626",
-    lighter: "#ef4444",
-    subtle: "#fecaca",
-  },
-  success: {
-    main: "#10b981",
-    light: "#34d399",
-    subtle: "#d1fae5",
-  },
-  warning: {
-    main: "#f59e0b",
-    light: "#fbbf24",
-    subtle: "#fed7aa",
-  },
+  success: { main: "#18a558", subtle: "#dcfce7" },
+  warning: { main: "#f59e0b" },
   neutral: {
-    50: "#f9fafb",
-    100: "#f3f4f6",
-    200: "#e5e7eb",
-    300: "#d1d5db",
-    400: "#9ca3af",
-    500: "#6b7280",
-    600: "#4b5563",
-    700: "#374151",
-    800: "#1f2937",
-    900: "#111827",
+    50: "#faf7f4",
+    200: "#e8d5d5",
+    300: "#d8bebe",
+    400: "#b89090",
+    500: "#7a5a5a",
+    600: "#5f3d3d",
+    800: "#1a0808",
   },
 };
 
-// Composants stylisés
-const StyledCard = styled(Card)(({ theme }) => ({
+const StyledCard = styled(Card)(() => ({
   borderRadius: 24,
-  background: "rgba(255, 255, 255, 0.98)",
-  backdropFilter: "blur(10px)",
-  boxShadow: `0 25px 50px -12px ${alpha(crmTheme.primary.main, 0.25)}`,
+  background: "rgba(255, 255, 255, 0.96)",
+  boxShadow: `0 18px 45px ${alpha("#5a0002", 0.12)}`,
   border: `1px solid ${crmTheme.primary.subtle}`,
   overflow: "hidden",
-  position: "relative",
-  "&::before": {
-    content: '""',
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "4px",
-    background: crmTheme.primary.gradient,
-  },
 }));
 
-const StyledButton = styled(Button)(({ theme }) => ({
-  borderRadius: 12,
+const StyledButton = styled(Button)(() => ({
+  borderRadius: 14,
   padding: "12px 24px",
   textTransform: "none",
   fontSize: "1rem",
-  fontWeight: 600,
+  fontWeight: 800,
   background: crmTheme.primary.gradient,
   color: "white",
-  boxShadow: `0 8px 16px ${alpha(crmTheme.primary.main, 0.2)}`,
+  boxShadow: `0 14px 28px ${alpha(crmTheme.primary.main, 0.24)}`,
   "&:hover": {
     background: crmTheme.primary.gradient,
-    boxShadow: `0 12px 24px ${alpha(crmTheme.primary.main, 0.3)}`,
-    transform: "translateY(-2px)",
+    boxShadow: `0 18px 34px ${alpha(crmTheme.primary.main, 0.3)}`,
+    transform: "translateY(-1px)",
   },
   "&:disabled": {
     background: crmTheme.neutral[300],
@@ -125,34 +87,19 @@ const StyledButton = styled(Button)(({ theme }) => ({
   transition: "all 0.2s ease",
 }));
 
-const StyledTextField = styled(TextField)(({ theme }) => ({
+const StyledTextField = styled(TextField)(() => ({
   "& .MuiOutlinedInput-root": {
-    borderRadius: 12,
-    backgroundColor: crmTheme.neutral[50],
-    transition: "all 0.2s ease",
-    "&:hover": {
-      backgroundColor: "white",
-      "& .MuiOutlinedInput-notchedOutline": {
-        borderColor: crmTheme.primary.light,
-      },
-    },
-    "&.Mui-focused": {
-      backgroundColor: "white",
-      "& .MuiOutlinedInput-notchedOutline": {
-        borderColor: crmTheme.primary.main,
-        borderWidth: 2,
-      },
+    borderRadius: 14,
+    backgroundColor: "#fff",
+    "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: crmTheme.primary.light },
+    "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+      borderColor: crmTheme.primary.main,
+      borderWidth: 2,
     },
   },
-  "& .MuiInputLabel-root": {
-    color: crmTheme.neutral[500],
-    "&.Mui-focused": {
-      color: crmTheme.primary.main,
-    },
-  },
+  "& .MuiInputLabel-root.Mui-focused": { color: crmTheme.primary.main },
 }));
 
-// Composant PasswordStrengthIndicator avec PropTypes
 const PasswordStrengthIndicator = ({ password }) => {
   const getStrength = () => {
     let strength = 0;
@@ -164,20 +111,16 @@ const PasswordStrengthIndicator = ({ password }) => {
   };
 
   const strength = getStrength();
-
-  const getColor = () => {
-    if (strength <= 25) return crmTheme.error?.main || "#ef4444";
-    if (strength <= 50) return crmTheme.warning?.main || "#f59e0b";
-    if (strength <= 75) return crmTheme.secondary?.main || "#b91c1c";
-    return crmTheme.success?.main || "#10b981";
-  };
-
-  const getLabel = () => {
-    if (strength <= 25) return "Faible";
-    if (strength <= 50) return "Moyen";
-    if (strength <= 75) return "Bon";
-    return "Fort";
-  };
+  const color =
+    strength <= 25
+      ? crmTheme.primary.main
+      : strength <= 50
+      ? crmTheme.warning.main
+      : strength <= 75
+      ? crmTheme.primary.light
+      : crmTheme.success.main;
+  const label =
+    strength <= 25 ? "Faible" : strength <= 50 ? "Moyen" : strength <= 75 ? "Bon" : "Fort";
 
   return (
     <Box sx={{ mt: 1 }}>
@@ -185,8 +128,8 @@ const PasswordStrengthIndicator = ({ password }) => {
         <Typography variant="caption" sx={{ color: crmTheme.neutral[500] }}>
           Force du mot de passe
         </Typography>
-        <Typography variant="caption" sx={{ color: getColor(), fontWeight: 600 }}>
-          {getLabel()}
+        <Typography variant="caption" sx={{ color, fontWeight: 800 }}>
+          {label}
         </Typography>
       </Box>
       <LinearProgress
@@ -196,22 +139,19 @@ const PasswordStrengthIndicator = ({ password }) => {
           height: 6,
           borderRadius: 3,
           backgroundColor: crmTheme.neutral[200],
-          "& .MuiLinearProgress-bar": {
-            borderRadius: 3,
-            backgroundColor: getColor(),
-          },
+          "& .MuiLinearProgress-bar": { borderRadius: 3, backgroundColor: color },
         }}
       />
     </Box>
   );
 };
 
-// Validation des props pour PasswordStrengthIndicator
 PasswordStrengthIndicator.propTypes = {
   password: PropTypes.string.isRequired,
 };
 
 function SignUp() {
+  const [, dispatch] = useMaterialUIController();
   const [step, setStep] = useState(1);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -223,6 +163,10 @@ function SignUp() {
   const [loading, setLoading] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    setLayout(dispatch, "page");
+  }, [dispatch]);
 
   const validatePassword = (value) => {
     const minLength = value.length >= 8;
@@ -300,179 +244,213 @@ function SignUp() {
     }
   };
 
-  const handleClickShowPassword = () => {
-    setShowPassword(!showPassword);
-  };
-
   const steps = ["Inscription", "Vérification"];
 
   return (
-    <CoverLayout image={bgImage}>
-      <Fade in={true} timeout={500}>
-        <Box
-          sx={{
-            width: "100%",
-            maxWidth: 500,
-            mx: "auto",
-          }}
-        >
-          <StyledCard>
-            {/* Stepper */}
-            <Box sx={{ px: 4, pt: 4 }}>
-              <Stepper
-                activeStep={step - 1}
-                alternativeLabel
-                sx={{
-                  "& .MuiStepLabel-root .Mui-completed": {
-                    color: crmTheme.success.main,
-                  },
-                  "& .MuiStepLabel-root .Mui-active": {
-                    color: crmTheme.primary.main,
-                  },
-                }}
-              >
-                {steps.map((label) => (
-                  <Step key={label}>
-                    <StepLabel>{label}</StepLabel>
-                  </Step>
-                ))}
-              </Stepper>
-            </Box>
+    <Box className="auth-page auth-register-page">
+      <Box className="auth-header">
+        <Stack direction="row" alignItems="center" spacing={1.2}>
+          <Box className="public-logo-mark">V</Box>
+          <Typography className="public-logo-text">ViewiseCRM</Typography>
+        </Stack>
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <Typography className="auth-header-copy">Déjà un compte ?</Typography>
+          <Button className="public-secondary-button" onClick={() => navigate("/login")}>
+            Se connecter
+          </Button>
+        </Stack>
+      </Box>
 
-            {/* Logo ou icône */}
-            <Zoom in={true}>
-              <Box
-                sx={{
-                  display: "flex",
-                  justifyContent: "center",
-                  mt: 2,
-                  mb: 1,
-                }}
-              >
-                <Avatar
+      <Box className="auth-main">
+        <Box className="auth-split auth-register">
+          <Box className="auth-form-area">
+            <StyledCard className="auth-card">
+              <Box sx={{ p: 4 }}>
+                <Stepper
+                  activeStep={step - 1}
+                  alternativeLabel
                   sx={{
-                    width: 70,
-                    height: 70,
-                    background: crmTheme.primary.gradient,
-                    boxShadow: `0 8px 16px ${alpha(crmTheme.primary.main, 0.3)}`,
+                    mb: 3,
+                    "& .MuiStepLabel-root .Mui-completed": { color: crmTheme.success.main },
+                    "& .MuiStepLabel-root .Mui-active": { color: crmTheme.primary.main },
                   }}
                 >
-                  {step === 1 ? (
-                    <Person sx={{ fontSize: 35, color: "white" }} />
-                  ) : (
-                    <Verified sx={{ fontSize: 35, color: "white" }} />
-                  )}
-                </Avatar>
-              </Box>
-            </Zoom>
+                  {steps.map((label) => (
+                    <Step key={label}>
+                      <StepLabel>{label}</StepLabel>
+                    </Step>
+                  ))}
+                </Stepper>
 
-            <Box sx={{ px: 4, pb: 2, textAlign: "center" }}>
-              <Typography
-                variant="h4"
-                sx={{
-                  fontWeight: 700,
-                  color: crmTheme.neutral[800],
-                  mb: 1,
-                }}
-              >
-                {step === 1 ? "Créer un compte" : "Vérification"}
-              </Typography>
-              <Typography
-                variant="body2"
-                sx={{
-                  color: crmTheme.neutral[500],
-                  mb: 2,
-                }}
-              >
-                {step === 1 ? "Rejoignez notre CRM intelligent" : "Entrez le code reçu par email"}
-              </Typography>
-            </Box>
+                <Box sx={{ mb: 3 }}>
+                  <Typography className="auth-title">
+                    {step === 1 ? "Créer votre compte" : "Vérification"}
+                  </Typography>
+                  <Typography className="auth-subtitle">
+                    {step === 1
+                      ? "Commencez votre essai gratuit de 14 jours — sans carte bancaire"
+                      : "Entrez le code reçu par email."}
+                  </Typography>
+                </Box>
 
-            <Divider sx={{ mx: 4, borderColor: crmTheme.neutral[200] }}>
-              <Typography
-                variant="caption"
-                sx={{
-                  color: crmTheme.neutral[400],
-                  backgroundColor: "white",
-                  px: 2,
-                }}
-              >
-                {step === 1 ? "Informations personnelles" : "Code de vérification"}
-              </Typography>
-            </Divider>
+                {step === 1 && (
+                  <form onSubmit={handleRegister}>
+                    <Stack spacing={3}>
+                      <Box className="auth-form-grid">
+                        <StyledTextField
+                          className="auth-input"
+                          fullWidth
+                          label="Nom complet"
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          onFocus={() => setFocusedField("name")}
+                          onBlur={() => setFocusedField(null)}
+                          required
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <Person
+                                  sx={{
+                                    color:
+                                      focusedField === "name"
+                                        ? crmTheme.primary.main
+                                        : crmTheme.neutral[400],
+                                    fontSize: 20,
+                                  }}
+                                />
+                              </InputAdornment>
+                            ),
+                          }}
+                        />
 
-            <Box sx={{ p: 4 }}>
-              {step === 1 && (
-                <form onSubmit={handleRegister}>
-                  <Stack spacing={3}>
-                    <StyledTextField
-                      fullWidth
-                      label="Nom complet"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      onFocus={() => setFocusedField("name")}
-                      onBlur={() => setFocusedField(null)}
-                      required
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <Person
-                              sx={{
-                                color:
-                                  focusedField === "name"
-                                    ? crmTheme.primary.main
-                                    : crmTheme.neutral[400],
-                                fontSize: 20,
-                              }}
-                            />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
+                        <StyledTextField
+                          className="auth-input"
+                          fullWidth
+                          label="E-mail professionnel"
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          onFocus={() => setFocusedField("email")}
+                          onBlur={() => setFocusedField(null)}
+                          required
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <Email
+                                  sx={{
+                                    color:
+                                      focusedField === "email"
+                                        ? crmTheme.primary.main
+                                        : crmTheme.neutral[400],
+                                    fontSize: 20,
+                                  }}
+                                />
+                              </InputAdornment>
+                            ),
+                          }}
+                        />
+                      </Box>
 
-                    <StyledTextField
-                      fullWidth
-                      label="Email professionnel"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      onFocus={() => setFocusedField("email")}
-                      onBlur={() => setFocusedField(null)}
-                      required
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <Email
-                              sx={{
-                                color:
-                                  focusedField === "email"
-                                    ? crmTheme.primary.main
-                                    : crmTheme.neutral[400],
-                                fontSize: 20,
-                              }}
-                            />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
+                      <Box>
+                        <StyledTextField
+                          className="auth-input"
+                          fullWidth
+                          label="Mot de passe"
+                          type={showPassword ? "text" : "password"}
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          onFocus={() => setFocusedField("password")}
+                          onBlur={() => setFocusedField(null)}
+                          required
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <Lock
+                                  sx={{
+                                    color:
+                                      focusedField === "password"
+                                        ? crmTheme.primary.main
+                                        : crmTheme.neutral[400],
+                                    fontSize: 20,
+                                  }}
+                                />
+                              </InputAdornment>
+                            ),
+                            endAdornment: (
+                              <InputAdornment position="end">
+                                <IconButton
+                                  onClick={() => setShowPassword(!showPassword)}
+                                  edge="end"
+                                  sx={{
+                                    color: crmTheme.neutral[500],
+                                    "&:hover": { color: crmTheme.primary.main },
+                                  }}
+                                >
+                                  {showPassword ? <VisibilityOff /> : <Visibility />}
+                                </IconButton>
+                              </InputAdornment>
+                            ),
+                          }}
+                        />
+                        {password && <PasswordStrengthIndicator password={password} />}
+                      </Box>
 
-                    <Box>
-                      <StyledTextField
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={acceptedTerms}
+                            onChange={(e) => setAcceptedTerms(e.target.checked)}
+                            sx={{
+                              color: crmTheme.neutral[400],
+                              "&.Mui-checked": { color: crmTheme.primary.main },
+                            }}
+                          />
+                        }
+                        label={
+                          <Typography variant="body2" sx={{ color: crmTheme.neutral[600] }}>
+                            J&apos;accepte les conditions d&apos;utilisation
+                          </Typography>
+                        }
+                      />
+
+                      {message && (
+                        <Alert className="crm-alert" severity="error">
+                          {message}
+                        </Alert>
+                      )}
+
+                      <StyledButton
+                        className="auth-button"
+                        type="submit"
                         fullWidth
-                        label="Mot de passe"
-                        type={showPassword ? "text" : "password"}
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        onFocus={() => setFocusedField("password")}
+                        disabled={loading || !acceptedTerms}
+                        startIcon={<Send />}
+                      >
+                        {loading ? "Création en cours..." : "Créer mon compte gratuitement"}
+                      </StyledButton>
+                    </Stack>
+                  </form>
+                )}
+
+                {step === 2 && (
+                  <form onSubmit={handleVerify}>
+                    <Stack spacing={3}>
+                      <StyledTextField
+                        className="auth-input"
+                        fullWidth
+                        label="Code de vérification"
+                        value={code}
+                        onChange={(e) => setCode(e.target.value)}
+                        onFocus={() => setFocusedField("code")}
                         onBlur={() => setFocusedField(null)}
                         required
                         InputProps={{
                           startAdornment: (
                             <InputAdornment position="start">
-                              <Lock
+                              <Verified
                                 sx={{
                                   color:
-                                    focusedField === "password"
+                                    focusedField === "code"
                                       ? crmTheme.primary.main
                                       : crmTheme.neutral[400],
                                   fontSize: 20,
@@ -480,204 +458,77 @@ function SignUp() {
                               />
                             </InputAdornment>
                           ),
-                          endAdornment: (
-                            <InputAdornment position="end">
-                              <IconButton
-                                onClick={handleClickShowPassword}
-                                edge="end"
-                                sx={{
-                                  color: crmTheme.neutral[500],
-                                  "&:hover": {
-                                    color: crmTheme.primary.main,
-                                  },
-                                }}
-                              >
-                                {showPassword ? <VisibilityOff /> : <Visibility />}
-                              </IconButton>
-                            </InputAdornment>
-                          ),
                         }}
+                        helperText="Un code à 6 chiffres vous a été envoyé par email"
                       />
-                      {password && <PasswordStrengthIndicator password={password} />}
-                    </Box>
 
-                    <FormControlLabel
-                      control={
-                        <Checkbox
-                          checked={acceptedTerms}
-                          onChange={(e) => setAcceptedTerms(e.target.checked)}
-                          sx={{
-                            color: crmTheme.neutral[400],
-                            "&.Mui-checked": {
-                              color: crmTheme.primary.main,
-                            },
-                          }}
-                        />
-                      }
-                      label={
-                        <Typography variant="body2" sx={{ color: crmTheme.neutral[600] }}>
-                          J&apos;accepte les{" "}
-                          <Typography
-                            component="span"
-                            sx={{
-                              color: crmTheme.primary.main,
-                              fontWeight: 600,
-                              cursor: "pointer",
-                              "&:hover": {
-                                textDecoration: "underline",
-                              },
-                            }}
-                          >
-                            conditions d&apos;utilisation
-                          </Typography>
-                        </Typography>
-                      }
-                    />
+                      {message && (
+                        <Alert
+                          className="crm-alert"
+                          severity={message.includes("succès") ? "success" : "info"}
+                        >
+                          {message}
+                        </Alert>
+                      )}
 
-                    {message && (
-                      <Alert
-                        severity="error"
+                      <StyledButton
+                        className="auth-button"
+                        type="submit"
+                        fullWidth
+                        disabled={loading}
+                        startIcon={<CheckCircle />}
+                      >
+                        {loading ? "Vérification..." : "Vérifier mon email"}
+                      </StyledButton>
+
+                      <Button
+                        variant="text"
+                        onClick={() => setStep(1)}
+                        startIcon={<ArrowBack />}
                         sx={{
-                          borderRadius: 2,
-                          backgroundColor: crmTheme.primary.subtle,
-                          color: crmTheme.primary.main,
-                          border: `1px solid ${crmTheme.primary.lighter}`,
-                          "& .MuiAlert-icon": {
-                            color: crmTheme.primary.main,
-                          },
+                          color: crmTheme.neutral[600],
+                          textTransform: "none",
+                          fontWeight: 800,
                         }}
                       >
-                        {message}
-                      </Alert>
-                    )}
+                        Retour à l&apos;inscription
+                      </Button>
+                    </Stack>
+                  </form>
+                )}
+              </Box>
+            </StyledCard>
+          </Box>
 
-                    <StyledButton
-                      type="submit"
-                      fullWidth
-                      disabled={loading || !acceptedTerms}
-                      startIcon={<Send />}
-                      sx={{ mt: 2 }}
-                    >
-                      {loading ? "Création en cours..." : "S'inscrire"}
-                    </StyledButton>
-                  </Stack>
-                </form>
-              )}
-
-              {step === 2 && (
-                <form onSubmit={handleVerify}>
-                  <Stack spacing={3}>
-                    <StyledTextField
-                      fullWidth
-                      label="Code de vérification"
-                      value={code}
-                      onChange={(e) => setCode(e.target.value)}
-                      onFocus={() => setFocusedField("code")}
-                      onBlur={() => setFocusedField(null)}
-                      required
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <Verified
-                              sx={{
-                                color:
-                                  focusedField === "code"
-                                    ? crmTheme.primary.main
-                                    : crmTheme.neutral[400],
-                                fontSize: 20,
-                              }}
-                            />
-                          </InputAdornment>
-                        ),
-                      }}
-                      helperText="Un code à 6 chiffres vous a été envoyé par email"
-                      FormHelperTextProps={{
-                        sx: { color: crmTheme.neutral[500], mt: 1 },
-                      }}
-                    />
-
-                    {message && (
-                      <Alert
-                        severity={message.includes("succès") ? "success" : "info"}
-                        sx={{
-                          borderRadius: 2,
-                          backgroundColor: message.includes("succès")
-                            ? crmTheme.success.subtle
-                            : crmTheme.primary.subtle,
-                          color: message.includes("succès")
-                            ? crmTheme.success.main
-                            : crmTheme.primary.main,
-                          border: `1px solid ${
-                            message.includes("succès")
-                              ? crmTheme.success.light
-                              : crmTheme.primary.lighter
-                          }`,
-                        }}
-                      >
-                        {message}
-                      </Alert>
-                    )}
-
-                    <StyledButton
-                      type="submit"
-                      fullWidth
-                      disabled={loading}
-                      startIcon={<CheckCircle />}
-                    >
-                      {loading ? "Vérification..." : "Vérifier mon email"}
-                    </StyledButton>
-
-                    <Button
-                      variant="text"
-                      onClick={() => setStep(1)}
-                      startIcon={<ArrowBack />}
-                      sx={{
-                        color: crmTheme.neutral[600],
-                        textTransform: "none",
-                        "&:hover": {
-                          color: crmTheme.primary.main,
-                          backgroundColor: "transparent",
-                        },
-                      }}
-                    >
-                      Retour à l&apos;inscription
-                    </Button>
-                  </Stack>
-                </form>
-              )}
+          <Box className="auth-red-panel">
+            <Box className="auth-panel-brand">
+              <Box className="public-logo-mark light">V</Box>
+              <Typography>ViewiseCRM</Typography>
             </Box>
-
-            {/* Footer */}
-            <Box
-              sx={{
-                p: 2,
-                backgroundColor: crmTheme.neutral[50],
-                borderTop: `1px solid ${crmTheme.neutral[200]}`,
-                textAlign: "center",
-              }}
-            >
-              <Typography variant="caption" sx={{ color: crmTheme.neutral[500] }}>
-                Déjà un compte ?{" "}
-                <Typography
-                  component="span"
-                  onClick={() => navigate("/authentication/sign-in")}
-                  sx={{
-                    color: crmTheme.primary.main,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    "&:hover": {
-                      textDecoration: "underline",
-                    },
-                  }}
-                >
-                  Se connecter
-                </Typography>
+            <Box className="auth-panel-content">
+              <Box className="auth-panel-badge">14 jours gratuits</Box>
+              <Typography component="h1">
+                Tout ce qu&apos;il vous faut pour vendre mieux.
               </Typography>
+              <Typography>
+                Rejoignez les équipes tunisiennes qui utilisent ViewiseCRM pour structurer leur
+                activité commerciale.
+              </Typography>
+              <Box className="auth-panel-features">
+                {[
+                  "Aucune carte bancaire requise",
+                  "Mise en place rapide",
+                  "Support inclus",
+                  "Données sécurisées",
+                ].map((item) => (
+                  <Box key={item}>{item}</Box>
+                ))}
+              </Box>
             </Box>
-          </StyledCard>
+          </Box>
         </Box>
-      </Fade>
-    </CoverLayout>
+      </Box>
+    </Box>
   );
 }
 

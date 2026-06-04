@@ -441,7 +441,7 @@ export default function SuperAdminPlans() {
                     {/* Prix */}
                     <PriceBox>
                       <Typography variant="h3" sx={{ fontWeight: 800, color: T.red }}>
-                        {plan.price}€
+                        {plan.price}TND
                       </Typography>
                       <Typography variant="body2" sx={{ color: T.gray500 }}>
                         par mois
@@ -578,7 +578,7 @@ export default function SuperAdminPlans() {
         <DialogContent sx={{ mt: 2 }}>
           <Stack spacing={2}>
             <Field label="Nom" field="name" placeholder="starter / pro / enterprise" />
-            <Field label="Prix (€/mois)" field="price" type="number" />
+            <Field label="Prix (TND/mois)" field="price" type="number" />
             <Field label="Durée (jours)" field="duration_days" type="number" />
             <Field
               label="Max utilisateurs"

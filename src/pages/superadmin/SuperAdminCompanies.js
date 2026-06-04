@@ -487,7 +487,7 @@ const CompanyDetailsDialog = ({ open, onClose, companyId }) => {
                             Prix
                           </Typography>
                           <Typography variant="body2" fontWeight={600}>
-                            {detail.subscription.plan_price} € / mois
+                            {detail.subscription.plan_price} TND / mois
                           </Typography>
                         </Grid>
                         <Grid item xs={6}>
@@ -1376,7 +1376,7 @@ export default function SuperAdminCompanies() {
                       {p.name}
                     </Typography>
                     <Typography variant="caption" color="textSecondary">
-                      {p.price} €/mois • {p.max_users ?? "∞"} utilisateurs
+                      {p.price} TND/mois • {p.max_users ?? "∞"} utilisateurs
                     </Typography>
                   </Box>
                 </MenuItem>

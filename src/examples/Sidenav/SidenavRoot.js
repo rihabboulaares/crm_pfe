@@ -5,17 +5,17 @@ import Drawer from "@mui/material/Drawer";
 import { styled } from "@mui/material/styles";
 
 export default styled(Drawer)(({ theme, ownerState }) => {
-  const { boxShadows, transitions, breakpoints, functions } = theme;
+  const { transitions, breakpoints, functions } = theme;
   const { miniSidenav } = ownerState;
 
   const sidebarWidth = 260;
   const { pxToRem } = functions;
 
-  const backgroundValue = "#ffffff";
+  const backgroundValue = "linear-gradient(180deg, #5A0002 0%, #780000 44%, #9B0008 100%)";
 
   const drawerOpenStyles = () => ({
     background: backgroundValue,
-    borderRight: "1px solid #f3f4f6",
+    borderRight: "1px solid rgba(255,255,255,0.12)",
     transform: "translateX(0)",
     transition: transitions.create("transform", {
       easing: transitions.easing.sharp,
@@ -23,7 +23,7 @@ export default styled(Drawer)(({ theme, ownerState }) => {
     }),
 
     [breakpoints.up("xl")]: {
-      boxShadow: "2px 0 20px rgba(0,0,0,0.04)",
+      boxShadow: "18px 0 42px rgba(90,0,2,0.22)",
       left: "0",
       width: sidebarWidth,
       transform: "translateX(0)",
@@ -36,7 +36,7 @@ export default styled(Drawer)(({ theme, ownerState }) => {
 
   const drawerCloseStyles = () => ({
     background: backgroundValue,
-    borderRight: "1px solid #f3f4f6",
+    borderRight: "1px solid rgba(255,255,255,0.12)",
     transform: `translateX(${pxToRem(-320)})`,
     transition: transitions.create("transform", {
       easing: transitions.easing.sharp,
@@ -44,7 +44,7 @@ export default styled(Drawer)(({ theme, ownerState }) => {
     }),
 
     [breakpoints.up("xl")]: {
-      boxShadow: "2px 0 20px rgba(0,0,0,0.04)",
+      boxShadow: "18px 0 42px rgba(90,0,2,0.22)",
       left: "0",
       width: pxToRem(96),
       overflowX: "hidden",
@@ -59,6 +59,10 @@ export default styled(Drawer)(({ theme, ownerState }) => {
   return {
     "& .MuiDrawer-paper": {
       border: "none",
+      borderRadius: 0,
+      color: "#fff",
+      backgroundImage:
+        "radial-gradient(circle at top left, rgba(229,56,59,0.35), transparent 16rem), radial-gradient(circle at bottom right, rgba(255,255,255,0.08), transparent 14rem)",
       ...(miniSidenav ? drawerCloseStyles() : drawerOpenStyles()),
     },
   };

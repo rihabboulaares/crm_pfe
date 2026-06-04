@@ -252,8 +252,29 @@ StatsCardItem.propTypes = {
 // ==============================
 const getPriorityLabel = (p) => ({ high: "Haute", medium: "Moyenne", low: "Basse" }[p] || p);
 const getStatusLabel = (s) =>
-  ({ todo: "À faire", in_progress: "En cours", done: "Terminé", cancelled: "Annulé" }[s] || s);
-const getTaskTypeLabel = (t) => ({ classic: "Classique", quota: "Quota" }[t] || t);
+  ({
+    todo: "A faire",
+    pending: "En attente",
+    ready: "Pret",
+    in_progress: "En cours",
+    done: "Termine",
+    completed: "Termine",
+    cancelled: "Annule",
+    failed: "Echec",
+  }[s] || s);
+const getTaskTypeLabel = (t) =>
+  ({
+    classic: "Classique",
+    quota: "Quota",
+    call: "Telephone",
+    linkedin_message: "LinkedIn",
+    email: "Email",
+    facebook_message: "Facebook",
+    instagram_message: "Instagram",
+    follow_up: "Relance",
+    meeting: "RDV",
+    note: "Note",
+  }[t] || t);
 const getActivityTypeLabel = (t) =>
   ({ call: "Appel", email: "Email", note: "Note", meeting: "Meeting", status_change: "Statut" }[
     t
@@ -269,9 +290,13 @@ const getCallResultLabel = (r) =>
 const getStatusIcon = (status) =>
   ({
     todo: <ScheduleIcon sx={{ fontSize: 16 }} />,
+    pending: <ScheduleIcon sx={{ fontSize: 16 }} />,
+    ready: <CheckCircleIcon sx={{ fontSize: 16 }} />,
     in_progress: <PlayArrowIcon sx={{ fontSize: 16 }} />,
     done: <CheckCircleIcon sx={{ fontSize: 16 }} />,
+    completed: <CheckCircleIcon sx={{ fontSize: 16 }} />,
     cancelled: <CancelIcon sx={{ fontSize: 16 }} />,
+    failed: <CancelIcon sx={{ fontSize: 16 }} />,
   }[status] || null);
 const getStatusColor = (status) =>
   ({ todo: THEME.info, in_progress: THEME.warning, done: THEME.success, cancelled: THEME.error }[
@@ -1473,9 +1498,13 @@ const TaskDetailsDrawer = ({
                         onChange={(e) => onStatusChange(task.id, e.target.value)}
                       >
                         <MenuItem value="todo">À faire</MenuItem>
+                        <MenuItem value="pending">En attente</MenuItem>
+                        <MenuItem value="ready">Prêt</MenuItem>
                         <MenuItem value="in_progress">En cours</MenuItem>
                         <MenuItem value="done">Terminé</MenuItem>
+                        <MenuItem value="completed">Terminé</MenuItem>
                         <MenuItem value="cancelled">Annulé</MenuItem>
+                        <MenuItem value="failed">Échec</MenuItem>
                       </Select>
                     </FormControl>
                   </Card>
@@ -2256,10 +2285,18 @@ const TaskFormDrawer = ({ open, onClose, onSaved, assignableUsers, currentUser, 
                 <Typography variant="h6" sx={{ color: THEME.primary, mb: 2, fontWeight: 600 }}>
                   Type de tâche
                 </Typography>
-                <Box display="flex" gap={1}>
+                <Box display="flex" gap={1} flexWrap="wrap">
                   {[
                     { value: "classic", label: "Tâche classique" },
                     { value: "quota", label: "Objectif / Quota" },
+                    { value: "call", label: "Appel" },
+                    { value: "linkedin_message", label: "LinkedIn" },
+                    { value: "email", label: "Email" },
+                    { value: "facebook_message", label: "Facebook" },
+                    { value: "instagram_message", label: "Instagram" },
+                    { value: "follow_up", label: "Relance" },
+                    { value: "meeting", label: "RDV" },
+                    { value: "note", label: "Note" },
                   ].map((t) => (
                     <Button
                       key={t.value}
@@ -2378,9 +2415,13 @@ const TaskFormDrawer = ({ open, onClose, onSaved, assignableUsers, currentUser, 
                         onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                       >
                         <MenuItem value="todo">À faire</MenuItem>
+                        <MenuItem value="pending">En attente</MenuItem>
+                        <MenuItem value="ready">Prêt</MenuItem>
                         <MenuItem value="in_progress">En cours</MenuItem>
                         <MenuItem value="done">Terminé</MenuItem>
+                        <MenuItem value="completed">Terminé</MenuItem>
                         <MenuItem value="cancelled">Annulé</MenuItem>
+                        <MenuItem value="failed">Échec</MenuItem>
                       </Select>
                     </FormControl>
                   </Grid>
@@ -2624,7 +2665,7 @@ export default function TasksPage() {
       refreshTasks();
 
       if (!isEdit) {
-        // NOUVELLE TÂCHE
+        // NOUVELLE TCHE
         try {
           let prospect = null;
           if (savedTask.prospect) {
@@ -2637,7 +2678,7 @@ export default function TasksPage() {
           showNotification("⚠️ Tâche créée mais erreur de synchronisation calendrier", "warning");
         }
       } else {
-        // TÂCHE MODIFIÉE
+        // TCHE MODIFIÉE
         try {
           await updateCalendarEventFromTask(savedTask);
           showNotification("✅ Tâche modifiée avec succès");
@@ -3318,10 +3359,14 @@ export default function TasksPage() {
                 label: "Statut",
                 key: "status",
                 options: [
-                  { value: "todo", label: "À faire" },
+                  { value: "todo", label: "A faire" },
+                  { value: "pending", label: "En attente" },
+                  { value: "ready", label: "Pret" },
                   { value: "in_progress", label: "En cours" },
-                  { value: "done", label: "Terminé" },
-                  { value: "cancelled", label: "Annulé" },
+                  { value: "done", label: "Termine" },
+                  { value: "completed", label: "Termine" },
+                  { value: "cancelled", label: "Annule" },
+                  { value: "failed", label: "Echec" },
                 ],
               },
               {
@@ -3339,6 +3384,14 @@ export default function TasksPage() {
                 options: [
                   { value: "classic", label: "Classique" },
                   { value: "quota", label: "Quota" },
+                  { value: "call", label: "Telephone" },
+                  { value: "linkedin_message", label: "LinkedIn" },
+                  { value: "email", label: "Email" },
+                  { value: "facebook_message", label: "Facebook" },
+                  { value: "instagram_message", label: "Instagram" },
+                  { value: "follow_up", label: "Relance" },
+                  { value: "meeting", label: "RDV" },
+                  { value: "note", label: "Note" },
                 ],
               },
             ].map((filter) => (

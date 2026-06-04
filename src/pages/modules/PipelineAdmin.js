@@ -1760,7 +1760,7 @@ const AssignOpDialog = ({ open, pipeline, stages, onClose, onAssigned }) => {
                         </Box>
                       </Box>
                       <Typography variant="body2" fontWeight={800} sx={{ color: T.primary }}>
-                        {parseFloat(opp.amount || 0).toLocaleString("fr-FR")} €
+                        {parseFloat(opp.amount || 0).toLocaleString("fr-FR")} TND
                       </Typography>
                     </Box>
                   </Paper>
@@ -2950,7 +2950,7 @@ export default function PipelineAdmin() {
               )}
             </Grid>
 
-            {/* ══ COL 3 — TÂCHES ══ */}
+            {/* ══ COL 3 — TCHES ══ */}
             <Grid item xs={12} md={5}>
               <Typography
                 variant="caption"

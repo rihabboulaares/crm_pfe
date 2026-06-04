@@ -50,6 +50,21 @@ export default function App() {
   const [onMouseEnter, setOnMouseEnter] = useState(false);
   const [rtlCache, setRtlCache] = useState(null);
   const { pathname } = useLocation();
+  const authRoutes = [
+    "/",
+    "/welcome",
+    "/login",
+    "/signin",
+    "/register",
+    "/signup",
+    "/authentication/sign-in",
+    "/authentication/sign-up",
+    "/complete-profile",
+    "/complete-account",
+    "/change-password",
+    "/invite-member",
+  ];
+  const isAuthRoute = authRoutes.includes(pathname) || pathname.startsWith("/accept-invite/");
 
   // RTL cache pour le support Right-to-Left
   useMemo(() => {
@@ -128,13 +143,13 @@ export default function App() {
   const renderRoutes = (
     <Routes>
       {getRoutes(routes)}
-      <Route path="*" element={<Navigate to="/authentication/sign-in" replace />} />
+      <Route path="*" element={<Navigate to="/welcome" replace />} />
     </Routes>
   );
 
   // ✅ Popups marketing — rendues uniquement quand l'utilisateur est connecté (layout dashboard)
   const marketingPopups =
-    layout === "dashboard" ? (
+    layout === "dashboard" && !isAuthRoute ? (
       <>
         <AcquisitionSourcePopup />
         <AppRatingPopup />
@@ -145,12 +160,12 @@ export default function App() {
     <CacheProvider value={rtlCache}>
       <ThemeProvider theme={darkMode ? themeDarkRTL : themeRTL}>
         <CssBaseline />
-        {layout === "dashboard" && (
+        {layout === "dashboard" && !isAuthRoute && (
           <>
             <Sidenav
               color={sidenavColor}
               brand={(transparentSidenav && !darkMode) || whiteSidenav ? brandDark : brandWhite}
-              brandName="Material Dashboard 2"
+              brandName="ViewiseCRM"
               routes={routes}
               onMouseEnter={handleOnMouseEnter}
               onMouseLeave={handleOnMouseLeave}
@@ -169,12 +184,12 @@ export default function App() {
   ) : (
     <ThemeProvider theme={darkMode ? themeDark : theme}>
       <CssBaseline />
-      {layout === "dashboard" && (
+      {layout === "dashboard" && !isAuthRoute && (
         <>
           <Sidenav
             color={sidenavColor}
             brand={(transparentSidenav && !darkMode) || whiteSidenav ? brandDark : brandWhite}
-            brandName="Material Dashboard 2"
+            brandName="ViewiseCRM"
             routes={routes}
             onMouseEnter={handleOnMouseEnter}
             onMouseLeave={handleOnMouseLeave}

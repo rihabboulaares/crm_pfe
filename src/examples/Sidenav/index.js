@@ -31,11 +31,11 @@ import {
 const API_BASE = "http://127.0.0.1:8000/api";
 
 // Couleur principale - uniquement le rouge
-const PRIMARY_COLOR = "#d32f2f";
-const PRIMARY_LIGHT = "#ffebee";
-const TEXT_SECONDARY = "#6b7280";
-const TEXT_PRIMARY = "#111827";
-const BORDER_COLOR = "#f0f0f0";
+const PRIMARY_COLOR = "#C1121F";
+const PRIMARY_LIGHT = "rgba(255,255,255,0.12)";
+const TEXT_SECONDARY = "rgba(255,255,255,0.68)";
+const TEXT_PRIMARY = "#ffffff";
+const BORDER_COLOR = "rgba(255,255,255,0.14)";
 
 function Sidenav({ color, brand, brandName, routes, ...rest }) {
   const [controller, dispatch] = useMaterialUIController();
@@ -161,7 +161,11 @@ function Sidenav({ color, brand, brandName, routes, ...rest }) {
           mt={2}
           mb={1}
           ml={1}
-          sx={{ color: "#9ca3af", letterSpacing: "0.08em", fontSize: "0.65rem" }}
+          sx={{
+            color: "rgba(255,255,255,0.5)",
+            letterSpacing: "0.08em",
+            fontSize: "0.65rem",
+          }}
         >
           {title}
         </MDTypography>
@@ -216,7 +220,8 @@ function Sidenav({ color, brand, brandName, routes, ...rest }) {
               width: 36,
               height: 36,
               borderRadius: "10px",
-              background: PRIMARY_COLOR,
+              background: "linear-gradient(135deg, #E5383B, #C1121F)",
+              boxShadow: "0 12px 24px rgba(0,0,0,0.22)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -261,15 +266,17 @@ function Sidenav({ color, brand, brandName, routes, ...rest }) {
               p: "10px 12px",
               borderRadius: "10px",
               bgcolor: PRIMARY_LIGHT,
+              border: "1px solid rgba(255,255,255,0.12)",
               transition: "all 0.2s",
               cursor: "pointer",
               "&:hover": {
-                bgcolor: "#fce4e4",
+                bgcolor: "rgba(255,255,255,0.18)",
+                transform: "translateY(-1px)",
               },
             }}
           >
             <Box sx={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <Icon sx={{ fontSize: "1rem", color: PRIMARY_COLOR }}>subscriptions</Icon>
+              <Icon sx={{ fontSize: "1rem", color: "#fff" }}>subscriptions</Icon>
               {!miniSidenav && (
                 <Box>
                   <Typography sx={{ fontSize: "0.7rem", fontWeight: 500, color: TEXT_SECONDARY }}>
@@ -284,7 +291,7 @@ function Sidenav({ color, brand, brandName, routes, ...rest }) {
               )}
             </Box>
             {!miniSidenav && (
-              <Typography sx={{ fontSize: "0.7rem", color: PRIMARY_COLOR, fontWeight: 500 }}>
+              <Typography sx={{ fontSize: "0.7rem", color: "#fff", fontWeight: 700 }}>
                 {subscription?.expired ? "Renouveler" : "Gérer"}
               </Typography>
             )}

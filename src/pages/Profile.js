@@ -67,7 +67,7 @@ import { useTrackActivity } from "../pages/superadmin/Marketingwidgets";
 const MEDIA_URL = "http://127.0.0.1:8000";
 const API_BASE = "http://127.0.0.1:8000/api/users";
 
-// ─── PALETTE ────────────────────────────────────────────────────
+// â”TNDâ”TNDâ”TND PALETTE â”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TND
 const R = {
   50: "#fff1f1",
   100: "#ffe4e4",
@@ -94,7 +94,7 @@ const N = {
   800: "#262626",
 };
 
-// ─── KEYFRAMES ───────────────────────────────────────────────────
+// â”TNDâ”TNDâ”TND KEYFRAMES â”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TND
 const fadeUp = keyframes`
   from { opacity:0; transform:translateY(12px); }
   to   { opacity:1; transform:translateY(0);    }
@@ -104,46 +104,47 @@ const slideIn = keyframes`
   to   { opacity:1; transform:translateX(0);    }
 `;
 
-// ─── STYLED COMPONENTS ──────────────────────────────────────────
+// â”TNDâ”TNDâ”TND STYLED COMPONENTS â”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TND
 
 /* Hero banner at top */
 const HeroBanner = styled(Box)(() => ({
-  background: R.gradSoft,
-  borderRadius: "20px 20px 0 0",
+  background: "#fff",
+  borderRadius: "20px",
+  border: `1px solid ${N[200]}`,
+  boxShadow: "0 10px 28px rgba(15, 23, 42, 0.06)",
   padding: "28px 32px 24px",
   position: "relative",
   overflow: "hidden",
   "&::before": {
     content: '""',
     position: "absolute",
-    top: -50,
-    right: -50,
-    width: 180,
-    height: 180,
-    borderRadius: "50%",
-    background: "rgba(255,255,255,0.07)",
+    inset: "0 auto 0 0",
+    width: 5,
+    background: R.grad,
   },
   "&::after": {
     content: '""',
     position: "absolute",
-    bottom: -30,
-    left: "30%",
-    width: 120,
-    height: 120,
+    top: -80,
+    right: -90,
+    width: 220,
+    height: 220,
     borderRadius: "50%",
-    background: "rgba(255,255,255,0.04)",
+    background: alpha(R[600], 0.05),
   },
 }));
 
 /* Horizontal tab bar */
 const TabBar = styled(Box)(() => ({
   background: "#fff",
-  borderBottom: `1px solid ${N[200]}`,
+  border: `1px solid ${N[200]}`,
+  borderRadius: 16,
   display: "flex",
   alignItems: "center",
-  paddingLeft: 24,
-  paddingRight: 24,
+  padding: 6,
   gap: 4,
+  marginTop: 18,
+  boxShadow: "0 6px 18px rgba(15, 23, 42, 0.04)",
   overflowX: "auto",
   "&::-webkit-scrollbar": { display: "none" },
 }));
@@ -157,8 +158,8 @@ const TabItem = styled(Box)(({ active }) => ({
   position: "relative",
   whiteSpace: "nowrap",
   transition: "all 0.18s",
-  borderBottom: active ? `2.5px solid ${R[600]}` : "2.5px solid transparent",
-  marginBottom: -1,
+  borderRadius: 12,
+  background: active ? alpha(R[600], 0.09) : "transparent",
   "& .ti-icon": {
     fontSize: 16,
     color: active ? R[600] : N[400],
@@ -176,10 +177,12 @@ const TabItem = styled(Box)(({ active }) => ({
 
 /* Content area */
 const PanelBody = styled(Box)(() => ({
-  background: N[50],
-  borderRadius: "0 0 20px 20px",
-  padding: "32px",
-  minHeight: 480,
+  background: "#fff",
+  border: `1px solid ${N[200]}`,
+  borderRadius: 20,
+  padding: "28px",
+  minHeight: 0,
+  marginTop: 18,
   animation: `${fadeUp} 0.22s ease`,
 }));
 
@@ -320,7 +323,7 @@ EmptyState.propTypes = {
 };
 EmptyState.defaultProps = { sub: null, action: null };
 
-// ─── ROLE CONFIG ──────────────────────────────────────────────────
+// â”TNDâ”TNDâ”TND ROLE CONFIG â”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TND
 const roleConfig = {
   ADMIN: { label: "Administrateur", color: R[600], icon: <ShieldIcon />, grad: R.grad },
   MANAGER: {
@@ -355,7 +358,7 @@ function buildTabs(role) {
   const t = [{ id: "info", label: "Profil", icon: <PersonIcon /> }];
   if (role === "ADMIN") {
     t.push({ id: "company", label: "Entreprise", icon: <BusinessIcon /> });
-    t.push({ id: "teams", label: "Équipes", icon: <GroupIcon /> });
+    t.push({ id: "teams", label: "Ã‰quipes", icon: <GroupIcon /> });
   } else {
     t.push({ id: "teams", label: "Mon équipe", icon: <GroupIcon /> });
   }
@@ -363,9 +366,9 @@ function buildTabs(role) {
   return t;
 }
 
-// ══════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // MAIN COMPONENT
-// ══════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 export default function Profile() {
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
@@ -557,7 +560,7 @@ export default function Profile() {
       );
       setTeams([...teams, data]);
       setSelectedTeam(data);
-      show("Équipe créée !");
+      show("Ã‰quipe créée !");
       setOpenCreateTeam(false);
       setTeamForm({ name: "" });
     } catch {
@@ -602,7 +605,7 @@ export default function Profile() {
     }
   };
 
-  // ── LOADING ──────────────────────────────────────────────────
+  // â”TNDâ”TND LOADING â”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TND
   if (loading)
     return (
       <DashboardLayout>
@@ -658,9 +661,9 @@ export default function Profile() {
   const rc = roleConfig[role] || { label: role, color: N[500], grad: N[400], icon: <PersonIcon /> };
   const tabs = buildTabs(role);
 
-  // ─── PANEL RENDERER ─────────────────────────────────────────
+  // â”TNDâ”TNDâ”TND PANEL RENDERER â”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TND
   const renderPanel = () => {
-    // ══ PROFIL ════════════════════════════════════════════════
+    // â•â• PROFIL â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     if (activeTab === "info")
       return (
         <Box key="info" sx={{ animation: `${fadeUp} 0.22s ease` }}>
@@ -680,7 +683,7 @@ export default function Profile() {
                   mt: 0.4,
                 }}
               >
-                Équipes
+                Ã‰quipes
               </Typography>
             </StatPill>
             <StatPill color="#2563eb">
@@ -858,7 +861,7 @@ export default function Profile() {
         </Box>
       );
 
-    // ══ SÉCURITÉ ══════════════════════════════════════════════
+    // â•â• SÃ‰CURITÃ‰ â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     if (activeTab === "security")
       return (
         <Box key="security" sx={{ animation: `${fadeUp} 0.22s ease`, maxWidth: 600 }}>
@@ -1093,7 +1096,7 @@ export default function Profile() {
         </Box>
       );
 
-    // ══ ENTREPRISE ════════════════════════════════════════════
+    // â•â• ENTREPRISE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     if (activeTab === "company")
       return (
         <Box key="company" sx={{ animation: `${fadeUp} 0.22s ease` }}>
@@ -1251,7 +1254,7 @@ export default function Profile() {
         </Box>
       );
 
-    // ══ ÉQUIPES ═══════════════════════════════════════════════
+    // â•â• Ã‰QUIPES â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     if (activeTab === "teams")
       return (
         <Box key="teams" sx={{ animation: `${fadeUp} 0.22s ease` }}>
@@ -1280,11 +1283,11 @@ export default function Profile() {
           {teams.length > 1 && role === "ADMIN" && (
             <FormControl fullWidth size="small" sx={{ mb: 2.5 }}>
               <InputLabel sx={{ "&.Mui-focused": { color: R[600] } }}>
-                Équipe sélectionnée
+                Ã‰quipe sélectionnée
               </InputLabel>
               <Select
                 value={selectedTeam?.id || ""}
-                label="Équipe sélectionnée"
+                label="Ã‰quipe sélectionnée"
                 sx={{
                   borderRadius: 2,
                   "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: R[600] },
@@ -1521,11 +1524,11 @@ export default function Profile() {
     return null;
   };
 
-  // ─── RENDER ──────────────────────────────────────────────────
+  // â”TNDâ”TNDâ”TND RENDER â”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TND
   return (
     <DashboardLayout>
       <DashboardNavbar />
-      <Container maxWidth="xl" sx={{ py: 3 }}>
+      <Container className="profile-page" maxWidth="xl" sx={{ py: 3 }}>
         <Snackbar
           open={snackbar.open}
           autoHideDuration={4000}
@@ -1541,16 +1544,18 @@ export default function Profile() {
           </Alert>
         </Snackbar>
 
-        <Box
-          sx={{
-            border: `1px solid ${N[200]}`,
-            borderRadius: "20px",
-            overflow: "hidden",
-            boxShadow: "0 4px 28px rgba(0,0,0,0.07)",
-          }}
-        >
-          {/* ── HERO BANNER ── */}
-          <HeroBanner>
+        <Box sx={{ mb: 3 }}>
+          <Typography sx={{ fontSize: 30, fontWeight: 900, color: N[800], lineHeight: 1.15 }}>
+            Profil
+          </Typography>
+          <Typography sx={{ mt: 0.6, color: N[500], fontSize: 14 }}>
+            Gérez vos informations personnelles et les paramètres de votre compte.
+          </Typography>
+        </Box>
+
+        <Box>
+          {/* â”TNDâ”TND HERO BANNER â”TNDâ”TND */}
+          <HeroBanner className="profile-hero">
             <Stack
               direction="row"
               alignItems="center"
@@ -1570,12 +1575,14 @@ export default function Profile() {
                     onChange={handlePhotoUpload}
                   />
                   <Avatar
+                    className="profile-avatar"
                     src={getAvatarUrl()}
                     sx={{
                       width: 76,
                       height: 76,
-                      border: "3px solid rgba(255,255,255,0.38)",
-                      bgcolor: "rgba(255,255,255,0.18)",
+                      border: `4px solid ${R[100]}`,
+                      bgcolor: R[600],
+                      color: "#fff",
                       fontSize: 28,
                       fontWeight: 900,
                     }}
@@ -1607,46 +1614,50 @@ export default function Profile() {
                 </Box>
                 <Box>
                   <Typography
-                    sx={{ fontSize: 22, fontWeight: 900, color: "#fff", lineHeight: 1.1, mb: 0.5 }}
+                    sx={{ fontSize: 22, fontWeight: 900, color: N[800], lineHeight: 1.1, mb: 0.5 }}
                   >
                     {user.username}
                   </Typography>
                   <Typography
                     sx={{
                       fontSize: 12,
-                      color: "rgba(255,255,255,0.72)",
+                      color: N[500],
                       mb: 1,
                       wordBreak: "break-all",
                     }}
                   >
                     {user.email}
                   </Typography>
-                  {/* Role badge */}
-                  <Box
-                    sx={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 0.7,
-                      bgcolor: "rgba(255,255,255,0.18)",
-                      border: "1px solid rgba(255,255,255,0.28)",
-                      borderRadius: 20,
-                      px: 1.5,
-                      py: 0.5,
-                    }}
-                  >
-                    {rc.icon &&
-                      React.cloneElement(rc.icon, { sx: { fontSize: 13, color: "#fff" } })}
-                    <Typography sx={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>
+                  <Stack direction="row" flexWrap="wrap" gap={0.8}>
+                    <Box
+                      className="crm-badge"
+                      sx={{ bgcolor: R[50], color: R[800], border: `1px solid ${R[100]}` }}
+                    >
+                      <CheckCircleIcon sx={{ fontSize: 14 }} />
+                      Compte actif
+                    </Box>
+                    <Box
+                      className="crm-badge"
+                      sx={{ bgcolor: N[50], color: N[700], border: `1px solid ${N[200]}` }}
+                    >
+                      CRM User
+                    </Box>
+                    <Box
+                      className="crm-badge"
+                      sx={{ bgcolor: N[50], color: N[700], border: `1px solid ${N[200]}` }}
+                    >
+                      {rc.icon &&
+                        React.cloneElement(rc.icon, { sx: { fontSize: 13, color: R[600] } })}
                       {rc.label}
-                    </Typography>
-                  </Box>
+                    </Box>
+                  </Stack>
                 </Box>
               </Stack>
 
               {/* Right: quick stats */}
               <Stack direction="row" spacing={1.5}>
                 {[
-                  { val: teams.length, lbl: "Équipes", color: "rgba(255,255,255,0.2)" },
+                  { val: teams.length, lbl: "Ã‰quipes", color: "rgba(255,255,255,0.2)" },
                   { val: members.length, lbl: "Collègues", color: "rgba(255,255,255,0.15)" },
                 ].map((s) => (
                   <Box
@@ -1655,23 +1666,23 @@ export default function Profile() {
                       textAlign: "center",
                       px: 2.5,
                       py: 1.5,
-                      bgcolor: s.color,
-                      border: "1px solid rgba(255,255,255,0.22)",
+                      bgcolor: R[50],
+                      border: `1px solid ${R[100]}`,
                       borderRadius: 14,
                     }}
                   >
                     <Typography
-                      sx={{ fontSize: 24, fontWeight: 900, color: "#fff", lineHeight: 1 }}
+                      sx={{ fontSize: 24, fontWeight: 900, color: R[800], lineHeight: 1 }}
                     >
                       {s.val}
                     </Typography>
                     <Typography
                       sx={{
                         fontSize: 10,
-                        color: "rgba(255,255,255,0.72)",
+                        color: N[500],
                         fontWeight: 600,
                         textTransform: "uppercase",
-                        letterSpacing: 0.8,
+                        letterSpacing: 0,
                         mt: 0.3,
                       }}
                     >
@@ -1683,7 +1694,7 @@ export default function Profile() {
             </Stack>
           </HeroBanner>
 
-          {/* ── HORIZONTAL TAB BAR ── */}
+          {/* â”TNDâ”TND HORIZONTAL TAB BAR â”TNDâ”TND */}
           <TabBar>
             {tabs.map((tab) => {
               const isActive = activeTab === tab.id;
@@ -1704,11 +1715,13 @@ export default function Profile() {
             })}
           </TabBar>
 
-          {/* ── PANEL BODY ── */}
-          <PanelBody key={activeTab}>{renderPanel()}</PanelBody>
+          {/* â”TNDâ”TND PANEL BODY â”TNDâ”TND */}
+          <PanelBody className="profile-card" key={activeTab}>
+            {renderPanel()}
+          </PanelBody>
         </Box>
 
-        {/* ══ DIALOGS ══════════════════════════════════════════════ */}
+        {/* â•â• DIALOGS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
 
         {/* Entreprise */}
         {role === "ADMIN" && (
@@ -1861,7 +1874,7 @@ export default function Profile() {
                 value={teamForm.name}
                 size="small"
                 onChange={(e) => setTeamForm({ name: e.target.value })}
-                placeholder="Ex: Équipe Paris, Équipe Sud..."
+                placeholder="Ex: Ã‰quipe Paris, Ã‰quipe Sud..."
                 sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
               />
             </DialogContent>

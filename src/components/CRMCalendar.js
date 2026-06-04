@@ -20,6 +20,7 @@ import {
   Fade,
   Paper,
   useTheme,
+  alpha,
 } from "@mui/material";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import ViewWeekIcon from "@mui/icons-material/ViewWeek";
@@ -36,28 +37,41 @@ import CalendarFilters from "./CalendarFilters";
 
 const CRM_RED = {
   main: "#C62828",
+  accent: "#E53935",
   light: "#EF9A9A",
   dark: "#8B0000",
   surface: "#FFEBEE",
   border: "#FFCDD2",
   hover: "#FFE4E6",
+  panel: "#FFF7F7",
+  ink: "#241315",
+  muted: "#786264",
+  white: "#FFFFFF",
 };
 
-// ── Icônes par type d'événement ET par type d'activité ───────────────────────
+// â”TNDâ”TND Icônes par type d'événement ET par type d'activité â”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TND
 const TYPE_ICONS = {
-  // Types d'événements
-  task: "✅",
-  meeting: "📅",
-  deadline: "⏰",
-  reminder: "🔔",
-  stage: "🏁",
-  activity: "📝", // fallback si activityType absent
-  pipeline_alert: "⚠️",
-  // Types d'activités CRM (utilisés quand eventType === 'activity')
-  call: "📞",
-  email: "📧",
-  note: "📝",
-  status_change: "🔄",
+  task: "TA",
+  meeting: "RD",
+  deadline: "EC",
+  reminder: "RA",
+  stage: "ST",
+  activity: "AC",
+  pipeline_alert: "AL",
+  call: "AP",
+  email: "EM",
+  note: "NO",
+  status_change: "MA",
+};
+
+const TYPE_STYLES = {
+  task: { color: "#C62828", bg: "#FFF1F2", border: "#F8B4BE", label: "Tache" },
+  meeting: { color: "#0F766E", bg: "#ECFDF5", border: "#99F6E4", label: "RDV" },
+  deadline: { color: "#9F1239", bg: "#FFE4E6", border: "#FDA4AF", label: "Echeance" },
+  reminder: { color: "#B45309", bg: "#FFFBEB", border: "#FCD34D", label: "Rappel" },
+  stage: { color: "#4338CA", bg: "#EEF2FF", border: "#C7D2FE", label: "Pipeline" },
+  activity: { color: "#0369A1", bg: "#EFF6FF", border: "#BFDBFE", label: "Activite" },
+  pipeline_alert: { color: "#7F1D1D", bg: "#FEF2F2", border: "#FCA5A5", label: "Alerte" },
 };
 
 const VIEWS = [
@@ -86,42 +100,93 @@ const frLocale = {
 };
 
 const RED_THEME_CSS = `
-  .fc { --fc-border-color:#FFCDD2!important; --fc-today-bg-color:#FFF3F3!important;
-        --fc-button-bg-color:#C62828!important; --fc-button-border-color:#C62828!important;
-        --fc-button-hover-bg-color:#8B0000!important; --fc-button-hover-border-color:#8B0000!important;
-        --fc-button-active-bg-color:#8B0000!important; --fc-button-active-border-color:#8B0000!important; }
-  .fc .fc-toolbar-title { font-size:1.25rem!important; font-weight:700!important; color:#8B0000!important; }
-  .fc .fc-button-primary { background-color:#C62828!important; border-color:#C62828!important;
-        border-radius:8px!important; font-weight:600!important; text-transform:capitalize!important;
-        transition:all 0.2s ease!important; }
-  .fc .fc-button-primary:hover { background-color:#8B0000!important; transform:translateY(-1px)!important;
-        box-shadow:0 2px 8px rgba(198,40,40,0.3)!important; }
-  .fc .fc-button-primary:disabled { background-color:#EF9A9A!important; opacity:0.6!important; }
-  .fc .fc-day-today { background-color:#FFF3F3!important; }
-  .fc .fc-day-today .fc-daygrid-day-number { background-color:#C62828!important; color:#fff!important;
-        border-radius:50%!important; width:28px!important; height:28px!important;
-        display:flex!important; align-items:center!important; justify-content:center!important; font-weight:700!important; }
-  .fc .fc-col-header-cell { background:linear-gradient(135deg,#FFEBEE 0%,#FFE4E6 100%)!important;
-        border-color:#FFCDD2!important; padding:8px 0!important; }
-  .fc .fc-col-header-cell-cushion { color:#8B0000!important; font-weight:700!important;
-        text-transform:uppercase!important; letter-spacing:0.5px!important; font-size:0.75rem!important;
-        text-decoration:none!important; }
-  .fc .fc-daygrid-day { transition:background 0.2s ease!important; }
-  .fc .fc-daygrid-day:hover { background:#FFF9F9!important; }
-  .fc .fc-daygrid-day-number { color:#555!important; font-weight:500!important; font-size:0.85rem!important;
-        text-decoration:none!important; }
-  .fc .fc-event { border-radius:8px!important; border:none!important; cursor:pointer!important;
-        transition:all 0.2s ease!important; margin:2px 4px!important; padding:2px 4px!important; }
-  .fc .fc-event:hover { transform:translateY(-1px)!important; filter:brightness(1.05)!important;
-        box-shadow:0 2px 8px rgba(0,0,0,0.15)!important; }
+  .fc {
+    --fc-border-color:#F4D4D8!important;
+    --fc-page-bg-color:#FFFFFF!important;
+    --fc-neutral-bg-color:#FFF7F7!important;
+    --fc-today-bg-color:#FFF5F5!important;
+    color:#241315!important;
+  }
+  .fc .fc-scrollgrid {
+    border:1px solid #F0C9CE!important;
+    border-radius:14px!important;
+    overflow:hidden!important;
+    background:#fff!important;
+  }
+  .fc .fc-col-header-cell {
+    background:#FFF7F7!important;
+    border-color:#F0C9CE!important;
+    padding:10px 0!important;
+  }
+  .fc .fc-col-header-cell-cushion {
+    color:#8B0000!important;
+    font-weight:800!important;
+    text-transform:uppercase!important;
+    letter-spacing:0!important;
+    font-size:0.72rem!important;
+    text-decoration:none!important;
+  }
+  .fc .fc-daygrid-day,
+  .fc .fc-timegrid-slot,
+  .fc .fc-timegrid-axis,
+  .fc .fc-timegrid-col {
+    border-color:#F5DEE1!important;
+  }
+  .fc .fc-daygrid-day-frame { min-height:112px!important; padding:4px!important; }
+  .fc .fc-daygrid-day:hover { background:#FFFBFB!important; }
+  .fc .fc-day-today { background:#FFF5F5!important; box-shadow:inset 0 0 0 1px #C62828!important; }
+  .fc .fc-daygrid-day-number {
+    color:#6D5558!important;
+    font-weight:700!important;
+    font-size:0.78rem!important;
+    text-decoration:none!important;
+    width:28px!important;
+    height:28px!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+    border-radius:8px!important;
+    margin:4px!important;
+  }
+  .fc .fc-day-today .fc-daygrid-day-number {
+    background:#C62828!important;
+    color:#fff!important;
+    box-shadow:0 6px 14px rgba(198,40,40,0.22)!important;
+  }
+  .fc .fc-day-other { background:#FFFDFD!important; }
+  .fc .fc-day-other .fc-daygrid-day-number { color:#BBA2A5!important; }
+  .fc .fc-event {
+    border-radius:10px!important;
+    border:1px solid rgba(36,19,21,0.08)!important;
+    cursor:pointer!important;
+    margin:2px 4px!important;
+    padding:0!important;
+    overflow:hidden!important;
+    box-shadow:0 4px 10px rgba(36,19,21,0.06)!important;
+    transition:transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease!important;
+  }
+  .fc .fc-event:hover {
+    transform:translateY(-1px)!important;
+    filter:brightness(1.02)!important;
+    box-shadow:0 8px 18px rgba(36,19,21,0.13)!important;
+  }
   .fc .fc-daygrid-event { white-space:normal!important; }
-  .fc .fc-list-event:hover td { background-color:#FFEBEE!important; }
-  .fc .fc-list-day-cushion { background:linear-gradient(135deg,#FFEBEE 0%,#FFE4E6 100%)!important; }
-  .fc .fc-list-day-text,.fc .fc-list-day-side-text { color:#C62828!important; font-weight:700!important; }
+  .fc .fc-daygrid-more-link {
+    color:#C62828!important;
+    font-size:0.72rem!important;
+    font-weight:800!important;
+    padding-left:6px!important;
+  }
+  .fc .fc-timegrid-slot-label-cushion,
+  .fc .fc-list-event-time { color:#786264!important; font-size:0.72rem!important; }
   .fc .fc-timegrid-now-indicator-line { border-color:#C62828!important; border-width:2px!important; }
   .fc .fc-timegrid-now-indicator-arrow { border-top-color:#C62828!important; border-bottom-color:#C62828!important; }
-  @keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
-  .fc-event { animation:fadeIn 0.3s ease!important; }
+  .fc .fc-list { border-color:#F0C9CE!important; }
+  .fc .fc-list-day-cushion { background:#FFF1F2!important; }
+  .fc .fc-list-day-text,.fc .fc-list-day-side-text { color:#8B0000!important; font-weight:800!important; }
+  .fc .fc-list-event:hover td { background-color:#FFF7F7!important; }
+  @keyframes calendarFadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+  .fc-event { animation:calendarFadeIn 0.22s ease!important; }
 `;
 
 function injectRedTheme() {
@@ -143,6 +208,7 @@ export default function CRMCalendar() {
   const [modalOpen, setModalOpen] = useState(false);
   const [newEventDates, setNewEventDates] = useState(null);
   const [currentView, setCurrentView] = useState("dayGridMonth");
+  const [currentTitle, setCurrentTitle] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const {
@@ -160,7 +226,8 @@ export default function CRMCalendar() {
   } = useCalendarEvents(filters);
 
   const handleDatesSet = useCallback(
-    async ({ startStr, endStr }) => {
+    async ({ startStr, endStr, view }) => {
+      setCurrentTitle(view?.title || "");
       await fetchEvents(startStr, endStr);
     },
     [fetchEvents]
@@ -181,6 +248,7 @@ export default function CRMCalendar() {
       color: ep.color,
       colorResolved: ep.colorResolved,
       isSynced: ep.isSynced,
+      isVirtualTaskEvent: ep.isVirtualTaskEvent,
       reminder: ep.reminder,
       // Task
       task: ep.task,
@@ -266,7 +334,7 @@ export default function CRMCalendar() {
     if (direction === "today") api.today();
   };
 
-  // ── Rendu de chaque événement ──────────────────────────────────────────────
+  // â”TNDâ”TND Rendu de chaque événement â”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TND
   const renderEvent = ({ event }) => {
     const {
       priority,
@@ -281,104 +349,130 @@ export default function CRMCalendar() {
       taskIsOverdue,
     } = event.extendedProps;
 
-    // Pour les activités CRM, on affine l'icône selon activityType
     const iconKey = eventType === "activity" && activityType ? activityType : eventType;
-    const icon = TYPE_ICONS[iconKey] || "📌";
+    const marker = TYPE_ICONS[iconKey] || "EV";
+    const style = TYPE_STYLES[eventType] || TYPE_STYLES.task;
+    const priorityLabel = PRIORITY_LABELS[priority] || priority || "Normale";
 
     const tooltipLines = [
       event.title,
-      description && `📝 ${description.slice(0, 100)}${description.length > 100 ? "..." : ""}`,
-      stageName && `🏁 ${stageName}`,
-      opportunityName && `💰 ${opportunityName}`,
-      assignedName && `👤 ${assignedName}`,
-      alertSeverity && `🚨 Sévérité : ${alertSeverity}`,
-      opStatus && `📊 Statut pipeline : ${opStatus}`,
-      taskIsOverdue && "⚠️ Tâche en retard",
-      `🔴 Priorité : ${PRIORITY_LABELS[priority] || priority}`,
+      description && `Note: ${description.slice(0, 100)}${description.length > 100 ? "..." : ""}`,
+      stageName && `Etape: ${stageName}`,
+      opportunityName && `Opportunite: ${opportunityName}`,
+      assignedName && `Assigne a: ${assignedName}`,
+      alertSeverity && `Severite: ${alertSeverity}`,
+      opStatus && `Statut pipeline: ${opStatus}`,
+      taskIsOverdue && "Tache en retard",
+      `Priorite: ${priorityLabel}`,
     ].filter(Boolean);
 
     return (
       <Tooltip
         title={
           <Box sx={{ p: 0.5 }}>
-            {tooltipLines.map((l, i) => (
+            {tooltipLines.map((line, index) => (
               <Typography
-                key={i}
+                key={line}
                 variant="caption"
                 display="block"
-                sx={{ color: "#fff", mt: i > 0 ? 0.5 : 0 }}
+                sx={{ color: "#fff", mt: index > 0 ? 0.5 : 0 }}
               >
-                {l}
+                {line}
               </Typography>
             ))}
           </Box>
         }
         arrow
         placement="top"
-        enterDelay={500}
+        enterDelay={350}
       >
         <Box
           sx={{
-            px: 0.8,
-            py: 0.3,
-            fontSize: "0.75rem",
+            minHeight: 28,
+            px: 0.7,
+            py: 0.45,
             overflow: "hidden",
             display: "flex",
             alignItems: "center",
-            gap: 0.6,
-            whiteSpace: "normal",
-            lineHeight: 1.3,
+            gap: 0.7,
+            lineHeight: 1.2,
+            background: `linear-gradient(135deg, ${style.bg} 0%, #fff 120%)`,
+            color: style.color,
+            borderLeft: `3px solid ${style.color}`,
           }}
         >
-          <span style={{ fontSize: 11, flexShrink: 0 }}>{icon}</span>
-          <span
-            style={{
+          <Box
+            component="span"
+            sx={{
+              width: 24,
+              height: 20,
+              borderRadius: 1,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              bgcolor: style.color,
+              color: "#fff",
+              fontSize: "0.58rem",
+              fontWeight: 900,
+              letterSpacing: 0,
+            }}
+          >
+            {marker}
+          </Box>
+          <Typography
+            component="span"
+            sx={{
+              minWidth: 0,
+              flex: 1,
+              color: CRM_RED.ink,
+              fontSize: "0.74rem",
+              fontWeight: 750,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
-              flex: 1,
-              fontWeight: 500,
             }}
           >
             {event.title}
-          </span>
+          </Typography>
           {priority && priority !== "medium" && (
-            <Chip
-              label={PRIORITY_LABELS[priority]?.charAt(0) || priority.charAt(0).toUpperCase()}
-              size="small"
+            <Box
+              component="span"
               sx={{
-                height: 18,
-                width: 18,
-                fontSize: "0.65rem",
-                fontWeight: 700,
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
                 flexShrink: 0,
-                bgcolor: COLOR_MAP[priority] || "#999",
-                color: "#fff",
-                "& .MuiChip-label": { px: 0.3 },
+                bgcolor: COLOR_MAP[priority] || CRM_RED.main,
+                boxShadow: `0 0 0 3px ${alpha(COLOR_MAP[priority] || CRM_RED.main, 0.16)}`,
               }}
             />
           )}
           {taskIsOverdue && (
-            <Chip
-              label="!"
-              size="small"
+            <Box
+              component="span"
               sx={{
+                px: 0.45,
                 height: 18,
-                width: 18,
-                fontSize: "0.65rem",
-                fontWeight: 700,
+                minWidth: 18,
+                borderRadius: 1,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
                 flexShrink: 0,
-                bgcolor: "#f44336",
+                bgcolor: "#7F1D1D",
                 color: "#fff",
-                "& .MuiChip-label": { px: 0.3 },
+                fontSize: "0.64rem",
+                fontWeight: 900,
               }}
-            />
+            >
+              !
+            </Box>
           )}
         </Box>
       </Tooltip>
     );
   };
-
   const refreshCalendar = useCallback(async () => {
     setModalOpen(false);
     const cal = calendarRef.current?.getApi();
@@ -393,6 +487,19 @@ export default function CRMCalendar() {
     [filters]
   );
 
+  const eventStats = useMemo(() => {
+    const now = new Date();
+    const todayKey = now.toISOString().slice(0, 10);
+    return {
+      total: events.length,
+      tasks: events.filter((event) => event.extendedProps?.eventType === "task").length,
+      today: events.filter((event) => String(event.start || "").slice(0, 10) === todayKey).length,
+      urgent: events.filter(
+        (event) => event.extendedProps?.priority === "high" || event.extendedProps?.taskIsOverdue
+      ).length,
+    };
+  }, [events]);
+
   return (
     <Fade in timeout={300}>
       <Box sx={{ position: "relative" }}>
@@ -401,133 +508,225 @@ export default function CRMCalendar() {
           elevation={0}
           sx={{
             mb: 2.5,
-            p: 1.5,
+            p: { xs: 1.5, md: 2 },
             borderRadius: 3,
-            border: `1.5px solid ${CRM_RED.border}`,
-            bgcolor: CRM_RED.surface,
+            border: `1px solid ${CRM_RED.border}`,
+            bgcolor: CRM_RED.white,
+            boxShadow: "0 16px 42px rgba(139,0,0,0.08)",
           }}
         >
-          <Stack
-            direction="row"
-            alignItems="center"
-            justifyContent="space-between"
-            flexWrap="wrap"
-            gap={1.5}
-          >
-            {/* Navigation */}
-            <Stack direction="row" alignItems="center" spacing={1}>
-              <IconButton
-                onClick={() => handleNavigate("prev")}
-                size="small"
-                sx={{
-                  bgcolor: "#fff",
-                  border: `1px solid ${CRM_RED.border}`,
-                  "&:hover": { bgcolor: CRM_RED.hover, borderColor: CRM_RED.main },
-                }}
-              >
-                <ChevronLeftIcon sx={{ fontSize: 20 }} />
-              </IconButton>
-              <IconButton
-                onClick={() => handleNavigate("today")}
-                size="small"
-                sx={{
-                  bgcolor: "#fff",
-                  border: `1px solid ${CRM_RED.border}`,
-                  px: 1.5,
-                  borderRadius: 2,
-                  "&:hover": { bgcolor: CRM_RED.hover, borderColor: CRM_RED.main },
-                }}
-              >
-                <Typography variant="body2" fontWeight={600} color={CRM_RED.main}>
-                  Aujourd&apos;hui
-                </Typography>
-              </IconButton>
-              <IconButton
-                onClick={() => handleNavigate("next")}
-                size="small"
-                sx={{
-                  bgcolor: "#fff",
-                  border: `1px solid ${CRM_RED.border}`,
-                  "&:hover": { bgcolor: CRM_RED.hover, borderColor: CRM_RED.main },
-                }}
-              >
-                <ChevronRightIcon sx={{ fontSize: 20 }} />
-              </IconButton>
-            </Stack>
-
-            {/* Sélecteur de vue */}
-            <Stack direction="row" spacing={0.5}>
-              {VIEWS.map((view) => {
-                const Icon = view.icon;
-                const isActive = currentView === view.id;
-                return (
-                  <Tooltip key={view.id} title={view.label}>
-                    <IconButton
-                      onClick={() => handleViewChange(view.id)}
-                      size="small"
-                      sx={{
-                        bgcolor: isActive ? CRM_RED.main : "#fff",
-                        color: isActive ? "#fff" : CRM_RED.main,
-                        border: `1px solid ${CRM_RED.border}`,
-                        "&:hover": { bgcolor: isActive ? CRM_RED.dark : CRM_RED.hover },
-                        transition: "all 0.2s ease",
-                      }}
-                    >
-                      <Icon sx={{ fontSize: 18 }} />
-                    </IconButton>
-                  </Tooltip>
-                );
-              })}
-            </Stack>
-
-            {/* Actions */}
-            <Stack direction="row" alignItems="center" spacing={1}>
-              {(loading || isRefreshing) && (
-                <CircularProgress size={20} sx={{ color: CRM_RED.main }} />
-              )}
-              {error && (
-                <Alert severity="error" sx={{ py: 0, px: 1, borderRadius: 2 }} icon={false}>
-                  <Typography variant="caption">{error}</Typography>
-                </Alert>
-              )}
-              <Tooltip title="Rafraîchir">
-                <IconButton
-                  onClick={handleRefresh}
-                  size="small"
+          <Stack spacing={2}>
+            <Stack
+              direction={{ xs: "column", lg: "row" }}
+              alignItems={{ xs: "stretch", lg: "center" }}
+              justifyContent="space-between"
+              gap={1.5}
+            >
+              <Box sx={{ minWidth: 0 }}>
+                <Typography
                   sx={{
-                    bgcolor: "#fff",
-                    border: `1px solid ${CRM_RED.border}`,
-                    "&:hover": { bgcolor: CRM_RED.hover },
+                    color: CRM_RED.dark,
+                    fontSize: { xs: "1.05rem", md: "1.35rem" },
+                    fontWeight: 900,
+                    lineHeight: 1.15,
+                    textTransform: "capitalize",
                   }}
                 >
-                  <RefreshIcon sx={{ fontSize: 18 }} />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title={showFilters ? "Masquer les filtres" : "Afficher les filtres"}>
-                <Badge
-                  badgeContent={activeFilterCount}
-                  color="error"
-                  invisible={activeFilterCount === 0}
-                >
-                  <IconButton
-                    onClick={() => setShowFilters((v) => !v)}
-                    size="small"
+                  {currentTitle || "Calendrier CRM"}
+                </Typography>
+                <Typography sx={{ color: CRM_RED.muted, fontSize: "0.78rem", mt: 0.4 }}>
+                  Vue consolidee des taches, rendez-vous, rappels et alertes commerciales.
+                </Typography>
+              </Box>
+
+              <Stack direction="row" flexWrap="wrap" gap={1}>
+                {[
+                  { label: "Evenements", value: eventStats.total, color: CRM_RED.main },
+                  { label: "Taches", value: eventStats.tasks, color: "#C62828" },
+                  { label: "Aujourd'hui", value: eventStats.today, color: "#0F766E" },
+                  { label: "Urgents", value: eventStats.urgent, color: "#7F1D1D" },
+                ].map((stat) => (
+                  <Box
+                    key={stat.label}
                     sx={{
-                      bgcolor: showFilters ? CRM_RED.main : "#fff",
-                      color: showFilters ? "#fff" : CRM_RED.main,
-                      border: `1px solid ${CRM_RED.border}`,
-                      "&:hover": { bgcolor: showFilters ? CRM_RED.dark : CRM_RED.hover },
-                      transition: "all 0.2s ease",
+                      minWidth: 98,
+                      px: 1.25,
+                      py: 0.85,
+                      borderRadius: 2,
+                      bgcolor: alpha(stat.color, 0.08),
+                      border: `1px solid ${alpha(stat.color, 0.18)}`,
                     }}
                   >
-                    <FilterListIcon fontSize="small" />
+                    <Typography sx={{ color: stat.color, fontSize: "1rem", fontWeight: 900 }}>
+                      {stat.value}
+                    </Typography>
+                    <Typography sx={{ color: CRM_RED.muted, fontSize: "0.68rem", fontWeight: 700 }}>
+                      {stat.label}
+                    </Typography>
+                  </Box>
+                ))}
+              </Stack>
+            </Stack>
+
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              alignItems={{ xs: "stretch", md: "center" }}
+              justifyContent="space-between"
+              gap={1.25}
+              sx={{
+                p: 1,
+                borderRadius: 2.5,
+                bgcolor: CRM_RED.panel,
+                border: `1px solid ${CRM_RED.border}`,
+              }}
+            >
+              <Stack direction="row" alignItems="center" spacing={0.75}>
+                <IconButton
+                  onClick={() => handleNavigate("prev")}
+                  size="small"
+                  sx={{
+                    bgcolor: CRM_RED.white,
+                    border: `1px solid ${CRM_RED.border}`,
+                    color: CRM_RED.dark,
+                    "&:hover": { bgcolor: CRM_RED.hover, borderColor: CRM_RED.main },
+                  }}
+                >
+                  <ChevronLeftIcon sx={{ fontSize: 20 }} />
+                </IconButton>
+                <Box
+                  component="button"
+                  type="button"
+                  onClick={() => handleNavigate("today")}
+                  sx={{
+                    height: 34,
+                    px: 1.5,
+                    border: `1px solid ${CRM_RED.border}`,
+                    borderRadius: 2,
+                    bgcolor: CRM_RED.white,
+                    color: CRM_RED.main,
+                    fontWeight: 850,
+                    fontSize: "0.78rem",
+                    cursor: "pointer",
+                    "&:hover": { bgcolor: CRM_RED.hover, borderColor: CRM_RED.main },
+                  }}
+                >
+                  Aujourd&apos;hui
+                </Box>
+                <IconButton
+                  onClick={() => handleNavigate("next")}
+                  size="small"
+                  sx={{
+                    bgcolor: CRM_RED.white,
+                    border: `1px solid ${CRM_RED.border}`,
+                    color: CRM_RED.dark,
+                    "&:hover": { bgcolor: CRM_RED.hover, borderColor: CRM_RED.main },
+                  }}
+                >
+                  <ChevronRightIcon sx={{ fontSize: 20 }} />
+                </IconButton>
+              </Stack>
+
+              <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
+                {VIEWS.map((view) => {
+                  const Icon = view.icon;
+                  const isActive = currentView === view.id;
+                  return (
+                    <Box
+                      key={view.id}
+                      component="button"
+                      type="button"
+                      onClick={() => handleViewChange(view.id)}
+                      sx={{
+                        height: 34,
+                        px: 1.15,
+                        borderRadius: 2,
+                        border: `1px solid ${isActive ? CRM_RED.main : CRM_RED.border}`,
+                        bgcolor: isActive ? CRM_RED.main : CRM_RED.white,
+                        color: isActive ? "#fff" : CRM_RED.dark,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 0.65,
+                        fontSize: "0.76rem",
+                        fontWeight: 850,
+                        cursor: "pointer",
+                        boxShadow: isActive ? "0 8px 18px rgba(198,40,40,0.22)" : "none",
+                        "&:hover": { bgcolor: isActive ? CRM_RED.dark : CRM_RED.hover },
+                      }}
+                    >
+                      <Icon sx={{ fontSize: 16 }} />
+                      {view.label}
+                    </Box>
+                  );
+                })}
+              </Stack>
+
+              <Stack direction="row" alignItems="center" spacing={1}>
+                {(loading || isRefreshing) && (
+                  <CircularProgress size={20} sx={{ color: CRM_RED.main }} />
+                )}
+                {error && (
+                  <Alert severity="error" sx={{ py: 0, px: 1, borderRadius: 2 }} icon={false}>
+                    <Typography variant="caption">{error}</Typography>
+                  </Alert>
+                )}
+                <Tooltip title="Rafraichir">
+                  <IconButton
+                    onClick={handleRefresh}
+                    size="small"
+                    sx={{
+                      bgcolor: CRM_RED.white,
+                      border: `1px solid ${CRM_RED.border}`,
+                      color: CRM_RED.main,
+                      "&:hover": { bgcolor: CRM_RED.hover },
+                    }}
+                  >
+                    <RefreshIcon sx={{ fontSize: 18 }} />
                   </IconButton>
-                </Badge>
-              </Tooltip>
+                </Tooltip>
+                <Tooltip title={showFilters ? "Masquer les filtres" : "Afficher les filtres"}>
+                  <Badge
+                    badgeContent={activeFilterCount}
+                    color="error"
+                    invisible={activeFilterCount === 0}
+                  >
+                    <IconButton
+                      onClick={() => setShowFilters((v) => !v)}
+                      size="small"
+                      sx={{
+                        bgcolor: showFilters ? CRM_RED.main : CRM_RED.white,
+                        color: showFilters ? "#fff" : CRM_RED.main,
+                        border: `1px solid ${showFilters ? CRM_RED.main : CRM_RED.border}`,
+                        "&:hover": { bgcolor: showFilters ? CRM_RED.dark : CRM_RED.hover },
+                      }}
+                    >
+                      <FilterListIcon fontSize="small" />
+                    </IconButton>
+                  </Badge>
+                </Tooltip>
+              </Stack>
+            </Stack>
+
+            <Stack direction="row" flexWrap="wrap" gap={0.75}>
+              {Object.entries(TYPE_STYLES).map(([type, item]) => (
+                <Chip
+                  key={type}
+                  label={item.label}
+                  size="small"
+                  sx={{
+                    height: 24,
+                    borderRadius: 1.5,
+                    bgcolor: item.bg,
+                    color: item.color,
+                    border: `1px solid ${item.border}`,
+                    fontSize: "0.68rem",
+                    fontWeight: 850,
+                    "& .MuiChip-label": { px: 1 },
+                  }}
+                />
+              ))}
             </Stack>
           </Stack>
         </Paper>
-
         {/* Filtres */}
         {showFilters && (
           <Fade in={showFilters}>
@@ -552,8 +751,7 @@ export default function CRMCalendar() {
             border: `1px solid ${CRM_RED.border}`,
             "& .fc": { fontFamily: theme.typography.fontFamily },
             "& .fc-event": {
-              borderRadius: "6px!important",
-              border: "none!important",
+              borderRadius: "10px!important",
               cursor: "pointer",
             },
           }}
@@ -584,17 +782,12 @@ export default function CRMCalendar() {
             weekends
             eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
             eventDidMount={(info) => {
-              // Priorité : colorResolved (calculé backend) > color (stocké)
-              const color =
-                info.event.extendedProps?.colorResolved || info.event.extendedProps?.color;
-              if (color) {
-                info.el.style.backgroundColor = color;
-                info.el.style.borderColor = color;
-              }
-              info.el.style.opacity = "0.95";
+              info.el.style.backgroundColor = "transparent";
+              info.el.style.borderColor = "transparent";
+              info.el.style.opacity = "1";
               // Indicateur visuel si tâche en retard
               if (info.event.extendedProps?.taskIsOverdue) {
-                info.el.style.outline = "2px solid #f44336";
+                info.el.style.outline = "2px solid #7F1D1D";
               }
             }}
           />
@@ -619,3 +812,7 @@ export default function CRMCalendar() {
     </Fade>
   );
 }
+
+
+
+

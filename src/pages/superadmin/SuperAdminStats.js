@@ -99,7 +99,7 @@ export default function SuperAdminStats() {
   const kpiData = [
     { name: "Entreprises", value: stats?.total_companies, color: T.blue },
     { name: "Utilisateurs", value: stats?.total_users, color: T.purple },
-    { name: "Revenus (€)", value: stats?.total_revenue_monthly, color: T.amber },
+    { name: "Revenus (TND)", value: stats?.total_revenue_monthly, color: T.amber },
     { name: "Nouveaux", value: stats?.new_companies_this_month, color: T.green },
   ];
 
@@ -214,7 +214,7 @@ export default function SuperAdminStats() {
               <Area
                 type="monotone"
                 dataKey="revenus"
-                name="Revenus (€)"
+                name="Revenus (TND)"
                 stroke={T.green}
                 fill="url(#gRev)"
                 strokeWidth={2}
@@ -285,7 +285,7 @@ export default function SuperAdminStats() {
               {[
                 {
                   label: "Revenus mensuels",
-                  value: `${stats?.total_revenue_monthly || 0} €`,
+                  value: `${stats?.total_revenue_monthly || 0} TND`,
                   color: T.green,
                 },
                 {

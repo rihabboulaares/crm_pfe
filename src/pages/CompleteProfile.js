@@ -1,5 +1,6 @@
+/* eslint-disable prettier/prettier */
 // src/pages/CompleteProfile.js
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
@@ -53,6 +54,7 @@ import MDBox from "components/MDBox";
 import MDTypography from "components/MDTypography";
 import MDInput from "components/MDInput";
 import MDButton from "components/MDButton";
+import { useMaterialUIController, setLayout } from "context";
 
 // ==============================
 // THÈME PERSONNALISÉ
@@ -207,6 +209,7 @@ const STEPS = [
 ];
 
 function CompleteProfile() {
+  const [, dispatch] = useMaterialUIController();
   const navigate = useNavigate();
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -235,6 +238,10 @@ function CompleteProfile() {
     companyPhone: "",
     foundedYear: "",
   });
+
+  useEffect(() => {
+    setLayout(dispatch, "page");
+  }, [dispatch]);
 
   // Options pour les selects
   const options = {
@@ -769,8 +776,29 @@ function CompleteProfile() {
   // Si le message de période d'essai est affiché
   if (showTrialMessage) {
     return (
-      <DashboardLayout>
-        <DashboardNavbar />
+      <Box
+        sx={{
+          minHeight: "100vh",
+          background: "linear-gradient(135deg, #fff7f7 0%, #f8fafc 55%, #ffffff 100%)",
+          py: { xs: 3, md: 5 },
+          px: { xs: 2, md: 4 },
+        }}
+      >
+        <Box
+          sx={{
+            maxWidth: 1280,
+            mx: "auto",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            mb: 4,
+          }}
+        >
+          <Stack direction="row" alignItems="center" spacing={1.2}>
+            <Box className="public-logo-mark">V</Box>
+            <Typography className="public-logo-text">ViewiseCRM</Typography>
+          </Stack>
+        </Box>
         <MDBox py={3} px={3}>
           <StyledCard sx={{ maxWidth: 700, mx: "auto" }}>
             <CardContent sx={{ p: 4 }}>
@@ -845,161 +873,274 @@ function CompleteProfile() {
             </CardContent>
           </StyledCard>
         </MDBox>
-      </DashboardLayout>
+      </Box>
     );
   }
 
   return (
-    <DashboardLayout>
-      <DashboardNavbar />
-      <MDBox py={3} px={3}>
-        <StyledCard sx={{ maxWidth: 1000, mx: "auto" }}>
-          <CardContent sx={{ p: 4 }}>
-            <Typography
-              variant="h4"
-              sx={{ color: THEME.primary, fontWeight: 700, mb: 1, textAlign: "center" }}
-            >
-              Configuration de votre profil
-            </Typography>
-            <Typography variant="body2" color="textSecondary" sx={{ mb: 4, textAlign: "center" }}>
-              Complétez vos informations en 2 étapes simples
-            </Typography>
+    <Box
+      sx={{
+        minHeight: "100vh",
+        background: "linear-gradient(135deg, #fff7f7 0%, #f8fafc 55%, #ffffff 100%)",
+        py: { xs: 3, md: 5 },
+        px: { xs: 2, md: 4 },
+      }}
+    >
+      <Box
+        sx={{
+          maxWidth: 1280,
+          mx: "auto",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          mb: 4,
+        }}
+      >
+        <Stack direction="row" alignItems="center" spacing={1.2}>
+          <Box className="public-logo-mark">V</Box>
+          <Typography className="public-logo-text">ViewiseCRM</Typography>
+        </Stack>
+      </Box>
+      <Grid container spacing={4} sx={{ maxWidth: 1280, mx: "auto" }}>
+        <Grid item xs={12} lg={8}>
+          <StyledCard className="complete-profile-card" sx={{ width: "100%" }}>
+            <CardContent sx={{ p: 4 }}>
+              <Typography
+                variant="h4"
+                sx={{ color: THEME.primary, fontWeight: 700, mb: 1, textAlign: "center" }}
+              >
+                Compléter votre profil
+              </Typography>
+              <Typography variant="body2" color="textSecondary" sx={{ mb: 4, textAlign: "center" }}>
+                Ajoutez les dernières informations nécessaires pour personnaliser votre espace.
+              </Typography>
 
-            {/* Stepper personnalisé */}
-            <Stepper activeStep={activeStep} connector={<ColorStepConnector />} sx={{ mb: 4 }}>
-              {STEPS.map((step, index) => (
-                <Step key={index}>
-                  <StepLabel
-                    StepIconComponent={({ active, completed }) => (
-                      <ColorStepIcon active={active} completed={completed}>
-                        {completed ? <CheckCircleIcon /> : index + 1}
-                      </ColorStepIcon>
-                    )}
-                  >
-                    <Typography variant="subtitle2" fontWeight={600}>
-                      {step.label}
-                    </Typography>
-                    <Typography variant="caption" color="textSecondary">
-                      {step.description}
-                    </Typography>
-                  </StepLabel>
-                </Step>
-              ))}
-            </Stepper>
-
-            {/* Barre de progression */}
-            <Box sx={{ mb: 4 }}>
-              <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                <Typography variant="body2" fontWeight={600}>
-                  Progression
-                </Typography>
-                <Typography variant="body2" sx={{ color: THEME.primary }}>
-                  {Math.round(getProgress())}%
-                </Typography>
-              </Box>
-              <LinearProgress
-                variant="determinate"
-                value={getProgress()}
+              {/* Stepper personnalisé */}
+              <Stepper
+                activeStep={activeStep}
+                connector={<ColorStepConnector />}
+                alternativeLabel
                 sx={{
-                  height: 8,
-                  borderRadius: 4,
-                  bgcolor: alpha(THEME.primary, 0.1),
-                  "& .MuiLinearProgress-bar": {
-                    background: THEME.gradient,
-                    borderRadius: 4,
+                  mb: 4,
+                  "& .MuiStepLabel-label": {
+                    whiteSpace: "normal",
+                    lineHeight: 1.3,
                   },
                 }}
-              />
-            </Box>
+              >
+                {STEPS.map((step, index) => (
+                  <Step key={index}>
+                    <StepLabel
+                      StepIconComponent={({ active, completed }) => (
+                        <ColorStepIcon active={active} completed={completed}>
+                          {completed ? <CheckCircleIcon /> : index + 1}
+                        </ColorStepIcon>
+                      )}
+                    >
+                      <Typography variant="subtitle2" fontWeight={600}>
+                        {step.label}
+                      </Typography>
+                      <Typography variant="caption" color="textSecondary">
+                        {step.description}
+                      </Typography>
+                    </StepLabel>
+                  </Step>
+                ))}
+              </Stepper>
 
-            <Paper
-              elevation={0}
+              {/* Barre de progression */}
+              <Box sx={{ mb: 4 }}>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                  <Typography variant="body2" fontWeight={600}>
+                    Progression
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: THEME.primary }}>
+                    {Math.round(getProgress())}%
+                  </Typography>
+                </Box>
+                <LinearProgress
+                  variant="determinate"
+                  value={getProgress()}
+                  sx={{
+                    height: 8,
+                    borderRadius: 4,
+                    bgcolor: alpha(THEME.primary, 0.1),
+                    "& .MuiLinearProgress-bar": {
+                      background: THEME.gradient,
+                      borderRadius: 4,
+                    },
+                  }}
+                />
+              </Box>
+
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 3,
+                  bgcolor: alpha(THEME.primary, 0.02),
+                  borderRadius: 3,
+                  border: `1px solid ${alpha(THEME.primary, 0.1)}`,
+                }}
+              >
+                <form onSubmit={handleSubmit}>
+                  {getStepContent(activeStep)}
+
+                  {message && (
+                    <Alert severity="error" sx={{ mt: 2, borderRadius: 2 }}>
+                      {message}
+                    </Alert>
+                  )}
+
+                  <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4 }}>
+                    <MDButton
+                      variant="outlined"
+                      onClick={handleBack}
+                      disabled={activeStep === 0}
+                      startIcon={<ArrowBackIcon />}
+                      sx={{
+                        borderColor: alpha(THEME.primary, 0.3),
+                        color: THEME.primary,
+                        borderRadius: 2,
+                        "&:hover": {
+                          borderColor: THEME.primary,
+                          bgcolor: alpha(THEME.primary, 0.04),
+                        },
+                      }}
+                    >
+                      Retour
+                    </MDButton>
+
+                    {activeStep === STEPS.length - 1 ? (
+                      <GradientButton
+                        type="submit"
+                        disabled={loading || !validateStep()}
+                        startIcon={<SaveIcon />}
+                      >
+                        {loading ? "Enregistrement..." : "Terminer"}
+                      </GradientButton>
+                    ) : (
+                      <GradientButton
+                        onClick={handleNext}
+                        disabled={!validateStep()}
+                        endIcon={<ArrowForwardIcon />}
+                      >
+                        Suivant
+                      </GradientButton>
+                    )}
+                  </Box>
+                </form>
+              </Paper>
+
+              {/* Résumé des informations */}
+              {getProgress() > 0 && (
+                <Box sx={{ mt: 3 }}>
+                  <Divider sx={{ mb: 2 }}>
+                    <InfoChip label="Résumé des informations saisies" color="primary" />
+                  </Divider>
+                  <Box display="flex" flexWrap="wrap" gap={1}>
+                    {formData.phoneNumber && (
+                      <InfoChip icon={<PhoneIcon />} label={formData.phoneNumber} />
+                    )}
+                    {formData.country && formData.city && (
+                      <InfoChip
+                        icon={<LocationCityIcon />}
+                        label={`${formData.city}, ${formData.country}`}
+                      />
+                    )}
+                    {formData.jobTitle && (
+                      <InfoChip icon={<WorkIcon />} label={formData.jobTitle} />
+                    )}
+                    {formData.companyName && (
+                      <InfoChip icon={<BusinessIcon />} label={formData.companyName} />
+                    )}
+                    {formData.industry && (
+                      <InfoChip icon={<BusinessIcon />} label={formData.industry} />
+                    )}
+                  </Box>
+                </Box>
+              )}
+            </CardContent>
+          </StyledCard>
+        </Grid>
+
+        <Grid item xs={12} lg={4}>
+          <Box
+            sx={{
+              minHeight: { xs: 260, lg: "100%" },
+              borderRadius: 4,
+              p: 4,
+              color: "white",
+              background: THEME.gradient,
+              position: "relative",
+              overflow: "hidden",
+              boxShadow: `0 20px 50px ${alpha(THEME.primary, 0.25)}`,
+            }}
+          >
+            <Box
               sx={{
-                p: 3,
-                bgcolor: alpha(THEME.primary, 0.02),
-                borderRadius: 3,
-                border: `1px solid ${alpha(THEME.primary, 0.1)}`,
+                position: "absolute",
+                width: 220,
+                height: 220,
+                borderRadius: "50%",
+                bgcolor: "rgba(255,255,255,0.12)",
+                top: -60,
+                right: -60,
               }}
+            />
+            <Stack
+              direction="row"
+              alignItems="center"
+              spacing={1.2}
+              sx={{ mb: 8, position: "relative" }}
             >
-              <form onSubmit={handleSubmit}>
-                {getStepContent(activeStep)}
-
-                {message && (
-                  <Alert severity="error" sx={{ mt: 2, borderRadius: 2 }}>
-                    {message}
-                  </Alert>
-                )}
-
-                <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4 }}>
-                  <MDButton
-                    variant="outlined"
-                    onClick={handleBack}
-                    disabled={activeStep === 0}
-                    startIcon={<ArrowBackIcon />}
+              <Box className="public-logo-mark light">V</Box>
+              <Typography fontWeight={700}>ViewiseCRM</Typography>
+            </Stack>
+            <Box sx={{ position: "relative" }}>
+              <Typography variant="h3" fontWeight={800} sx={{ mb: 2, color: "white" }}>
+                Votre espace est presque prêt.
+              </Typography>
+              <Typography sx={{ color: "rgba(255,255,255,0.85)", mb: 4 }}>
+                Ces informations permettent de mieux organiser votre espace commercial.
+              </Typography>
+              <Stack spacing={2}>
+                {["Compte créé", "Profil complété", "Espace prêt"].map((label, index) => (
+                  <Box
+                    key={label}
                     sx={{
-                      borderColor: alpha(THEME.primary, 0.3),
-                      color: THEME.primary,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1.5,
+                      p: 1.5,
                       borderRadius: 2,
-                      "&:hover": {
-                        borderColor: THEME.primary,
-                        bgcolor: alpha(THEME.primary, 0.04),
-                      },
+                      bgcolor:
+                        index <= activeStep ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)",
                     }}
                   >
-                    Retour
-                  </MDButton>
-
-                  {activeStep === STEPS.length - 1 ? (
-                    <GradientButton
-                      type="submit"
-                      disabled={loading || !validateStep()}
-                      startIcon={<SaveIcon />}
+                    <Box
+                      sx={{
+                        width: 30,
+                        height: 30,
+                        borderRadius: "50%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        bgcolor: "white",
+                        color: THEME.primary,
+                        fontWeight: 700,
+                      }}
                     >
-                      {loading ? "Enregistrement..." : "Terminer"}
-                    </GradientButton>
-                  ) : (
-                    <GradientButton
-                      onClick={handleNext}
-                      disabled={!validateStep()}
-                      endIcon={<ArrowForwardIcon />}
-                    >
-                      Suivant
-                    </GradientButton>
-                  )}
-                </Box>
-              </form>
-            </Paper>
-
-            {/* Résumé des informations */}
-            {getProgress() > 0 && (
-              <Box sx={{ mt: 3 }}>
-                <Divider sx={{ mb: 2 }}>
-                  <InfoChip label="Résumé des informations saisies" color="primary" />
-                </Divider>
-                <Box display="flex" flexWrap="wrap" gap={1}>
-                  {formData.phoneNumber && (
-                    <InfoChip icon={<PhoneIcon />} label={formData.phoneNumber} />
-                  )}
-                  {formData.country && formData.city && (
-                    <InfoChip
-                      icon={<LocationCityIcon />}
-                      label={`${formData.city}, ${formData.country}`}
-                    />
-                  )}
-                  {formData.jobTitle && <InfoChip icon={<WorkIcon />} label={formData.jobTitle} />}
-                  {formData.companyName && (
-                    <InfoChip icon={<BusinessIcon />} label={formData.companyName} />
-                  )}
-                  {formData.industry && (
-                    <InfoChip icon={<BusinessIcon />} label={formData.industry} />
-                  )}
-                </Box>
-              </Box>
-            )}
-          </CardContent>
-        </StyledCard>
-      </MDBox>
-    </DashboardLayout>
+                      {index + 1}
+                    </Box>
+                    <Typography fontWeight={600}>{label}</Typography>
+                  </Box>
+                ))}
+              </Stack>
+            </Box>
+          </Box>
+        </Grid>
+      </Grid>
+    </Box>
   );
 }
 

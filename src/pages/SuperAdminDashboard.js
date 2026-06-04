@@ -225,7 +225,7 @@ function SuperAdminDashboard() {
           <StatBox
             icon={<TrendingUp />}
             label="Revenus mensuels"
-            value={stats ? `${stats.total_revenue_monthly} €` : null}
+            value={stats ? `${stats.total_revenue_monthly} TND` : null}
             color={theme.amber.main}
           />
         </Grid>

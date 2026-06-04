@@ -460,7 +460,7 @@ export default function SuperAdminDashboard() {
               {
                 icon: <TrendingUp />,
                 label: "Revenus mensuels",
-                value: stats ? `${stats.total_revenue_monthly} €` : null,
+                value: stats ? `${stats.total_revenue_monthly} TND` : null,
                 color: T.amber,
               },
             ].map((s) => (
@@ -547,7 +547,7 @@ export default function SuperAdminDashboard() {
                     <Area
                       type="monotone"
                       dataKey="revenus"
-                      name="Revenus (€)"
+                      name="Revenus (TND)"
                       stroke={T.green}
                       fill="url(#gRev)"
                       strokeWidth={2}
@@ -663,7 +663,7 @@ export default function SuperAdminDashboard() {
                   {[
                     {
                       label: "Revenus mensuels",
-                      value: `${stats?.total_revenue_monthly || 0} €`,
+                      value: `${stats?.total_revenue_monthly || 0} TND`,
                       color: T.green,
                     },
                     {

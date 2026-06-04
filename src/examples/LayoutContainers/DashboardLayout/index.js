@@ -39,8 +39,11 @@ function DashboardLayout({ children }) {
   return (
     <MDBox
       sx={({ breakpoints, transitions, functions: { pxToRem } }) => ({
-        p: 3,
+        p: { xs: 2, md: 3 },
         position: "relative",
+        minHeight: "100vh",
+        background:
+          "radial-gradient(circle at top right, rgba(193,18,31,0.07), transparent 28rem), #F8F9FA",
 
         [breakpoints.up("xl")]: {
           marginLeft: miniSidenav ? pxToRem(120) : pxToRem(274),

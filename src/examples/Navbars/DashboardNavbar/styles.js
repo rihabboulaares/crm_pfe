@@ -17,17 +17,16 @@ function navbar(theme, ownerState) {
   const { transparentNavbar, absolute, light, darkMode } = ownerState;
 
   const { dark, white, text, transparent, background } = palette;
-  const { navbarBoxShadow } = boxShadows;
   const { rgba, pxToRem } = functions;
   const { borderRadius } = borders;
 
   return {
-    boxShadow: transparentNavbar || absolute ? "none" : navbarBoxShadow,
-    backdropFilter: transparentNavbar || absolute ? "none" : `saturate(200%) blur(${pxToRem(30)})`,
+    boxShadow: transparentNavbar || absolute ? "none" : "0 14px 34px rgba(15,23,42,0.08)",
+    backdropFilter: transparentNavbar || absolute ? "none" : `saturate(180%) blur(${pxToRem(22)})`,
     backgroundColor:
       transparentNavbar || absolute
         ? `${transparent.main} !important`
-        : rgba(darkMode ? background.default : white.main, 0.8),
+        : rgba(darkMode ? background.default : white.main, 0.92),
 
     color: () => {
       let color;
@@ -42,11 +41,12 @@ function navbar(theme, ownerState) {
 
       return color;
     },
-    top: absolute ? 0 : pxToRem(12),
-    minHeight: pxToRem(75),
+    top: absolute ? 0 : pxToRem(14),
+    minHeight: pxToRem(72),
     display: "grid",
     alignItems: "center",
     borderRadius: borderRadius.xl,
+    border: transparentNavbar || absolute ? "none" : "1px solid rgba(229,231,235,0.86)",
     paddingTop: pxToRem(8),
     paddingBottom: pxToRem(8),
     paddingRight: absolute ? pxToRem(8) : 0,
@@ -78,6 +78,7 @@ const navbarContainer = ({ breakpoints }) => ({
   justifyContent: "space-between",
   pt: 0.5,
   pb: 0.5,
+  gap: "0.75rem",
 
   [breakpoints.up("md")]: {
     flexDirection: "row",
@@ -105,7 +106,20 @@ const navbarRow = ({ breakpoints }, { isMini }) => ({
 });
 
 const navbarIconButton = ({ typography: { size }, breakpoints }) => ({
-  px: 1,
+  width: 38,
+  height: 38,
+  px: 0,
+  border: "1px solid rgba(229,231,235,0.9)",
+  borderRadius: "12px",
+  backgroundColor: "#fff",
+  color: "#780000",
+  transition: "all 0.2s ease",
+
+  "&:hover": {
+    backgroundColor: "#FFE5E7",
+    borderColor: "rgba(193,18,31,0.35)",
+    transform: "translateY(-1px)",
+  },
 
   "& .material-icons, .material-icons-round": {
     fontSize: `${size.xl} !important`,

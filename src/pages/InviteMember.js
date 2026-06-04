@@ -42,6 +42,7 @@ import { useNavigate } from "react-router-dom";
 import MDButton from "components/MDButton";
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
+import { useMaterialUIController, setLayout } from "context";
 
 // Animations
 const float = keyframes`
@@ -214,6 +215,7 @@ const roleConfig = {
 };
 
 const InviteMember = () => {
+  const [, dispatch] = useMaterialUIController();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("COMMERCIAL");
   const [teamId, setTeamId] = useState(null);
@@ -226,6 +228,10 @@ const InviteMember = () => {
 
   const navigate = useNavigate();
   const accessToken = localStorage.getItem("token");
+
+  useEffect(() => {
+    setLayout(dispatch, "page");
+  }, [dispatch]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -332,8 +338,13 @@ const InviteMember = () => {
   };
 
   return (
-    <DashboardLayout>
-      <DashboardNavbar />
+    <Box className="auth-shell team-page">
+      <Box className="auth-header">
+        <Stack direction="row" alignItems="center" spacing={1.2}>
+          <Box className="public-logo-mark">V</Box>
+          <Typography className="public-logo-text">ViewiseCRM</Typography>
+        </Stack>
+      </Box>
 
       <Box sx={{ p: 3 }}>
         {/* En-tête avec animation */}
@@ -362,7 +373,7 @@ const InviteMember = () => {
                 Inviter un membre
               </Typography>
               <Typography variant="body1" color="text.secondary">
-                Ajoutez des collaborateurs à votre équipe {teamName && `"${teamName}"`}
+                Ajoutez un collaborateur à votre équipe ViewiseCRM.
               </Typography>
             </Box>
           </Box>
@@ -527,7 +538,7 @@ const InviteMember = () => {
                     ) : (
                       <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                         <Send />
-                        Envoyer l invitation
+                        Envoyer l&apos;invitation
                       </Box>
                     )}
                   </AnimatedButton>
@@ -635,7 +646,7 @@ const InviteMember = () => {
           </motion.div>
         </Snackbar>
       </Box>
-    </DashboardLayout>
+    </Box>
   );
 };
 

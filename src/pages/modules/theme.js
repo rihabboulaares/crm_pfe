@@ -213,8 +213,8 @@ export const Skeleton = styled(Box, {
 
 // ─── HELPERS ──────────────────────────────────────────────────────
 export const toList = (d) => (Array.isArray(d) ? d : d?.results || []);
-export const fmtEuro = (v) =>
-  v >= 1e6 ? `${(v / 1e6).toFixed(1)}M€` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}k€` : `${v}€`;
+export const fmtCurrency = (v) =>
+  v >= 1e6 ? `${(v / 1e6).toFixed(1)}MTND` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}kTND` : `${v}TND`;
 export const fmtDate = (d) =>
   d ? new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" }) : "—";
 export const isOverdue = (t) =>

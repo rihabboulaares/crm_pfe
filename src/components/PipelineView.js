@@ -20,7 +20,7 @@ const fmtAmount = (n) =>
     ? "—"
     : new Intl.NumberFormat("fr-FR", {
         style: "currency",
-        currency: "EUR",
+        currency: "TND",
         maximumFractionDigits: 0,
       }).format(n);
 

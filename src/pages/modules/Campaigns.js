@@ -200,7 +200,7 @@ const formatRevenue = (revenue) => {
   if (!revenue) return "-";
   return new Intl.NumberFormat("fr-FR", {
     style: "currency",
-    currency: "EUR",
+    currency: "TND",
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(revenue);

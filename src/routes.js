@@ -1,6 +1,7 @@
 /* eslint-disable prettier/prettier */
 // src/routes.js
 import Dashboard from "./pages/modules/Dashboard";
+import Welcome from "layouts/authentication/welcome";
 import SignIn from "layouts/authentication/sign-in";
 import SignUp from "layouts/authentication/sign-up";
 import SubscriptionForm from "pages/SubscriptionForm";
@@ -18,6 +19,7 @@ import Opportunities from "./pages/modules/Opportunities";
 import History from "./pages/modules/Historypage";
 import PipelineAdmin from "pages/modules/PipelineAdmin";
 import CRMCalendar from "./pages/modules/CalendarPage";
+import EngagementDashboard from "./pages/modules/EngagementDashboard";
 // ── Super Admin ───────────────────────────────────────────────
 import SuperAdminRoute from "./SuperAdminRoute";
 import SuperAdminDashboard from "./pages/superadmin/SuperAdminDashboard";
@@ -36,6 +38,18 @@ import ProspectSearch from "./pages/ProspectSearch";
 const sa = (component) => <SuperAdminRoute>{component}</SuperAdminRoute>;
 
 const routes = [
+  {
+    type: "route",
+    key: "root",
+    route: "/",
+    component: <Welcome />,
+  },
+  {
+    type: "route",
+    key: "welcome",
+    route: "/welcome",
+    component: <Welcome />,
+  },
   // ── CRM normal ─────────────────────────────────────────────
   {
     type: "collapse",
@@ -136,6 +150,14 @@ const routes = [
     route: "/prospect-search",
     component: <ProspectSearch />,
   },
+  {
+    type: "collapse",
+    name: "Agent Engagement IA",
+    key: "engagement",
+    icon: <Icon fontSize="small">mark_email_read</Icon>,
+    route: "/engagement",
+    component: <EngagementDashboard />,
+  },
 
   {
     type: "route",
@@ -145,8 +167,32 @@ const routes = [
   },
   {
     type: "route",
+    key: "login",
+    route: "/login",
+    component: <SignIn />,
+  },
+  {
+    type: "route",
+    key: "signin",
+    route: "/signin",
+    component: <SignIn />,
+  },
+  {
+    type: "route",
     key: "sign-up",
     route: "/authentication/sign-up",
+    component: <SignUp />,
+  },
+  {
+    type: "route",
+    key: "register",
+    route: "/register",
+    component: <SignUp />,
+  },
+  {
+    type: "route",
+    key: "signup",
+    route: "/signup",
     component: <SignUp />,
   },
 

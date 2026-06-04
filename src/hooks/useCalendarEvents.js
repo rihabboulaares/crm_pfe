@@ -12,6 +12,7 @@ authAxios.interceptors.request.use((config) => {
 
 // ── Endpoints ─────────────────────────────────────────────────────────────────
 const API = "http://localhost:8000/api/calendar-events/";
+const CALENDAR_TASKS_API = "http://localhost:8000/api/calendar/tasks/";
 
 const SALES_API = {
   pipelines: "http://localhost:8000/api/sales/pipelines/",
@@ -133,6 +134,42 @@ function toFCEvent(ev) {
   };
 }
 
+function toTaskEvent(task) {
+  const color = COLOR_MAP[task.priority] || COLOR_MAP.task;
+  const prospectSuffix = task.prospect_name ? ` - ${task.prospect_name}` : "";
+
+  return {
+    id: `task-${task.id}`,
+    title: `${task.title}${prospectSuffix}`,
+    start: task.start,
+    end: task.end || undefined,
+    allDay: false,
+    backgroundColor: color,
+    borderColor: color,
+    textColor: "#fff",
+    editable: false,
+    extendedProps: {
+      description: task.description || "",
+      eventType: "task",
+      priority: task.priority,
+      color,
+      colorResolved: color,
+      isSynced: true,
+      isVirtualTaskEvent: true,
+      task: task.id,
+      taskTitle: task.title,
+      taskStatus: task.status,
+      taskPriority: task.priority,
+      taskType: task.type,
+      taskIsOverdue: task.is_overdue,
+      prospect: task.prospect_id,
+      prospectName: task.prospect_name,
+      assignedTo: task.assigned_to,
+      assignedName: task.assigned_name,
+    },
+  };
+}
+
 // ── Hook principal ────────────────────────────────────────────────────────────
 export function useCalendarEvents(filters = {}) {
   const [events, setEvents] = useState([]);
@@ -145,11 +182,51 @@ export function useCalendarEvents(filters = {}) {
       setLoading(true);
       setError(null);
       try {
-        const { data } = await authAxios.get(API, {
-          params: { start: rangeStart, end: rangeEnd, ...filters },
-        });
-        const list = Array.isArray(data) ? data : data.results || [];
-        setEvents(list.map(toFCEvent));
+        const selectedTypes = String(filters.event_type || "")
+          .split(",")
+          .filter(Boolean);
+        const shouldFetchTasks = selectedTypes.length === 0 || selectedTypes.includes("task");
+        const effectiveStart = filters.start || rangeStart;
+        const effectiveEnd = filters.end || rangeEnd;
+
+        const [eventsResponse, tasksResponse] = await Promise.all([
+          authAxios.get(API, {
+            params: { start: rangeStart, end: rangeEnd, ...filters },
+          }),
+          shouldFetchTasks
+            ? authAxios.get(CALENDAR_TASKS_API, {
+                params: {
+                  start: effectiveStart,
+                  end: effectiveEnd,
+                  type: filters.task_type,
+                  status: filters.status,
+                  priority: filters.priority,
+                  assigned_to: filters.assigned_to,
+                  show_completed: filters.show_completed,
+                },
+              })
+            : Promise.resolve({ data: [] }),
+        ]);
+
+        const eventList = Array.isArray(eventsResponse.data)
+          ? eventsResponse.data
+          : eventsResponse.data.results || [];
+        const taskList = Array.isArray(tasksResponse.data)
+          ? tasksResponse.data
+          : tasksResponse.data.results || [];
+        const eventTaskIds = new Set(
+          eventList
+            .map((event) => event.task)
+            .filter((taskId) => taskId !== null && taskId !== undefined)
+            .map(String)
+        );
+        const calendarEvents = eventList.map(toFCEvent);
+        const taskEvents = taskList
+          .filter((task) => !eventTaskIds.has(String(task.id)))
+          .filter((task) => !["done", "completed", "cancelled"].includes(task.status))
+          .map(toTaskEvent);
+
+        setEvents([...calendarEvents, ...taskEvents]);
       } catch (err) {
         const msg = err?.response?.data?.detail || err.message || "Erreur réseau";
         setError(msg);

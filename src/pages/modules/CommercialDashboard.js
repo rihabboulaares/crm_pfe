@@ -633,7 +633,7 @@ export default function CommercialDashboard({ data }) {
               <StatCard
                 icon={<AttachMoney />}
                 label="Mon pipeline"
-                value={`${(pipeline / 1000).toFixed(1)}k €`}
+                value={`${(pipeline / 1000).toFixed(1)}k TND`}
                 color={C.green}
                 sub={`${wonOpps.length} gagnées`}
               />
@@ -795,7 +795,7 @@ export default function CommercialDashboard({ data }) {
                               {stageLabels[stage] || stage}
                             </Typography>
                             <Typography sx={{ fontSize: 12, fontWeight: 700, color: sc }}>
-                              {amount.toLocaleString("fr-FR")} €
+                              {amount.toLocaleString("fr-FR")} TND
                             </Typography>
                           </Stack>
                         </Box>

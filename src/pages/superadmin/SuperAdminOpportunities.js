@@ -379,7 +379,7 @@ const OpportunityDetailsDrawer = ({ open, onClose, opportunity }) => {
                   <EuroIcon sx={{ fontSize: 20, color: THEME.success }} />
                   <Typography variant="body2">
                     Montant :{" "}
-                    <strong>{parseFloat(opportunity.amount).toLocaleString("fr-FR")} €</strong>
+                    <strong>{parseFloat(opportunity.amount).toLocaleString("fr-FR")} TND</strong>
                   </Typography>
                 </Box>
               </Stack>
@@ -630,7 +630,7 @@ export default function SuperAdminOpportunities() {
               Montant total
             </Typography>
             <Typography variant="h5" sx={{ fontWeight: 700, color: THEME.success }}>
-              {stats.totalAmount.toLocaleString("fr-FR")} €
+              {stats.totalAmount.toLocaleString("fr-FR")} TND
             </Typography>
           </Box>
           <Avatar sx={{ bgcolor: alpha(THEME.success, 0.1), width: 48, height: 48 }}>
@@ -652,7 +652,7 @@ export default function SuperAdminOpportunities() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Montant gagné"
-            value={`${stats.wonAmount.toLocaleString("fr-FR")}€`}
+            value={`${stats.wonAmount.toLocaleString("fr-FR")}TND`}
             icon={<CheckCircleIcon />}
             color={THEME.success}
           />
@@ -660,7 +660,7 @@ export default function SuperAdminOpportunities() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Montant perdu"
-            value={`${stats.lostAmount.toLocaleString("fr-FR")}€`}
+            value={`${stats.lostAmount.toLocaleString("fr-FR")}TND`}
             icon={<CancelIcon />}
             color={THEME.error}
           />
@@ -668,7 +668,7 @@ export default function SuperAdminOpportunities() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Moyenne"
-            value={`${stats.avgAmount.toLocaleString("fr-FR")}€`}
+            value={`${stats.avgAmount.toLocaleString("fr-FR")}TND`}
             icon={<TrendingUpIcon />}
             color={THEME.warning}
           >
@@ -869,7 +869,7 @@ export default function SuperAdminOpportunities() {
                     </TableCell>
                     <TableCell align="right">
                       <Typography variant="body2" sx={{ fontWeight: 700, color: THEME.success }}>
-                        {parseFloat(o.amount).toLocaleString("fr-FR")} €
+                        {parseFloat(o.amount).toLocaleString("fr-FR")} TND
                       </Typography>
                     </TableCell>
                     <TableCell>

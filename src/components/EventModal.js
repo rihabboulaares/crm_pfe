@@ -188,6 +188,13 @@ function ReadOnlyInfo({ event }) {
   const lines = [];
 
   // Activity
+  if (event.eventType === "task") {
+    if (event.taskTitle) lines.push({ label: "Tâche liée", value: event.taskTitle });
+    if (event.taskStatus) lines.push({ label: "Statut", value: event.taskStatus });
+    if (event.taskIsOverdue) lines.push({ label: "Alerte", value: "Tâche en retard" });
+  }
+
+  // Activity
   if (event.eventType === "activity") {
     if (event.activityType)
       lines.push({
@@ -273,7 +280,8 @@ export default function EventModal({
   fetchUsers,
 }) {
   const isEdit = Boolean(event?.id);
-  const isAutoSync = isEdit && ["activity", "pipeline_alert"].includes(event?.eventType);
+  const isAutoSync =
+    isEdit && (event?.isVirtualTaskEvent || ["activity", "pipeline_alert"].includes(event?.eventType));
 
   const [form, setForm] = useState(DEFAULT_FORM);
   const [errors, setErrors] = useState({});
@@ -856,14 +864,14 @@ export default function EventModal({
 
       <Divider sx={{ borderColor: CRM_RED.border }} />
       <DialogActions sx={{ px: 3, py: 2, justifyContent: "space-between" }}>
-        {isEdit ? (
+        {isEdit && !isAutoSync ? (
           <Button
             variant={delConf ? "contained" : "outlined"}
             color="error"
             size="small"
             startIcon={<DeleteOutlineIcon />}
             onClick={handleDelete}
-            disabled={loading}
+            disabled={loading || isAutoSync}
             sx={{
               borderRadius: 2,
               ...(delConf && { bgcolor: "#d32f2f", "&:hover": { bgcolor: "#b71c1c" } }),
@@ -894,7 +902,7 @@ export default function EventModal({
             variant="contained"
             size="small"
             onClick={handleSubmit}
-            disabled={loading}
+            disabled={loading || isAutoSync}
             startIcon={
               loading ? (
                 <CircularProgress size={14} sx={{ color: "#fff" }} />

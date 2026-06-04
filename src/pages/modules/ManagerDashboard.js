@@ -1689,7 +1689,7 @@ export default function ManagerDashboard({ data }) {
               },
               {
                 label: "Pipeline équipe",
-                value: `${(pipeline / 1000).toFixed(1)}k €`,
+                value: `${(pipeline / 1000).toFixed(1)}k TND`,
                 color: C.green,
                 icon: <AttachMoney />,
                 sub: `${wonOpps.length} gagnées`,

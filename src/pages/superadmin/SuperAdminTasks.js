@@ -651,7 +651,7 @@ ActivityDetailsDrawer.propTypes = {
 };
 
 // ==============================
-// ONGLET TÂCHES
+// ONGLET TCHES
 // ==============================
 function TasksTab() {
   const [tasks, setTasks] = useState([]);

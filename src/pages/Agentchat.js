@@ -5,6 +5,13 @@ import ReactMarkdown from "react-markdown";
 // ─── Config API ───────────────────────────────────────────────────────────────
 const API_BASE = "http://localhost:8000";
 
+const AGENT_THEME = {
+  red: "#C8102E",
+  redDeep: "#9B0D22",
+  redSoft: "#FDEEF1",
+  redBorder: "#F5C6CE",
+};
+
 const api = {
   chat: async (message) => {
     const token = localStorage.getItem("token");
@@ -104,13 +111,13 @@ function Message({ msg }) {
             width: "32px",
             height: "32px",
             borderRadius: "10px",
-            background: "linear-gradient(135deg, #0ea5e9, #6366f1)",
+            background: `linear-gradient(135deg, ${AGENT_THEME.red}, ${AGENT_THEME.redDeep})`,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             fontSize: "16px",
             flexShrink: 0,
-            boxShadow: "0 2px 8px rgba(99,102,241,0.3)",
+            boxShadow: "0 2px 8px rgba(200,16,46,0.28)",
           }}
         >
           🤖
@@ -122,12 +129,14 @@ function Message({ msg }) {
           maxWidth: "72%",
           padding: "12px 16px",
           borderRadius: isUser ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-          background: isUser ? "linear-gradient(135deg, #6366f1, #8b5cf6)" : "#ffffff",
+          background: isUser
+            ? `linear-gradient(135deg, ${AGENT_THEME.red}, ${AGENT_THEME.redDeep})`
+            : "#ffffff",
           color: isUser ? "#ffffff" : "#1e293b",
           fontSize: "14px",
           lineHeight: "1.6",
           wordBreak: "break-word",
-          boxShadow: isUser ? "0 4px 12px rgba(99,102,241,0.25)" : "0 2px 8px rgba(0,0,0,0.08)",
+          boxShadow: isUser ? "0 4px 12px rgba(200,16,46,0.25)" : "0 2px 8px rgba(0,0,0,0.08)",
           border: isUser ? "none" : "1px solid #e2e8f0",
           fontFamily: "'DM Sans', sans-serif",
         }}
@@ -157,7 +166,7 @@ function Message({ msg }) {
                     borderRadius: "4px",
                     fontSize: "12px",
                     fontFamily: "'DM Mono', monospace",
-                    color: "#6366f1",
+                    color: AGENT_THEME.red,
                   }}
                 >
                   {children}
@@ -245,12 +254,12 @@ function TypingIndicator() {
           width: "32px",
           height: "32px",
           borderRadius: "10px",
-          background: "linear-gradient(135deg, #0ea5e9, #6366f1)",
+          background: `linear-gradient(135deg, ${AGENT_THEME.red}, ${AGENT_THEME.redDeep})`,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           fontSize: "16px",
-          boxShadow: "0 2px 8px rgba(99,102,241,0.3)",
+          boxShadow: "0 2px 8px rgba(200,16,46,0.28)",
         }}
       >
         🤖
@@ -274,7 +283,7 @@ function TypingIndicator() {
               width: "7px",
               height: "7px",
               borderRadius: "50%",
-              background: "#6366f1",
+              background: AGENT_THEME.red,
               animation: "bounce 1.2s infinite",
               animationDelay: `${i * 0.2}s`,
             }}
@@ -453,7 +462,7 @@ export default function AgentChat() {
         .chat-wrapper { display: flex; flex-direction: column; height: 100vh; max-width: 800px; margin: 0 auto; background: #f8fafc; }
         .header { background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         .header-left { display: flex; align-items: center; gap: 12px; }
-        .agent-avatar { width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, #0ea5e9, #6366f1); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 12px rgba(99,102,241,0.3); }
+        .agent-avatar { width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, ${AGENT_THEME.red}, ${AGENT_THEME.redDeep}); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 12px rgba(200,16,46,0.28); }
         .agent-info h1 { font-size: 16px; font-weight: 600; color: #0f172a; font-family: 'DM Sans', sans-serif; }
         .agent-status { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #64748b; font-family: 'DM Mono', monospace; margin-top: 2px; }
         .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; }
@@ -466,16 +475,16 @@ export default function AgentChat() {
         .messages-area::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .quick-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; animation: fadeIn 0.4s ease; }
         .quick-btn { padding: 8px 14px; border-radius: 20px; border: 1px solid #e2e8f0; background: #ffffff; color: #475569; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-family: 'DM Sans', sans-serif; transition: all 0.15s; white-space: nowrap; }
-        .quick-btn:hover:not(:disabled) { border-color: #6366f1; color: #6366f1; background: #eef2ff; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(99,102,241,0.15); }
+        .quick-btn:hover:not(:disabled) { border-color: ${AGENT_THEME.red}; color: ${AGENT_THEME.red}; background: ${AGENT_THEME.redSoft}; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(200,16,46,0.15); }
         .quick-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .input-area { background: #ffffff; border-top: 1px solid #e2e8f0; padding: 16px 24px; }
         .redis-badge { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #94a3b8; font-family: 'DM Mono', monospace; margin-bottom: 10px; }
         .input-row { display: flex; gap: 10px; align-items: flex-end; }
         .input-box { flex: 1; padding: 12px 16px; border-radius: 14px; border: 1.5px solid #e2e8f0; background: #f8fafc; font-size: 14px; font-family: 'DM Sans', sans-serif; color: #1e293b; resize: none; outline: none; min-height: 48px; max-height: 120px; line-height: 1.5; transition: border-color 0.15s; }
-        .input-box:focus { border-color: #6366f1; background: #ffffff; box-shadow: 0 0 0 3px rgba(99,102,241,0.08); }
+        .input-box:focus { border-color: ${AGENT_THEME.red}; background: #ffffff; box-shadow: 0 0 0 3px rgba(200,16,46,0.08); }
         .input-box::placeholder { color: #94a3b8; }
-        .send-btn { width: 48px; height: 48px; border-radius: 14px; border: none; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0; box-shadow: 0 4px 12px rgba(99,102,241,0.3); }
-        .send-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(99,102,241,0.4); }
+        .send-btn { width: 48px; height: 48px; border-radius: 14px; border: none; background: linear-gradient(135deg, ${AGENT_THEME.red}, ${AGENT_THEME.redDeep}); color: white; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0; box-shadow: 0 4px 12px rgba(200,16,46,0.3); }
+        .send-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(200,16,46,0.4); }
         .send-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
         .hint { font-size: 11px; color: #94a3b8; margin-top: 8px; font-family: 'DM Mono', monospace; }
         .msg-animate { animation: fadeIn 0.3s ease; }
@@ -547,8 +556,8 @@ export default function AgentChat() {
                 width: "48px",
                 height: "48px",
                 borderRadius: "14px",
-                border: "1.5px solid #e2e8f0",
-                background: "#f8fafc",
+                border: `1.5px solid ${AGENT_THEME.redBorder}`,
+                background: AGENT_THEME.redSoft,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
