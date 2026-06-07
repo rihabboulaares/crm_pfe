@@ -19,6 +19,7 @@ from sales.engagement_tasks import (
 from .models import EngagementCampaign, EngagementLog
 from .runner import enrich_prospect_with_social_analysis, prepare_engagement
 from .sender import EngagementSender
+from .social.session_manager import ensure_platform_session, open_facebook_login_session
 
 
 ENGAGEMENT_STATUSES = [
@@ -224,6 +225,23 @@ class PrepareEngagementView(APIView):
                 }
             )
 
+        if (
+            result.get("platform") == "facebook"
+            and result.get("status") in {"login_required", "checkpoint_required", "facebook_login_required"}
+        ):
+            message = result.get("message") or result.get("error") or "Connexion Facebook requise."
+            prospect.engagement_status = "new"
+            prospect.engagement_error = message
+            prospect.last_engagement_channel = "facebook"
+            prospect.save(
+                update_fields=[
+                    "engagement_status",
+                    "engagement_error",
+                    "last_engagement_channel",
+                ]
+            )
+            return Response({**result, "prospect": serialize_prospect(prospect, request)})
+
         if not result.get("success"):
             prospect.engagement_status = "message_failed"
             prospect.engagement_error = result.get("error") or result.get("status")
@@ -318,7 +336,7 @@ class SendPreparedEngagementView(APIView):
             mark_channel_task_ready(prospect, channel, message, user=request.user, engagement_log=log)
             return Response({"success": True, "status": "message_ready", "sent": False, "test_mode": True, "prospect": serialize_prospect(prospect, request)})
 
-        if result.get("status") == "linkedin_login_required":
+        if result.get("status") in {"linkedin_login_required", "login_required", "checkpoint_required"}:
             prospect.engagement_status = "message_ready"
             prospect.engagement_error = result.get("message")
             prospect.save(update_fields=["engagement_status", "engagement_error"])
@@ -455,3 +473,33 @@ class EngagementCampaignsView(APIView):
         for prospect in prospects:
             create_log(prospect, request.user, "campaign_created", prospect.engagement_status, prospect.last_engagement_channel, prospect.generated_message)
         return Response({"success": True, "id": campaign.id, "prospects_count": campaign.prospects.count()}, status=status.HTTP_201_CREATED)
+
+
+class SocialLoginView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        platform = (request.data.get("platform") or "").strip().lower()
+        if platform == "facebook":
+            return Response(open_facebook_login_session())
+
+        result = ensure_platform_session(request.user.id, platform)
+        if result.get("status") == "login_required":
+            result["message"] = "Une fenetre vient de s'ouvrir. Connectez-vous puis cliquez sur Verifier la session."
+        return Response(result)
+
+
+class FacebookOpenSessionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        return Response(open_facebook_login_session())
+
+
+class SocialSessionCheckView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        platform = (request.query_params.get("platform") or "").strip().lower()
+        result = ensure_platform_session(request.user.id, platform)
+        return Response(result)

@@ -347,6 +347,8 @@ def apply_entity_analysis(memory: AgentMemory, entities: list[dict], analysis: d
 
         entity = entities[index]
         entity.update(result.get("cleaned_data") or {})
+        entity["gemini_analyzed"] = True
+        entity["analysis_status"] = entity.get("analysis_status") or "ai_analyzed"
         qualify_entity(entity, memory.intent or {})
 
         gemini_valid = bool(result.get("is_valid"))
@@ -399,6 +401,9 @@ async def run_agent(query: str, tenant_company_id: int, user_id: int) -> dict:
     memory.set_phase("intent")
     memory.intent = await brain.extract_intent(query)
     memory.add_log("intent", f"Intent extrait: {memory.intent}")
+    if memory.intent.get("gemini_error"):
+        memory.add_error("gemini", memory.intent.get("gemini_error"))
+        memory.add_log("gemini", "Gemini indisponible - fallback local activé")
 
     max_iterations, max_leads, max_urls, max_pages_per_domain = default_limits(memory.intent)
     memory.max_iterations = max_iterations
@@ -517,6 +522,14 @@ async def run_agent(query: str, tenant_company_id: int, user_id: int) -> dict:
             elif action == "stop":
                 if decision.get("gemini_error"):
                     memory.add_error("gemini", decision.get("gemini_error"))
+                    memory.add_log("gemini", "Gemini indisponible - fallback local activé")
+                    entities = pending_entity_snapshot(memory) or (memory.companies + memory.persons)
+                    if entities:
+                        memory.set_phase("analysis")
+                        analysis = await brain.analyze_entities(entities, memory.to_summary())
+                        apply_entity_analysis(memory, entities, analysis)
+                        memory.iterations += 1
+                        continue
                 memory.stop_reason = "stopped"
                 break
 

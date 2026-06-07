@@ -1,9 +1,19 @@
-from playwright.sync_api import sync_playwright
 import random
 import time
 
-from .manual_login import instagram_login_required, wait_manual_login
-from .session_manager import get_social_profile_dir
+from .base_sender import launch_context, take_debug_screenshot
+from .session_manager import ensure_platform_session, login_required_by_selectors
+
+
+def sender_result(success, status, sent=False, channel="instagram", error=None, screenshot=None):
+    return {
+        "success": success,
+        "status": status,
+        "sent": sent,
+        "channel": channel,
+        "error": error,
+        "screenshot": screenshot,
+    }
 
 
 def human_delay(min_ms=800, max_ms=2000):
@@ -127,52 +137,42 @@ def send_instagram_message(
     message: str,
     user_id: int,
     send: bool = False,
-) -> str:
-    profile_dir = get_social_profile_dir("instagram", user_id)
+) -> dict:
+    session_result = ensure_platform_session(user_id=user_id, platform="instagram")
+    if not session_result.get("success"):
+        return {**session_result, "sent": False, "channel": "instagram"}
+
     keep_context_open = False
-    playwright = sync_playwright().start()
+    playwright = None
 
     try:
-        context = playwright.chromium.launch_persistent_context(
-            user_data_dir=str(profile_dir),
-            headless=False,
-            slow_mo=300,
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1280, "height": 800},
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--start-maximized",
-            ],
-        )
-        page = context.pages[0] if context.pages else context.new_page()
+        playwright, context, page = launch_context("instagram", user_id, viewport={"width": 1280, "height": 800})
 
         try:
             page.goto(profile_url, wait_until="domcontentloaded", timeout=60000)
 
-            if instagram_login_required(page):
-                ok = wait_manual_login(page, "instagram")
-
-                if not ok:
-                    keep_context_open = True
-                    return "instagram_login_required"
-
-                page.goto(profile_url, wait_until="domcontentloaded", timeout=60000)
+            if login_required_by_selectors(page, "instagram"):
+                keep_context_open = True
+                return {
+                    "success": False,
+                    "status": "login_required",
+                    "platform": "instagram",
+                    "message": "Veuillez vous connecter a Instagram dans la fenetre ouverte puis relancer l'action.",
+                    "sent": False,
+                    "channel": "instagram",
+                }
 
             page.wait_for_timeout(8000)
             close_popups(page)
 
             if page.locator("h2:has-text('introuvable'), h2:has-text('Not Found')").count() > 0:
-                return "not_found"
+                return sender_result(False, "not_found", error="Profil Instagram introuvable")
 
             msg_btn = click_message_button(page)
 
             if not msg_btn:
-                page.screenshot(path=f"debug_ig_no_btn_user_{user_id}.png")
-                return "no_message_button"
+                screenshot = take_debug_screenshot(page, f"debug_ig_no_btn_user_{user_id}.png")
+                return sender_result(False, "no_message_button", error="Bouton message introuvable", screenshot=screenshot)
 
             msg_btn.click()
             human_delay(1500, 2500)
@@ -192,8 +192,8 @@ def send_instagram_message(
             input_box = wait_for_message_input(page, timeout_ms=15000)
 
             if not input_box:
-                page.screenshot(path=f"debug_ig_no_input_user_{user_id}.png")
-                return "message_failed"
+                screenshot = take_debug_screenshot(page, f"debug_ig_no_input_user_{user_id}.png")
+                return sender_result(False, "message_failed", error="Champ message introuvable", screenshot=screenshot)
 
             input_box.click()
             human_delay(400, 700)
@@ -201,7 +201,7 @@ def send_instagram_message(
             human_delay(600, 1200)
 
             if not send:
-                return "message_ready"
+                return sender_result(True, "message_ready", sent=False)
 
             sent = False
 
@@ -227,7 +227,7 @@ def send_instagram_message(
                 input_box.press("Enter")
 
             human_delay(2000, 3000)
-            return "message_sent"
+            return sender_result(True, "message_sent", sent=True)
         finally:
             if not keep_context_open:
                 context.close()

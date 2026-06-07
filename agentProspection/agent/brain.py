@@ -1,16 +1,27 @@
 import os
 import re
 import json
+import logging
+import time
 
 from google import genai
 from google.genai import types
 
+from agentProspection.agent.lead_classifier import (
+    classify_lead_type,
+    has_valid_contact_url,
+    qualify_entity,
+)
 from agentProspection.agent.schemas import (
     DecisionSchema,
     EntityAnalysisSchema,
     IntentSchema,
 )
 from agentProspection.agent.prompts import SYSTEM_PROMPT
+
+logger = logging.getLogger("agentProspection.gemini")
+
+GEMINI_RETRY_DELAYS = (3, 10, 30)
 
 
 ROLE_KEYWORDS = [
@@ -286,7 +297,7 @@ def repair_decision_payload(data) -> dict:
     if not isinstance(data, dict):
         data = {}
 
-    decision = data.get("decision") or data.get("action") or "stop"
+    decision = data.get("decision") or data.get("action") or "analyze_entities"
     target_urls = (
         data.get("target_urls")
         or data.get("urls")
@@ -297,7 +308,7 @@ def repair_decision_payload(data) -> dict:
     )
 
     return {
-        "decision": str(decision or "stop"),
+        "decision": str(decision or "analyze_entities"),
         "tool": data.get("tool") or data.get("next_tool") or "",
         "query": data.get("query") or data.get("next_query") or "",
         "target_urls": ensure_list(target_urls),
@@ -607,6 +618,188 @@ def compact_json(data) -> str:
     return json.dumps(data, ensure_ascii=False, default=str)
 
 
+def gemini_error_text(exc: Exception) -> str:
+    parts = [str(exc)]
+    for attr in ("code", "status_code", "message"):
+        value = getattr(exc, attr, None)
+        if value:
+            parts.append(str(value))
+    return " ".join(parts)
+
+
+def is_retryable_gemini_error(exc: Exception) -> bool:
+    text = gemini_error_text(exc).lower()
+    return any(
+        marker in text
+        for marker in (
+            "429",
+            "too many requests",
+            "resource_exhausted",
+            "quota",
+            "503",
+            "unavailable",
+            "timeout",
+            "timed out",
+            "connection",
+            "network",
+            "temporarily",
+        )
+    )
+
+
+def safe_gemini_generate(
+    prompt: str,
+    client=None,
+    model: str | None = None,
+    schema=None,
+    response_mime_type: str = "application/json",
+) -> dict:
+    if not client:
+        logger.warning("Gemini indisponible - fallback local activé")
+        return {
+            "success": False,
+            "text": "",
+            "error": "Gemini client unavailable",
+            "fallback": True,
+        }
+
+    config_kwargs = {"response_mime_type": response_mime_type}
+    if schema is not None:
+        config_kwargs["response_schema"] = schema
+    config = types.GenerateContentConfig(**config_kwargs)
+
+    last_error = None
+    attempts = len(GEMINI_RETRY_DELAYS) + 1
+
+    for attempt in range(attempts):
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=config,
+            )
+            return {
+                "success": True,
+                "text": getattr(response, "text", "") or "",
+                "error": None,
+                "fallback": False,
+            }
+        except Exception as exc:
+            last_error = exc
+            if not is_retryable_gemini_error(exc) or attempt >= len(GEMINI_RETRY_DELAYS):
+                break
+
+            if "429" in gemini_error_text(exc) or "quota" in gemini_error_text(exc).lower():
+                logger.warning("Gemini rate limit atteint - retry en cours")
+            else:
+                logger.warning("Gemini indisponible - retry en cours")
+            time.sleep(GEMINI_RETRY_DELAYS[attempt])
+
+    logger.warning("Gemini indisponible - fallback local activé")
+    return {
+        "success": False,
+        "text": "",
+        "error": gemini_error_text(last_error)[:500] if last_error else "gemini_unavailable",
+        "fallback": True,
+    }
+
+
+def local_search_query(intent: dict) -> str:
+    industries = intent.get("industries") or ["business"]
+    locations = intent.get("locations") or ["Tunisie"]
+    roles = intent.get("target_roles") or []
+
+    industry = " ".join(industries[:2]).strip()
+    location = locations[0]
+    role = " ".join(roles[:2]).strip()
+
+    if role:
+        return f"{role} {industry} {location}".strip()
+    return f"{industry} {location}".strip()
+
+
+def local_decision_from_memory(memory_summary: dict, error: str | None = None) -> dict:
+    intent = memory_summary.get("intent") or local_intent_parser(memory_summary.get("query") or "")
+    pending_urls = memory_summary.get("pending_urls") or []
+    valid_count = int(memory_summary.get("valid_leads_count") or 0)
+    companies_count = int(memory_summary.get("companies_count") or 0)
+    persons_count = int(memory_summary.get("persons_count") or 0)
+    entity_samples = (memory_summary.get("companies_sample") or []) + (memory_summary.get("persons_sample") or [])
+    needs_batch_analysis = (companies_count or persons_count) and (
+        not entity_samples or any(not item.get("gemini_analyzed") for item in entity_samples)
+    )
+    tools_used = memory_summary.get("tools_used") or []
+    used_tool_names = {item.get("tool") for item in tools_used if item.get("tool")}
+
+    if needs_batch_analysis:
+        return {
+            "decision": "analyze_entities",
+            "tool": "",
+            "query": "",
+            "target_urls": [],
+            "reason": "Fallback local: analyser le batch d'entites avant import CRM.",
+            "confidence": 0.7,
+            "gemini_error": error,
+            "fallback_local": bool(error),
+        }
+
+    if valid_count > 0:
+        return {
+            "decision": "import_crm",
+            "tool": "crm_importer",
+            "query": "",
+            "target_urls": [],
+            "reason": "Fallback local: des prospects sont prêts pour import CRM.",
+            "confidence": 0.75,
+            "gemini_error": error,
+            "fallback_local": bool(error),
+        }
+
+    if pending_urls:
+        return {
+            "decision": "crawl_urls",
+            "tool": "playwright_profile_scraper",
+            "query": "",
+            "target_urls": [item.get("url") for item in pending_urls[:3] if item.get("url")],
+            "reason": "Fallback local: crawler les URLs deja trouvees.",
+            "confidence": 0.65,
+            "gemini_error": error,
+            "fallback_local": bool(error),
+        }
+
+    source_to_tool = {
+        "maps": "maps_search",
+        "linkedin": "serper_linkedin",
+        "facebook": "serper_facebook",
+        "instagram": "serper_instagram",
+        "general": "serper_general",
+    }
+    for source in intent.get("sources") or ["general"]:
+        tool = source_to_tool.get(source, "serper_general")
+        if tool not in used_tool_names:
+            return {
+                "decision": "use_tool",
+                "tool": tool,
+                "query": local_search_query(intent),
+                "target_urls": [],
+                "reason": "Fallback local: lancer la prochaine source de recherche.",
+                "confidence": 0.65,
+                "gemini_error": error,
+                "fallback_local": bool(error),
+            }
+
+    return {
+        "decision": "import_crm" if valid_count else "analyze_entities",
+        "tool": "crm_importer" if valid_count else "",
+        "query": "",
+        "target_urls": [],
+        "reason": "Fallback local: finaliser les prospects trouves sans arret lie a Gemini.",
+        "confidence": 0.55,
+        "gemini_error": error,
+        "fallback_local": bool(error),
+    }
+
+
 def first_search_query(intent: dict, source: str) -> str:
     industries = intent.get("industries") or ["business"]
     locations = intent.get("locations") or ["Tunisie"]
@@ -675,16 +868,16 @@ Règles :
 """
 
         try:
-            response = self.client.models.generate_content(
+            response = safe_gemini_generate(
+                prompt,
+                client=self.client,
                 model=self.model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=IntentSchema,
-                ),
+                schema=IntentSchema,
             )
+            if not response.get("success"):
+                raise RuntimeError(response.get("error") or "gemini_unavailable")
 
-            data = IntentSchema.model_validate_json(response.text).model_dump()
+            data = IntentSchema.model_validate_json(response.get("text") or "{}").model_dump()
             return clean_gemini_intent(data, query)
 
         except Exception as e:
@@ -723,40 +916,31 @@ Règles :
 
 class GeminiBrain(GeminiBrainBase):
     def generate_json(self, prompt: str, schema=None):
-        config = types.GenerateContentConfig(response_mime_type="application/json")
-
-        if schema is not None:
-            config = types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=schema,
-            )
-
-        response = self.client.models.generate_content(
+        response = safe_gemini_generate(
+            prompt,
+            client=self.client,
             model=self.model,
-            contents=prompt,
-            config=config,
+            schema=schema,
         )
-        return response.text
+        if not response.get("success"):
+            raise RuntimeError(response.get("error") or "gemini_unavailable")
+        return response.get("text") or ""
 
     def fallback_decision(self, memory_summary: dict, error: str | None = None) -> dict:
-        reason = "Gemini indisponible ou decision invalide. Arret sans pipeline locale pour eviter une prospection non pilotee par Gemini."
-        if error and ("429" in error or "RESOURCE_EXHAUSTED" in error or "quota" in error.lower()):
-            reason = "Quota Gemini depasse. L'agent s'arrete volontairement car Gemini doit piloter la prospection."
-
-        return {
-            "decision": "stop",
-            "tool": "",
-            "query": "",
-            "target_urls": [],
-            "reason": reason,
-            "confidence": 0.0,
-            "gemini_required": True,
-            "gemini_error": error,
-        }
+        logger.warning("Gemini indisponible - fallback local activé")
+        return local_decision_from_memory(memory_summary, error=error)
 
     async def decide_next_action(self, memory_summary: dict) -> dict:
+        return local_decision_from_memory(memory_summary)
+
         if not self.client:
             return self.fallback_decision(memory_summary, "Gemini client unavailable")
+
+        if (memory_summary.get("companies_count") or 0) or (memory_summary.get("persons_count") or 0):
+            return local_decision_from_memory(memory_summary)
+
+        if memory_summary.get("pending_urls"):
+            return local_decision_from_memory(memory_summary)
 
         prompt = f"""
 {SYSTEM_PROMPT}
@@ -786,7 +970,7 @@ Priorite de decision :
 3. Si des entites brutes existent mais ne sont pas analysees, choisis analyze_entities.
 4. Si des entites crm_ready existent, choisis import_crm.
 5. Si une source ne donne rien, change de requete ou de source.
-6. Stop uniquement si aucune action fiable ne reste ou si le blocage vient de Gemini/API.
+6. Ne stoppe jamais uniquement parce que Gemini/API est indisponible ou en quota : utilise le fallback local.
 
 JSON attendu exactement :
 {{
@@ -825,11 +1009,56 @@ Memoire resumee :
         except Exception as exc:
             return self.fallback_decision(memory_summary, str(exc)[:400])
 
-    def fallback_analysis(self, entities: list[dict], reason: str | None = None) -> dict:
+    def fallback_analysis(
+        self,
+        entities: list[dict],
+        reason: str | None = None,
+        memory_summary: dict | None = None,
+    ) -> dict:
+        logger.warning("Gemini indisponible - fallback local activé")
+        intent = (memory_summary or {}).get("intent") or {}
+        fallback_entities = []
+
+        for index, entity in enumerate(entities[:30]):
+            local_entity = dict(entity or {})
+            qualify_entity(local_entity, intent)
+            entity_type = local_entity.get("lead_type") or classify_lead_type(local_entity)
+            score = int(local_entity.get("lead_score") or local_entity.get("score") or 0)
+            has_source = has_valid_contact_url(local_entity)
+            is_valid = bool(local_entity.get("is_valid") or has_source)
+            crm_ready = bool(local_entity.get("crm_ready") or has_source)
+            evaluation = local_entity.get("evaluation") or ("warm" if score >= 40 else "cold")
+            fallback_reason = (
+                "review_needed: analyse IA indisponible, qualification locale appliquee. "
+                f"{reason or 'Gemini unavailable'}"
+            )
+
+            fallback_entities.append(
+                {
+                    "index": index,
+                    "is_valid": is_valid,
+                    "entity_type": entity_type or "company",
+                    "lead_score": score,
+                    "evaluation": evaluation,
+                    "reason": fallback_reason,
+                    "crm_ready": crm_ready,
+                    "enrichment_status": local_entity.get("enrichment_status") or "needs_enrichment",
+                    "qualification_reasons": list(local_entity.get("qualification_reasons") or []),
+                    "rejection_reason": "" if is_valid else "local_review_needed",
+                    "cleaned_data": {
+                        "analysis_status": "review_needed",
+                        "gemini_analyzed": True,
+                        "raison_score": fallback_reason,
+                        "enrichment_status": local_entity.get("enrichment_status") or "needs_enrichment",
+                    },
+                }
+            )
+
         return {
-            "entities": [],
+            "entities": fallback_entities,
             "gemini_required": True,
             "gemini_error": reason or "Gemini analysis unavailable",
+            "analysis_status": "review_needed",
         }
 
     async def analyze_entities(self, entities: list[dict], memory_summary: dict) -> dict:
@@ -837,7 +1066,7 @@ Memoire resumee :
             return {"entities": []}
 
         if not self.client:
-            return self.fallback_analysis(entities, "Gemini indisponible.")
+            return self.fallback_analysis(entities, "Gemini indisponible.", memory_summary)
 
         indexed_entities = [
             {"index": index, "data": entity}
@@ -903,4 +1132,4 @@ Entites indexees :
             data = repair_analysis_payload(data)
             return EntityAnalysisSchema.model_validate(data).model_dump()
         except Exception as exc:
-            return self.fallback_analysis(entities, str(exc)[:400])
+            return self.fallback_analysis(entities, str(exc)[:400], memory_summary)

@@ -84,6 +84,7 @@ class ProspectCompany(models.Model):
 class Prospect(models.Model):
     STATUS_CHOICES = [
         ("new", "New"),
+        ("review_needed", "Review Needed"),
         ("contacted", "Contacted"),
         ("qualified", "Qualified"),
         ("lost", "Lost"),

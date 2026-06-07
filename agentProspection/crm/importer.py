@@ -94,6 +94,12 @@ def safe_evaluation(value: str | None, default: str = "cold") -> str:
     return default
 
 
+def safe_status_from_analysis(item: dict) -> str:
+    if item.get("analysis_status") == "review_needed":
+        return "review_needed"
+    return "new"
+
+
 def text_value(item: dict, *fields: str) -> str | None:
     for field in fields:
         value = item.get(field)
@@ -393,7 +399,7 @@ def save_result_to_crm(result: dict, assigned_user_id: int, tenant_company_id: i
             country=clip(result.get("country"), 100),
             origin=safe_origin(result.get("source")),
             evaluation=safe_evaluation(result.get("evaluation"), "warm"),
-            status="new",
+            status=safe_status_from_analysis(result),
             assigned_to=user,
             source="agent_prospection",
             website=clip(result.get("website"), 200),
@@ -446,6 +452,10 @@ def save_result_to_crm(result: dict, assigned_user_id: int, tenant_company_id: i
 
         if result.get("evaluation") and not prospect.evaluation:
             prospect.evaluation = safe_evaluation(result.get("evaluation"), "warm")
+            prospect_updated = True
+
+        if result.get("analysis_status") == "review_needed" and prospect.status == "new":
+            prospect.status = "review_needed"
             prospect_updated = True
 
         if prospect_updated:

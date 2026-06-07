@@ -7,10 +7,13 @@ from .views import (
     EngagementProspectsView,
     MarkRepliedView,
     AnalyzeSocialProfileView,
+    FacebookOpenSessionView,
     PrepareEngagementView,
     ProspectLogsView,
     ProspectMessageView,
     SendPreparedEngagementView,
+    SocialLoginView,
+    SocialSessionCheckView,
 )
 
 urlpatterns = [
@@ -52,4 +55,7 @@ urlpatterns = [
         name="engagement-follow-up-task",
     ),
     path("campaigns/", EngagementCampaignsView.as_view(), name="engagement-campaigns"),
+    path("facebook/open-session/", FacebookOpenSessionView.as_view(), name="engagement-facebook-open-session"),
+    path("social-login/", SocialLoginView.as_view(), name="engagement-social-login"),
+    path("social-session/check/", SocialSessionCheckView.as_view(), name="engagement-social-session-check"),
 ]

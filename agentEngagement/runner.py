@@ -90,6 +90,34 @@ def _scrape_failure_response(scraped_data: dict, prospect) -> dict:
     }
 
 
+def _facebook_session_block_response(scraped_data: dict, prospect) -> dict | None:
+    if not isinstance(scraped_data, dict):
+        return None
+
+    facebook_data = scraped_data.get("facebook")
+    if not isinstance(facebook_data, dict):
+        return None
+
+    status = facebook_data.get("status")
+    if status not in {"login_required", "checkpoint_required", "facebook_login_required"}:
+        return None
+
+    message = (
+        facebook_data.get("message")
+        or facebook_data.get("error")
+        or "Connectez-vous a Facebook via le bouton Connecter Facebook puis relancez l'action."
+    )
+    return {
+        "success": False,
+        "status": status,
+        "platform": "facebook",
+        "message": message,
+        "error": message,
+        "prospect_id": prospect.pk,
+        "data": {},
+    }
+
+
 def should_reuse_social_analysis(prospect):
     if not getattr(prospect, "social_profile_last_analyzed_at", None):
         return False
@@ -228,6 +256,21 @@ def prepare_engagement(prospect, user, scrape=True) -> dict:
         if scrape and not social_analysis:
             scraper = EngagementScraper()
             scraped_data = scraper.scrape_prospect_profiles(prospect , user_id=user.id,)
+
+            facebook_block_response = _facebook_session_block_response(scraped_data, prospect)
+            if facebook_block_response:
+                logger.warning(
+                    "[facebook] session missing before Gemini for Prospect #%s: %s",
+                    prospect.pk,
+                    facebook_block_response.get("message"),
+                )
+                set_status(
+                    prospect,
+                    "new",
+                    error=facebook_block_response.get("message"),
+                    channel="facebook",
+                )
+                return facebook_block_response
 
             if _scrape_failed(scraped_data):
                 response = _scrape_failure_response(scraped_data, prospect)

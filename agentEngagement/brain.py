@@ -17,6 +17,12 @@ from django.conf import settings
 
 from .schemas import EngagementResultSchema
 from .prompts import ENGAGEMENT_SYSTEM_PROMPT, build_engagement_prompt
+from .gemini_client import (
+    extract_json,
+    generate_with_retry,
+    get_gemini_model,
+    repair_json_with_gemini,
+)
 
 logger = logging.getLogger("agentEngagement.brain")
 
@@ -29,6 +35,8 @@ GEMINI_MODEL = getattr(
 
 
 def _get_model():
+    return get_gemini_model(max_output_tokens=4096)
+
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY non configurée")
 
@@ -46,6 +54,8 @@ def _get_model():
 
 
 def _generate_with_retry(model, prompt: str, max_retries: int = 3):
+    return generate_with_retry(model, prompt, max_retries=max_retries, wait_seconds=35, log_prefix="brain")
+
     last_error = None
 
     for attempt in range(1, max_retries + 1):
@@ -67,6 +77,8 @@ def _generate_with_retry(model, prompt: str, max_retries: int = 3):
 
 
 def _extract_json(text: str) -> dict:
+    return extract_json(text)
+
     text = (text or "").strip()
     text = re.sub(r"^```json\s*", "", text)
     text = re.sub(r"^```\s*", "", text)
@@ -86,6 +98,25 @@ def _extract_json(text: str) -> dict:
 
 
 def _repair_json_with_gemini(model, raw_text: str) -> dict:
+    schema_hint = """
+{
+  "qualified": true,
+  "priority": "low",
+  "best_channel": "linkedin",
+  "action_type": "send_linkedin",
+  "reason": "string",
+  "should_create_task": true,
+  "should_generate_message": true,
+  "should_send_now": false,
+  "subject": "",
+  "message": "string",
+  "call_script": "",
+  "task_title": "string",
+  "task_description": "string"
+}
+""".strip()
+    return repair_json_with_gemini(model, raw_text, schema_hint=schema_hint)
+
     repair_prompt = f"""
 Corrige ce contenu pour retourner UNIQUEMENT un JSON valide.
 Aucun markdown.

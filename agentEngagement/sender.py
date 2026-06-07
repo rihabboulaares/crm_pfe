@@ -5,12 +5,39 @@ from .social.facebook_sender import send_facebook_message
 from .social.instagram_sender import send_instagram_message
 from .social.linkedin_sender import send_linkedin_message
 from .social.session_manager import (
-    ensure_social_session,
-    linkedin_login_required_response,
-    social_login_required_response,
+    ensure_platform_session,
 )
 
 logger = logging.getLogger("agentEngagement.sender")
+
+
+def normalize_sender_result(status, channel: str) -> dict:
+    if isinstance(status, dict):
+        data = dict(status)
+        data.setdefault("sent", False)
+        data.setdefault("channel", channel)
+        data.setdefault("success", bool(data.get("sent")) or data.get("status") == "message_ready")
+        return data
+
+    if status in {"linkedin_login_required", "instagram_login_required", "facebook_login_required", "login_required"}:
+        platform = channel
+        return {
+            "success": False,
+            "status": "login_required",
+            "platform": platform,
+            "message": f"Veuillez vous connecter a {platform} dans la fenetre ouverte puis relancer l'action.",
+            "sent": False,
+            "channel": channel,
+        }
+
+    sent = status in {"message_sent", "connection_request_sent"}
+    return {
+        "success": sent or status in {"message_ready", "already_pending"},
+        "status": status,
+        "sent": sent,
+        "channel": channel,
+        "error": None if sent or status in {"message_ready", "already_pending"} else status,
+    }
 
 
 class EngagementSender:
@@ -55,7 +82,7 @@ class EngagementSender:
                 )
 
             elif channel == "facebook":
-                session_result = ensure_social_session(
+                session_result = ensure_platform_session(
                     user_id=user.id,
                     platform=channel,
                 )
@@ -75,7 +102,7 @@ class EngagementSender:
                 )
 
             elif channel == "instagram":
-                session_result = ensure_social_session(
+                session_result = ensure_platform_session(
                     user_id=user.id,
                     platform=channel,
                 )
@@ -97,27 +124,7 @@ class EngagementSender:
             else:
                 return {"success": False, "status": "unsupported_channel"}
 
-            if status == "linkedin_login_required":
-                return {
-                    **linkedin_login_required_response(),
-                    "sent": False,
-                    "channel": channel,
-                }
-
-            if status in {"instagram_login_required", "facebook_login_required"}:
-                platform = status.replace("_login_required", "")
-                return {
-                    **social_login_required_response(platform),
-                    "sent": False,
-                    "channel": channel,
-                }
-
-            return {
-                "success": status in {"message_sent", "connection_request_sent"},
-                "status": status,
-                "sent": status in {"message_sent", "connection_request_sent"},
-                "channel": channel,
-            }
+            return normalize_sender_result(status, channel)
 
         except Exception as exc:
             logger.exception("[sender] Erreur envoi prepared")

@@ -3,6 +3,17 @@ from playwright.sync_api import sync_playwright
 from .session_manager import ensure_linkedin_session, get_linkedin_profile_dir
 
 
+def sender_result(success, status, sent=False, channel="linkedin", error=None, screenshot=None):
+    return {
+        "success": success,
+        "status": status,
+        "sent": sent,
+        "channel": channel,
+        "error": error,
+        "screenshot": screenshot,
+    }
+
+
 class LinkedInSender:
     def __init__(self, user_id: int, headless: bool = False):
         self.user_id = user_id
@@ -463,10 +474,21 @@ def send_linkedin_message(
     message: str,
     user_id: int,
     send: bool = False,
-) -> str:
+) -> dict:
     sender = LinkedInSender(user_id=user_id, headless=False)
-    return sender.send(
+    status = sender.send(
         profile_url=profile_url,
         message=message,
         send=send,
     )
+    if status == "linkedin_login_required":
+        return sender_result(False, "login_required", error="Connexion LinkedIn requise")
+    if status == "message_ready":
+        return sender_result(True, "message_ready", sent=False)
+    if status in {"message_sent", "connection_request_sent"}:
+        return sender_result(True, status, sent=True)
+    if status in {"message_failed", "connection_request_failed", "unknown_status"}:
+        return sender_result(False, status, error=status)
+    if status == "already_pending":
+        return sender_result(True, "already_pending", sent=False)
+    return sender_result(False, status, error=status)

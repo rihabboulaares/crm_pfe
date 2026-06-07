@@ -5,13 +5,13 @@ import time
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 from .social.session_manager import (
+    ensure_platform_session,
     ensure_linkedin_session,
     get_profile_dir,
     get_social_profile_dir,
     linkedin_login_required_response,
 )
 from .social.manual_login import (
-    facebook_login_required,
     instagram_login_required,
     wait_manual_login,
 )
@@ -24,6 +24,23 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36"
 )
+
+FACEBOOK_LOGIN_MESSAGE = (
+    "Connectez-vous a Facebook via le bouton Connecter Facebook puis relancez l'action."
+)
+
+
+def _facebook_session_required_response(url: str, status: str = "login_required", message: str = None) -> dict:
+    final_message = message or FACEBOOK_LOGIN_MESSAGE
+    return {
+        "success": False,
+        "status": status,
+        "error": final_message,
+        "platform": "facebook",
+        "message": final_message,
+        "data": {},
+        "url": url,
+    }
 
 
 def human_delay(min_ms=800, max_ms=2000):
@@ -317,8 +334,13 @@ class EngagementScraper:
                 "url": url,
             }
 
+        session_result = ensure_platform_session(user_id=user_id, platform="facebook")
+        if not session_result.get("success"):
+            status = session_result.get("status") or "login_required"
+            message = session_result.get("message") or FACEBOOK_LOGIN_MESSAGE
+            return _facebook_session_required_response(url, status=status, message=message)
+
         profile_dir = get_social_profile_dir("facebook", user_id)
-        keep_context_open = False
         playwright = sync_playwright().start()
 
         try:
@@ -338,20 +360,9 @@ class EngagementScraper:
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-                if facebook_login_required(page):
-                    ok = wait_manual_login(page, "facebook")
-
-                    if not ok:
-                        keep_context_open = True
-                        return {
-                        "success": False,
-                        "status": "facebook_login_required",
-                        "error": "login_required",
-                        "platform": "facebook",
-                        "message": "Connexion Facebook ou vérification requise.",
-                        "data": {},
-                        "url": url,
-                    }
+                if self._facebook_login_required(page):
+                    status = "checkpoint_required" if "checkpoint" in page.url.lower() else "login_required"
+                    return _facebook_session_required_response(url, status=status)
 
                 page.goto(url, wait_until="domcontentloaded", timeout=60000)
                 page.wait_for_timeout(8000)
@@ -359,42 +370,13 @@ class EngagementScraper:
 
                 current_url = page.url.lower()
                 if "login" in current_url or "checkpoint" in current_url:
-                    ok = wait_manual_login(page, "facebook")
-
-                    if not ok:
-                        keep_context_open = True
-                        return {
-                        "success": False,
-                        "status": "facebook_login_required",
-                        "platform": "facebook",
-                        "message": "Facebook demande une connexion ou une vérification.",
-                        "data": {},
-                            "url": url,
-                        }
-
-                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                    page.wait_for_timeout(8000)
+                    status = "checkpoint_required" if "checkpoint" in current_url else "login_required"
+                    return _facebook_session_required_response(url, status=status)
 
                 body = self._safe_body_text(page)
 
                 if self._facebook_login_text(body):
-                    ok = wait_manual_login(page, "facebook")
-
-                    if not ok:
-                        keep_context_open = True
-                        return {
-                        "success": False,
-                        "status": "facebook_login_required",
-                        "error": "login_required",
-                        "platform": "facebook",
-                        "message": "Facebook demande une connexion ou une vérification.",
-                        "data": {},
-                            "url": url,
-                        }
-
-                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                    page.wait_for_timeout(8000)
-                    body = self._safe_body_text(page)
+                    return _facebook_session_required_response(url)
 
                 data = {
                     "profile_url": url,
@@ -414,11 +396,11 @@ class EngagementScraper:
                 self._hydrate_external_url(page, data, "facebook.com")
                 data["recent_posts"] = self._extract_facebook_posts(page)
 
-                print("[scraper] url =", url)
-                print("[scraper] username =", data.get("username"))
-                print("[scraper] bio =", data.get("bio"))
-                print("[scraper] followers =", data.get("followers"))
-                print("[scraper] external_url =", data.get("external_url"))
+                logger.info("[scraper][facebook] url=%s", url)
+                logger.info("[scraper][facebook] username=%s", data.get("username"))
+                logger.info("[scraper][facebook] bio=%s", data.get("bio"))
+                logger.info("[scraper][facebook] followers=%s", data.get("followers"))
+                logger.info("[scraper][facebook] external_url=%s", data.get("external_url"))
 
                 if not is_valid_social_profile_data(data):
                     return {
@@ -449,11 +431,9 @@ class EngagementScraper:
                 }
 
             finally:
-                if not keep_context_open:
-                    context.close()
+                context.close()
         finally:
-            if not keep_context_open:
-                playwright.stop()
+            playwright.stop()
 
     def _facebook_login_required(self, page) -> bool:
         url = page.url.lower()
@@ -519,6 +499,10 @@ class EngagementScraper:
                 "data": {},
                 "url": url,
             }
+
+        session_result = ensure_platform_session(user_id=user_id, platform="instagram")
+        if not session_result.get("success"):
+            return {**session_result, "data": {}, "platform": "instagram", "url": url}
 
         profile_dir = get_social_profile_dir("instagram", user_id)
         keep_context_open = False
@@ -629,11 +613,11 @@ class EngagementScraper:
                 if not data.get("bio"):
                     data["bio"] = data.get("header") or data.get("main_text") or ""
 
-                print("[scraper] url =", url)
-                print("[scraper] username =", data.get("username"))
-                print("[scraper] bio =", data.get("bio"))
-                print("[scraper] followers =", data.get("followers"))
-                print("[scraper] external_url =", data.get("external_url"))
+                logger.info("[scraper][instagram] url=%s", url)
+                logger.info("[scraper][instagram] username=%s", data.get("username"))
+                logger.info("[scraper][instagram] bio=%s", data.get("bio"))
+                logger.info("[scraper][instagram] followers=%s", data.get("followers"))
+                logger.info("[scraper][instagram] external_url=%s", data.get("external_url"))
                 logger.info("[scraper][instagram] username=%s", data.get("username"))
                 logger.info("[scraper][instagram] bio=%s", data.get("bio"))
                 logger.info("[scraper][instagram] posts_count=%s", len(data.get("recent_posts") or []))
