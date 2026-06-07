@@ -244,6 +244,8 @@ def find_existing_person(crm_company, related_company, item: dict, first_name: s
         identity |= Q(linkedin_url=item.get("linkedin_url"))
     if item.get("facebook_url"):
         identity |= Q(facebook_url=item.get("facebook_url"))
+    if item.get("instagram_url"):
+        identity |= Q(instagram_url=item.get("instagram_url"))
     if item.get("phone"):
         identity |= Q(phone=item.get("phone"))
 
@@ -271,6 +273,19 @@ def find_existing_prospect(crm_company, related_company, item: dict, first_name:
 
     if item.get("phone"):
         existing = Prospect.objects.filter(company=crm_company, phone=item.get("phone")).first()
+        if existing:
+            return existing
+
+    identity = Q()
+    if item.get("linkedin_url"):
+        identity |= Q(linkedin_url=item.get("linkedin_url"))
+    if item.get("facebook_url"):
+        identity |= Q(facebook_url=item.get("facebook_url"))
+    if item.get("instagram_url"):
+        identity |= Q(instagram_url=item.get("instagram_url"))
+
+    if identity:
+        existing = Prospect.objects.filter(company=crm_company).filter(identity).first()
         if existing:
             return existing
 

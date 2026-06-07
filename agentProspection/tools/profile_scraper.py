@@ -2,7 +2,6 @@ import os
 import hashlib
 import logging
 import re
-import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -17,9 +16,8 @@ from agentProspection.tools.extractors import (
     clean_text,
 )
 from agentEngagement.social.session_manager import (
-    ensure_linkedin_session_async,
-    get_linkedin_profile_dir,
-    linkedin_login_required_response,
+    ensure_platform_session,
+    get_profile_dir,
 )
 
 
@@ -44,10 +42,6 @@ def headless_enabled() -> bool:
     return value not in {"0", "false", "no", "off"}
 
 
-def manual_login_enabled() -> bool:
-    return os.getenv("SOCIAL_LOGIN_MODE", "manual").lower().strip() == "manual"
-
-
 def reuse_session_enabled() -> bool:
     value = os.getenv("SOCIAL_REUSE_SESSION", "true").lower().strip()
     return value not in {"0", "false", "no", "off"}
@@ -58,20 +52,8 @@ def login_once_per_platform_enabled() -> bool:
     return value not in {"0", "false", "no", "off"}
 
 
-def login_timeout_minutes() -> float:
-    try:
-        return float(os.getenv("SOCIAL_LOGIN_TIMEOUT_MINUTES", "5"))
-    except ValueError:
-        return 5.0
-
-
 def browser_profile_dir(user_id: int | str | None, platform: str) -> str:
-    if platform == "linkedin":
-        return str(get_linkedin_profile_dir(user_id or "anonymous"))
-
-    root = Path(os.getenv("SOCIAL_BROWSER_PROFILE_DIR", "browser_profiles"))
-    safe_user = str(user_id or "anonymous").strip().replace("/", "_").replace("\\", "_")
-    return str(root / f"user_{safe_user}" / platform)
+    return str(get_profile_dir(platform, user_id or "anonymous"))
 
 
 def debug_screenshot_path(url: str) -> str:
@@ -217,22 +199,6 @@ async def is_login_required(page, platform: str) -> bool:
     return False
 
 
-async def wait_for_manual_login(page, platform: str, timeout_minutes: float = 5) -> bool:
-    deadline = time.time() + timeout_minutes * 60
-
-    while time.time() < deadline:
-        try:
-            if not await is_login_required(page, platform):
-                await page.wait_for_load_state("domcontentloaded", timeout=10000)
-                return True
-        except Exception:
-            pass
-
-        await page.wait_for_timeout(3000)
-
-    return False
-
-
 async def get_authenticated_context(playwright, user_id: int | str | None, platform: str):
     profile_dir = browser_profile_dir(user_id, platform)
     Path(profile_dir).mkdir(parents=True, exist_ok=True)
@@ -240,7 +206,7 @@ async def get_authenticated_context(playwright, user_id: int | str | None, platf
 
     return await playwright.chromium.launch_persistent_context(
         user_data_dir=profile_dir,
-        headless=False if is_linkedin else headless_enabled(),
+        headless=headless_enabled(),
         slow_mo=300 if is_linkedin else 100,
         viewport={"width": 1400, "height": 900},
         locale="fr-FR",
@@ -286,45 +252,12 @@ class SocialSessionManager:
         if login_once_per_platform_enabled() and self.login_checked.get(platform):
             return self.login_success.get(platform, False)
 
-        if platform == "linkedin":
-            logged = await ensure_linkedin_session_async(int(self.user_id or 0))
-            self.login_checked[platform] = True
-            self.login_required[platform] = not logged
-            self.login_success[platform] = logged
-            return logged
-
-        context = await self.get_context(platform)
-        page = await context.new_page()
-
-        try:
-            await page.goto(test_url, wait_until="domcontentloaded", timeout=60000)
-            await page.wait_for_timeout(2500)
-
-            if not await is_login_required(page, platform):
-                self.login_checked[platform] = True
-                self.login_required[platform] = False
-                self.login_success[platform] = True
-                return True
-
-            self.login_required[platform] = True
-
-            if manual_login_enabled() and not headless_enabled():
-                logged = await wait_for_manual_login(
-                    page,
-                    platform,
-                    timeout_minutes=login_timeout_minutes(),
-                )
-            else:
-                logged = False
-
-            self.login_checked[platform] = True
-            self.login_success[platform] = logged
-            return logged
-        finally:
-            try:
-                await page.close()
-            except Exception:
-                pass
+        result = ensure_platform_session(int(self.user_id or 0), platform)
+        logged = result.get("success", False)
+        self.login_checked[platform] = True
+        self.login_required[platform] = not logged
+        self.login_success[platform] = logged
+        return logged
 
     async def mark_session_invalid(self, platform: str):
         self.login_checked[platform] = True
@@ -443,7 +376,7 @@ class ProfileScraperTool(BaseTool):
                 scrape_debug["requires_login"] = login_required_this_url
                 scrape_debug["platform"] = platform
                 if login_required_this_url:
-                    scrape_debug["step"] = "manual_login_required"
+                    scrape_debug["step"] = "login_required"
 
                 if platform == "linkedin":
                     data = await self.scrape_linkedin(page, url)
@@ -455,7 +388,7 @@ class ProfileScraperTool(BaseTool):
                 data["scraping_debug"] = scrape_debug
                 data["scrape_blocked"] = scrape_debug.get("blocked")
                 data["requires_login"] = False
-                data["manual_login_required"] = login_required_this_url
+                data["login_required"] = login_required_this_url
                 return data
 
             except PlaywrightTimeoutError:
@@ -487,7 +420,14 @@ class ProfileScraperTool(BaseTool):
         }
 
         if platform == "linkedin" and requires_login:
-            data.update(linkedin_login_required_response())
+            data.update(
+                {
+                    "success": False,
+                    "status": "login_required",
+                    "platform": "linkedin",
+                    "message": "Connexion linkedin requise. Cliquez sur Connecter puis terminez la connexion.",
+                }
+            )
 
         if platform == "linkedin":
             data["linkedin_url"] = url
@@ -518,7 +458,7 @@ class ProfileScraperTool(BaseTool):
                 "requires_login": requires_login,
                 "platform": platform,
                 "scrape_blocked": True,
-                "step": "manual_login_required" if requires_login else "scrape_failed",
+                "step": "login_required" if requires_login else "scrape_failed",
             }
             data["scrape_blocked"] = True
 

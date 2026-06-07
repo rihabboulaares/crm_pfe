@@ -79,16 +79,31 @@ class AgentMemory:
         self.add_log("error", f"{step}: {message}")
 
     def add_tool_call(self, tool: str, query: str, decision: dict[str, Any] | None = None):
+        page = 1
+        if isinstance(query, dict):
+            page = int(query.get("page") or 1)
+            query_value = str(query.get("q") or query.get("query") or "")
+        else:
+            query_value = str(query)
+
         self.tool_history.append({
             "tool": tool,
-            "query": str(query),
+            "query": query_value,
+            "page": page,
             "decision": (decision or {}).get("decision"),
             "reason": (decision or {}).get("reason"),
         })
 
     def already_used(self, tool: str, query: str) -> bool:
+        page = 1
+        if isinstance(query, dict):
+            page = int(query.get("page") or 1)
+            query = query.get("q") or query.get("query") or ""
+
         return any(
-            item.get("tool") == tool and item.get("query") == str(query)
+            item.get("tool") == tool
+            and item.get("query") == str(query)
+            and int(item.get("page") or 1) == page
             for item in self.tool_history
         )
 
@@ -209,9 +224,18 @@ class AgentMemory:
             "company_id": self.company_id,
             "user_id": self.user_id,
             "intent": self.intent,
+            "plan": self.plan,
             "current_state": self.current_state,
             "iterations": self.iterations,
             "tools_used": self.tool_history[-12:],
+            "all_tools_used": self.tool_history,
+            "tool_call_counts": {
+                tool: sum(1 for item in self.tool_history if item.get("tool") == tool)
+                for tool in {item.get("tool") for item in self.tool_history if item.get("tool")}
+            },
+            "query_variants_used": list(dict.fromkeys(
+                item.get("query") for item in self.tool_history if item.get("query")
+            )),
             "urls_found": self.discovered_urls[-20:],
             "pending_urls": [
                 item for item in self.discovered_urls

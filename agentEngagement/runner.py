@@ -1,5 +1,6 @@
 import logging
 
+from django.db.models import Q
 from django.utils import timezone
 
 from .brain import analyze_and_generate
@@ -311,7 +312,7 @@ def prepare_engagement(prospect, user, scrape=True) -> dict:
         result = analyze_and_generate(profile_data, social_analysis=social_analysis)
 
         if not result:
-            set_status(prospect, "failed", error="Gemini n'a pas retourné un résultat valide.")
+            set_status(prospect, "message_failed", error="Gemini n'a pas retourné un résultat valide.")
             return {
                 "success": False,
                 "status": "gemini_failed",
@@ -341,12 +342,12 @@ def prepare_engagement(prospect, user, scrape=True) -> dict:
         task = create_engagement_task(prospect, result, user)
         activity = create_task_activity(task, prospect, result, user, sent=False)
 
-        prospect.engagement_status = "message_ready"
+        prospect.engagement_status = "pending_validation"
         prospect.save(update_fields=["engagement_status"])
 
         return {
             "success": True,
-            "status": "message_ready",
+            "status": "pending_validation",
             "prospect_id": prospect.pk,
             "result": _dump(result),
             "task_id": task.pk,
@@ -357,7 +358,7 @@ def prepare_engagement(prospect, user, scrape=True) -> dict:
         logger.exception("[runner] Erreur prepare Prospect #%s", getattr(prospect, "pk", None))
 
         try:
-            set_status(prospect, "failed", error=str(exc)[:500])
+            set_status(prospect, "message_failed", error=str(exc)[:500])
         except Exception:
             pass
 
@@ -375,7 +376,7 @@ def send_prepared_engagement(prospect, user) -> dict:
     Ne rappelle jamais Gemini.
     """
     try:
-        if prospect.engagement_status not in {"message_ready", "task_created"}:
+        if prospect.engagement_status not in {"pending_validation", "message_ready", "task_created"}:
             return {
                 "success": False,
                 "status": "message_not_ready",
@@ -390,7 +391,7 @@ def send_prepared_engagement(prospect, user) -> dict:
         else:
             set_status(
                 prospect,
-                "failed",
+                "message_failed",
                 error=result.get("error") or result.get("status"),
                 channel=prospect.last_engagement_channel,
             )
@@ -399,9 +400,72 @@ def send_prepared_engagement(prospect, user) -> dict:
 
     except Exception as exc:
         logger.exception("[runner] Erreur send Prospect #%s", prospect.pk)
-        set_status(prospect, "failed", error=str(exc)[:500])
+        set_status(prospect, "message_failed", error=str(exc)[:500])
         return {
             "success": False,
             "status": "send_error",
             "error": str(exc)[:500],
         }
+
+
+def launch_engagement_agent(company, user, limit=25, scrape=True, auto_send=False):
+    from sales.models import Prospect
+
+    qs = Prospect.objects.filter(company=company).filter(
+        Q(engagement_status__isnull=True)
+        | Q(engagement_status="")
+        | Q(engagement_status="new")
+        | Q(engagement_status="message_failed")
+    ).order_by("-created_at")
+
+    if limit:
+        qs = qs[:limit]
+
+    results = []
+
+    for prospect in qs:
+        try:
+            result = prepare_engagement(
+                prospect=prospect,
+                user=user,
+                scrape=scrape,
+            )
+
+            prospect.refresh_from_db()
+
+            if auto_send and result.get("success") and prospect.engagement_status == "pending_validation":
+                send_result = send_prepared_engagement(prospect, user)
+                results.append(
+                    {
+                        "prospect_id": prospect.pk,
+                        "status": send_result.get("status"),
+                        "sent": send_result.get("sent", False),
+                        "auto_sent": True,
+                    }
+                )
+            else:
+                results.append(
+                    {
+                        "prospect_id": prospect.pk,
+                        "status": result.get("status"),
+                        "success": result.get("success", False),
+                        "auto_sent": False,
+                    }
+                )
+
+        except Exception as exc:
+            logger.exception("[runner] launch agent failed for Prospect #%s", prospect.pk)
+            set_status(prospect, "message_failed", error=str(exc)[:500])
+            results.append(
+                {
+                    "prospect_id": prospect.pk,
+                    "status": "error",
+                    "error": str(exc)[:500],
+                }
+            )
+
+    return {
+        "success": True,
+        "processed": len(results),
+        "results": results,
+    }

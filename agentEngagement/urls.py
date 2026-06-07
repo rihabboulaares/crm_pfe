@@ -7,17 +7,20 @@ from .views import (
     EngagementProspectsView,
     MarkRepliedView,
     AnalyzeSocialProfileView,
-    FacebookOpenSessionView,
+    LaunchEngagementAgentView,
     PrepareEngagementView,
     ProspectLogsView,
     ProspectMessageView,
+    RejectPreparedEngagementView,
     SendPreparedEngagementView,
     SocialLoginView,
     SocialSessionCheckView,
+    SocialSessionResetView,
 )
 
 urlpatterns = [
     path("dashboard/", EngagementDashboardView.as_view(), name="engagement-dashboard"),
+    path("launch/", LaunchEngagementAgentView.as_view(), name="engagement-launch"),
     path("prospects/", EngagementProspectsView.as_view(), name="engagement-prospects"),
     path(
         "prospects/<int:prospect_id>/prepare/",
@@ -33,6 +36,11 @@ urlpatterns = [
         "prospects/<int:prospect_id>/send/",
         SendPreparedEngagementView.as_view(),
         name="engagement-send",
+    ),
+    path(
+        "prospects/<int:prospect_id>/reject/",
+        RejectPreparedEngagementView.as_view(),
+        name="engagement-reject",
     ),
     path(
         "prospects/<int:prospect_id>/logs/",
@@ -55,7 +63,7 @@ urlpatterns = [
         name="engagement-follow-up-task",
     ),
     path("campaigns/", EngagementCampaignsView.as_view(), name="engagement-campaigns"),
-    path("facebook/open-session/", FacebookOpenSessionView.as_view(), name="engagement-facebook-open-session"),
     path("social-login/", SocialLoginView.as_view(), name="engagement-social-login"),
     path("social-session/check/", SocialSessionCheckView.as_view(), name="engagement-social-session-check"),
+    path("social-session/reset/", SocialSessionResetView.as_view(), name="engagement-social-session-reset"),
 ]

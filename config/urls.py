@@ -4,7 +4,7 @@ URL configuration for config project.
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from agentProspection.api.views import ProspectAgentView
+from agentProspection.api.views import ProspectAgentView, ProspectingRequiredSessionsView
 from sales.views import ProspectViewSet, TaskViewSet
 
 task_list = TaskViewSet.as_view({"get": "list", "post": "create"})
@@ -26,6 +26,11 @@ urlpatterns = [
     path("api/superadmin/", include("superadmin.urls")),
     path("api/notifications/", include("Notifications.urls")),
     path("api/agent/prospect/", ProspectAgentView.as_view(), name="agent-prospect"),
+    path(
+        "api/prospecting/social-sessions/required/",
+        ProspectingRequiredSessionsView.as_view(),
+        name="prospecting-required-social-sessions",
+    ),
     path("api/agent/", include("crm_agent.urls")),  # ← remplace l'ancienne ligne
     path("api/", include("calendar_module.urls")),
     path("api/agentProspection/", include("agentProspection.urls")),

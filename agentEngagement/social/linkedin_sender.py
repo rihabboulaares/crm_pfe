@@ -1,6 +1,6 @@
 from playwright.sync_api import sync_playwright
 
-from .session_manager import ensure_linkedin_session, get_linkedin_profile_dir
+from .session_manager import ensure_platform_session, get_profile_dir
 
 
 def sender_result(success, status, sent=False, channel="linkedin", error=None, screenshot=None):
@@ -15,19 +15,20 @@ def sender_result(success, status, sent=False, channel="linkedin", error=None, s
 
 
 class LinkedInSender:
-    def __init__(self, user_id: int, headless: bool = False):
+    def __init__(self, user_id: int, headless: bool = True):
         self.user_id = user_id
         self.headless = headless
-        self.profile_dir = get_linkedin_profile_dir(user_id)
+        self.profile_dir = get_profile_dir("linkedin", user_id)
 
     def send(self, profile_url: str, message: str, send: bool = False) -> str:
-        if not ensure_linkedin_session(self.user_id):
+        session_result = ensure_platform_session(self.user_id, "linkedin")
+        if not session_result.get("success"):
             return "linkedin_login_required"
 
         with sync_playwright() as p:
             context = p.chromium.launch_persistent_context(
                 user_data_dir=str(self.profile_dir),
-                headless=False,
+                headless=self.headless,
                 slow_mo=300,
                 viewport={"width": 1400, "height": 900},
                 args=[
@@ -475,7 +476,7 @@ def send_linkedin_message(
     user_id: int,
     send: bool = False,
 ) -> dict:
-    sender = LinkedInSender(user_id=user_id, headless=False)
+    sender = LinkedInSender(user_id=user_id, headless=True)
     status = sender.send(
         profile_url=profile_url,
         message=message,

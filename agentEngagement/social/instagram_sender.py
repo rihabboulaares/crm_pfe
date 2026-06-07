@@ -152,12 +152,11 @@ def send_instagram_message(
             page.goto(profile_url, wait_until="domcontentloaded", timeout=60000)
 
             if login_required_by_selectors(page, "instagram"):
-                keep_context_open = True
                 return {
                     "success": False,
                     "status": "login_required",
                     "platform": "instagram",
-                    "message": "Veuillez vous connecter a Instagram dans la fenetre ouverte puis relancer l'action.",
+                    "message": "Connectez-vous a Instagram via le bouton Connecter puis relancez l'action.",
                     "sent": False,
                     "channel": "instagram",
                 }

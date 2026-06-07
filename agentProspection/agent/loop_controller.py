@@ -1,6 +1,6 @@
 from urllib.parse import urlparse
 
-from agentProspection.agent.brain import GeminiBrain
+from agentProspection.agent.brain import GeminiBrain, build_search_plan
 from agentProspection.agent.fusion_engine import (
     is_same_company,
     is_same_person,
@@ -203,6 +203,9 @@ async def execute_single_tool(
         platform = tool_name.replace("serper_", "", 1)
         return await tool.run(tool_query, platform=platform)
 
+    if isinstance(tool_query, dict):
+        tool_query = tool_query.get("q") or tool_query.get("query") or ""
+
     if tool_name in {"playwright_profile_scraper"}:
         return await tool.run(tool_query, user_id=user_id, session_manager=session_manager)
 
@@ -272,10 +275,10 @@ def observe_tool_result(memory: AgentMemory, standard_result: dict):
             if scrape_debug.get("requires_login"):
                 platform = scrape_debug.get("platform") or lead.get("source", "").replace("profile_scraper_", "")
                 memory.add_log(
-                    "manual_login_required",
+                    "login_required",
                     (
-                        f"Connexion {platform} requise. Une fenetre navigateur s'est ouverte "
-                        "si le mode local visible est actif. Connectez-vous une seule fois."
+                        f"Connexion {platform} requise. Utilisez le panneau Connexions sociales "
+                        "pour ouvrir la fenetre de connexion, puis verifiez la session."
                     ),
                     platform=platform,
                 )
@@ -386,8 +389,8 @@ def apply_entity_analysis(memory: AgentMemory, entities: list[dict], analysis: d
 
 
 def default_limits(intent: dict) -> tuple[int, int, int, int]:
-    max_leads = min(int((intent or {}).get("max_leads") or 10), 10)
-    return 12, max_leads, 20, 4
+    max_leads = min(int((intent or {}).get("max_leads") or 50), 50)
+    return 40, max_leads, 60, 6
 
 
 async def run_agent(query: str, tenant_company_id: int, user_id: int) -> dict:
@@ -400,7 +403,9 @@ async def run_agent(query: str, tenant_company_id: int, user_id: int) -> dict:
 
     memory.set_phase("intent")
     memory.intent = await brain.extract_intent(query)
+    memory.plan = build_search_plan(memory.intent)
     memory.add_log("intent", f"Intent extrait: {memory.intent}")
+    memory.add_log("plan", f"Plan de recherche: {memory.plan.get('source_plan')}")
     if memory.intent.get("gemini_error"):
         memory.add_error("gemini", memory.intent.get("gemini_error"))
         memory.add_log("gemini", "Gemini indisponible - fallback local activé")

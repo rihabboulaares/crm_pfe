@@ -167,6 +167,9 @@ PROSPECTION_CHROMA_DIR = os.environ.get("PROSPECTION_CHROMA_DIR", str(BASE_DIR /
 PROSPECTION_MAX_RESULTS = int(os.environ.get("PROSPECTION_MAX_RESULTS", "10"))
 PROSPECTION_LLM_TIMEOUT = int(os.environ.get("PROSPECTION_LLM_TIMEOUT", "45"))
 
+ENGAGEMENT_AGENT_AUTO_SEND_ENABLED = False
+ENGAGEMENT_AGENT_BATCH_LIMIT = 25
+
 # settings.py
 SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "")  # Laisser vide → mock automatique
 

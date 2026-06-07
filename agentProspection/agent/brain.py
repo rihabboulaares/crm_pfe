@@ -64,6 +64,14 @@ SOURCE_KEYWORDS = {
     "maps": ["maps", "google maps", "adresse", "telephone", "téléphone"],
 }
 
+SOURCE_TO_TOOL = {
+    "maps": "maps_search",
+    "linkedin": "serper_linkedin",
+    "facebook": "serper_facebook",
+    "instagram": "serper_instagram",
+    "general": "serper_general",
+}
+
 LOCATION_KEYWORDS = [
     "tunis",
     "ariana",
@@ -442,6 +450,24 @@ def extract_sources(query: str) -> list[str]:
     return dedupe(sources)
 
 
+def detect_forced_sources(query: str) -> list[str]:
+    q = normalize_text(query)
+    forced = []
+
+    forced_markers = {
+        "linkedin": ["linkedin"],
+        "facebook": ["facebook"],
+        "instagram": ["instagram"],
+        "maps": ["google maps", "maps"],
+    }
+
+    for source, markers in forced_markers.items():
+        if any(marker in q for marker in markers):
+            forced.append(source)
+
+    return dedupe(forced)
+
+
 def extract_roles(query: str) -> list[str]:
     q = normalize_text(query)
     found = []
@@ -516,6 +542,7 @@ def detect_lead_types(query: str) -> list[str]:
 
 def clean_gemini_intent(data: dict, original_query: str) -> dict:
     fallback = local_intent_parser(original_query)
+    forced_sources = detect_forced_sources(original_query)
 
     industries = data.get("industries") or fallback["industries"]
     locations = data.get("locations") or fallback["locations"]
@@ -548,7 +575,9 @@ def clean_gemini_intent(data: dict, original_query: str) -> dict:
         if normalized:
             normalized_sources.append(normalized)
 
-    if not normalized_sources:
+    if forced_sources:
+        normalized_sources = forced_sources
+    elif not normalized_sources:
         normalized_sources = fallback["sources"]
 
     return {
@@ -558,7 +587,8 @@ def clean_gemini_intent(data: dict, original_query: str) -> dict:
         "locations": dedupe(locations),
         "target_roles": dedupe(target_roles),
         "sources": dedupe(normalized_sources),
-        "max_leads": min(int(data.get("max_leads") or 10), 10),
+        "source_forced": bool(forced_sources or data.get("source_forced")),
+        "max_leads": min(int(data.get("max_leads") or fallback.get("max_leads") or 50), 50),
         "reasoning_summary": data.get("reasoning_summary") or "",
     }
 
@@ -566,7 +596,8 @@ def clean_gemini_intent(data: dict, original_query: str) -> dict:
 def local_intent_parser(query: str) -> dict:
     industries = extract_industries(query)
     locations = extract_locations(query)
-    sources = extract_sources(query)
+    forced_sources = detect_forced_sources(query)
+    sources = forced_sources or extract_sources(query)
     roles = extract_roles(query)
     lead_types = detect_lead_types(query)
 
@@ -576,7 +607,7 @@ def local_intent_parser(query: str) -> dict:
     if not locations:
         locations = ["Tunisie"]
 
-    if "company" in lead_types:
+    if not forced_sources and "company" in lead_types:
         physical_terms = {
             "restaurant",
             "hôtel",
@@ -595,7 +626,7 @@ def local_intent_parser(query: str) -> dict:
             if "maps" not in sources:
                 sources.insert(0, "maps")
 
-    if "person" in lead_types:
+    if not forced_sources and "person" in lead_types:
         if "linkedin" not in sources:
             sources.insert(0, "linkedin")
 
@@ -609,7 +640,8 @@ def local_intent_parser(query: str) -> dict:
         "locations": locations,
         "target_roles": roles,
         "sources": sources,
-        "max_leads": 10,
+        "source_forced": bool(forced_sources),
+        "max_leads": 50,
         "reasoning_summary": "Intent extrait localement car Gemini est indisponible.",
     }
 
@@ -718,20 +750,148 @@ def local_search_query(intent: dict) -> str:
     return f"{industry} {location}".strip()
 
 
+def generate_query_variants(intent: dict, source: str) -> list[str]:
+    industries = intent.get("industries") or ["business"]
+    locations = intent.get("locations") or ["Tunisie"]
+    roles = intent.get("target_roles") or []
+
+    location = locations[0] if locations else "Tunisie"
+    industry = " ".join(industries[:2]).strip() or "business"
+    variants = []
+
+    role_aliases = roles or []
+    if any(normalize_text(role) == "responsable rh" for role in role_aliases):
+        role_aliases = [
+            "responsable RH",
+            "DRH",
+            "HR Manager",
+            "Talent Acquisition",
+            "People Operations",
+            "Recruiter",
+        ]
+
+    if role_aliases:
+        for role in role_aliases[:6]:
+            variants.append(f"{role} {industry} {location}".strip())
+        if source == "general":
+            variants.extend(
+                f"{role} {industry} {location} email contact site web".strip()
+                for role in role_aliases[:3]
+            )
+    else:
+        base_terms = [
+            industry,
+            f"societe {industry}",
+            f"entreprise {industry}",
+            f"{industry} professionnel",
+            f"{industry} contact",
+        ]
+        variants.extend(f"{term} {location}".strip() for term in base_terms)
+
+    if source == "instagram":
+        variants.extend(
+            [
+                f"{industry} blogger {location}",
+                f"{industry} influencer {location}",
+                f"createur contenu {industry} {location}",
+                f"{industry} Tunisia",
+            ]
+        )
+    elif source == "facebook":
+        variants.extend(
+            [
+                f"{industry} {location} page officielle",
+                f"{industry} {location} facebook",
+            ]
+        )
+    elif source == "maps":
+        cities = locations if locations and locations != ["Tunisie"] else [
+            "Tunis",
+            "Ariana",
+            "Ben Arous",
+            "La Marsa",
+            "Sousse",
+            "Sfax",
+            "Nabeul",
+            "Bizerte",
+            "Monastir",
+            "Mahdia",
+            "Gabes",
+            "Kairouan",
+        ]
+        variants = [f"{industry} {city}".strip() for city in cities]
+
+    return dedupe(variants)[:12]
+
+
+def build_search_plan(intent: dict) -> dict:
+    target_total = min(int((intent or {}).get("max_leads") or 50), 50)
+    sources = intent.get("sources") or ["general"]
+    forced = bool(intent.get("source_forced"))
+
+    if forced and sources:
+        source_plan = {source: target_total for source in sources}
+    else:
+        weights = {
+            "linkedin": 25,
+            "general": 10,
+            "maps": 10,
+            "facebook": 5,
+            "instagram": 10,
+        }
+        selected = [source for source in sources if source in weights] or ["general"]
+        total_weight = sum(weights[source] for source in selected)
+        source_plan = {
+            source: max(3, round(target_total * weights[source] / total_weight))
+            for source in selected
+        }
+
+    searches = []
+    for source in source_plan:
+        tool = SOURCE_TO_TOOL.get(source, "serper_general")
+        pages = 1 if source == "maps" else 3
+        for variant in generate_query_variants(intent, source):
+            for page in range(1, pages + 1):
+                searches.append({"source": source, "tool": tool, "query": variant, "page": page})
+
+    return {
+        "target_total": target_total,
+        "source_forced": forced,
+        "source_plan": source_plan,
+        "searches": searches,
+        "stop_conditions": {
+            "max_prospects": target_total,
+            "max_empty_searches": 6,
+            "max_iterations": 40,
+        },
+    }
+
+
 def local_decision_from_memory(memory_summary: dict, error: str | None = None) -> dict:
     intent = memory_summary.get("intent") or local_intent_parser(memory_summary.get("query") or "")
+    plan = memory_summary.get("plan") or build_search_plan(intent)
     pending_urls = memory_summary.get("pending_urls") or []
     valid_count = int(memory_summary.get("valid_leads_count") or 0)
     companies_count = int(memory_summary.get("companies_count") or 0)
     persons_count = int(memory_summary.get("persons_count") or 0)
+    total_count = companies_count + persons_count
     entity_samples = (memory_summary.get("companies_sample") or []) + (memory_summary.get("persons_sample") or [])
     needs_batch_analysis = (companies_count or persons_count) and (
         not entity_samples or any(not item.get("gemini_analyzed") for item in entity_samples)
     )
-    tools_used = memory_summary.get("tools_used") or []
-    used_tool_names = {item.get("tool") for item in tools_used if item.get("tool")}
+    tools_used = memory_summary.get("all_tools_used") or memory_summary.get("tools_used") or []
+    remaining_searches = [
+        item for item in plan.get("searches", [])
+        if not any(
+            history.get("tool") == item.get("tool")
+            and history.get("query") == item.get("query")
+            and int(history.get("page") or 1) == int(item.get("page") or 1)
+            for history in tools_used
+        )
+    ]
+    target_total = int(plan.get("target_total") or 50)
 
-    if needs_batch_analysis:
+    if needs_batch_analysis and (total_count >= target_total or (not pending_urls and not remaining_searches)):
         return {
             "decision": "analyze_entities",
             "tool": "",
@@ -743,7 +903,7 @@ def local_decision_from_memory(memory_summary: dict, error: str | None = None) -
             "fallback_local": bool(error),
         }
 
-    if valid_count > 0:
+    if valid_count >= target_total or (valid_count > 0 and not pending_urls and not remaining_searches):
         return {
             "decision": "import_crm",
             "tool": "crm_importer",
@@ -755,7 +915,7 @@ def local_decision_from_memory(memory_summary: dict, error: str | None = None) -
             "fallback_local": bool(error),
         }
 
-    if pending_urls:
+    if pending_urls and (len(pending_urls) >= 3 or not remaining_searches):
         return {
             "decision": "crawl_urls",
             "tool": "playwright_profile_scraper",
@@ -767,26 +927,20 @@ def local_decision_from_memory(memory_summary: dict, error: str | None = None) -
             "fallback_local": bool(error),
         }
 
-    source_to_tool = {
-        "maps": "maps_search",
-        "linkedin": "serper_linkedin",
-        "facebook": "serper_facebook",
-        "instagram": "serper_instagram",
-        "general": "serper_general",
-    }
-    for source in intent.get("sources") or ["general"]:
-        tool = source_to_tool.get(source, "serper_general")
-        if tool not in used_tool_names:
-            return {
-                "decision": "use_tool",
-                "tool": tool,
-                "query": local_search_query(intent),
-                "target_urls": [],
-                "reason": "Fallback local: lancer la prochaine source de recherche.",
-                "confidence": 0.65,
-                "gemini_error": error,
-                "fallback_local": bool(error),
-            }
+    if remaining_searches:
+        item = remaining_searches[0]
+        tool = item.get("tool") or SOURCE_TO_TOOL.get(item.get("source"), "serper_general")
+        page = int(item.get("page") or 1)
+        return {
+            "decision": "use_tool",
+            "tool": tool,
+            "query": {"q": item.get("query") or local_search_query(intent), "page": page},
+            "target_urls": [],
+            "reason": f"Fallback local: recherche {item.get('source')} page {page}.",
+            "confidence": 0.65,
+            "gemini_error": error,
+            "fallback_local": bool(error),
+        }
 
     return {
         "decision": "import_crm" if valid_count else "analyze_entities",

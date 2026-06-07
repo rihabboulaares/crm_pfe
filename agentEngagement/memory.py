@@ -6,11 +6,13 @@ logger = logging.getLogger("agentEngagement.memory")
 
 BLOCKING_STATUSES = {
     "message_ready",
+    "pending_validation",
     "message_sent",
     "sending",
     "replied",
     "follow_up_required",
     "closed",
+    "rejected",
     "task_created",
     "contacted",
     "waiting_reply",
@@ -45,7 +47,7 @@ def set_status(prospect, status: str, error: str = None, channel: str = None):
 def save_prepared_message(prospect, result):
     prospect.generated_message = result.message or result.call_script or ""
     prospect.last_engagement_channel = result.best_channel
-    prospect.engagement_status = "message_ready"
+    prospect.engagement_status = "pending_validation"
     prospect.last_engagement_at = timezone.now()
 
     fields = [

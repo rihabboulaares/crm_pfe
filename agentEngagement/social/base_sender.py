@@ -53,7 +53,7 @@ def safe_click(page, selectors, timeout_ms=2000):
     return None
 
 
-def launch_context(platform: str, user_id: int, headless: bool = False, viewport=None, slow_mo=300):
+def launch_context(platform: str, user_id: int, headless: bool = True, viewport=None, slow_mo=300):
     playwright = sync_playwright().start()
     context = playwright.chromium.launch_persistent_context(
         user_data_dir=str(get_profile_dir(platform, user_id)),

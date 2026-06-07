@@ -248,7 +248,7 @@ def is_valid_lead(
     sector_match = industry_matches(lead, intent) if sector_match is None else sector_match
     location_match = location_matches(lead, intent) if location_match is None else location_match
 
-    if not has_source or not location_match:
+    if not has_source:
         return False
 
     lead_types = intent_lead_types(intent)
@@ -260,7 +260,7 @@ def is_valid_lead(
     if "company" in lead_types or lead_type == "company":
         return sector_match or role_match
 
-    return has_source and location_match and (role_match or sector_match)
+    return has_source and (role_match or sector_match)
 
 
 def classify_lead_type(lead: dict) -> str:

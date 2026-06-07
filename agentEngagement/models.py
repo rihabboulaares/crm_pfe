@@ -7,6 +7,8 @@ class EngagementLog(models.Model):
         ("message_updated", "Message updated"),
         ("message_sent", "Message sent"),
         ("send_error", "Send error"),
+        ("message_rejected", "Message rejected"),
+        ("agent_launched", "Agent launched"),
         ("replied", "Replied"),
         ("follow_up_created", "Follow-up created"),
         ("campaign_created", "Campaign created"),

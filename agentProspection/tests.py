@@ -154,7 +154,7 @@ class ScrapeQualityTests(SimpleTestCase):
         self.assertFalse(data["scraping_debug"]["scraping_success"])
         self.assertTrue(data["requires_login"])
         self.assertTrue(data["scrape_blocked"])
-        self.assertEqual(data["scraping_debug"]["step"], "manual_login_required")
+        self.assertEqual(data["scraping_debug"]["step"], "login_required")
 
     def test_social_session_manager_checks_login_once_per_platform(self):
         class FakePage:

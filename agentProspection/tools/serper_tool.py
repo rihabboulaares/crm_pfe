@@ -168,13 +168,18 @@ def normalize_result(item: dict, platform: str) -> dict:
 class SerperTool(BaseTool):
     name = "serper"
 
-    async def run(self, query: str, platform: str = "general") -> list[dict]:
+    async def run(self, query: str | dict, platform: str = "general") -> list[dict]:
         api_key = os.getenv("SERPER_API_KEY")
 
         if not api_key:
             return []
 
         platform = platform if platform in SITE_FILTERS else "general"
+        page = 1
+        if isinstance(query, dict):
+            page = max(1, int(query.get("page") or 1))
+            query = query.get("q") or query.get("query") or ""
+
         search_query = build_search_query(query, platform)
 
         headers = {
@@ -187,6 +192,7 @@ class SerperTool(BaseTool):
             "gl": "tn",
             "hl": "fr",
             "num": 10,
+            "page": page,
         }
 
         try:

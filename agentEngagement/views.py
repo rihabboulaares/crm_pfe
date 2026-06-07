@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.conf import settings
 from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework import status
@@ -17,14 +18,19 @@ from sales.engagement_tasks import (
 )
 
 from .models import EngagementCampaign, EngagementLog
-from .runner import enrich_prospect_with_social_analysis, prepare_engagement
+from .runner import enrich_prospect_with_social_analysis, launch_engagement_agent, prepare_engagement
 from .sender import EngagementSender
-from .social.session_manager import ensure_platform_session, open_facebook_login_session
+from .social.session_manager import (
+    check_social_session,
+    open_social_login_window,
+    reset_social_session,
+)
 
 
 ENGAGEMENT_STATUSES = [
     "new",
     "preparing",
+    "pending_validation",
     "message_ready",
     "sending",
     "message_sent",
@@ -32,6 +38,7 @@ ENGAGEMENT_STATUSES = [
     "replied",
     "follow_up_required",
     "closed",
+    "rejected",
 ]
 
 CHANNELS = {"linkedin", "email", "facebook", "instagram"}
@@ -45,6 +52,7 @@ def normalize_status(status_value):
         "contacted": "message_sent",
         "waiting_reply": "message_sent",
         "task_created": "follow_up_required",
+        "message_ready": "pending_validation",
     }
     return legacy_map.get(status_value, status_value or "new")
 
@@ -119,6 +127,16 @@ def validate_channel_for_prospect(prospect, channel):
     return channel, None
 
 
+def request_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 class EngagementDashboardView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -133,7 +151,9 @@ class EngagementDashboardView(APIView):
             {
                 "new": counts.get("new", 0),
                 "to_prepare": counts.get("new", 0) + counts.get("preparing", 0),
-                "message_ready": counts.get("message_ready", 0),
+                "pending_validation": counts.get("pending_validation", 0) + counts.get("message_ready", 0),
+                "message_ready": counts.get("pending_validation", 0) + counts.get("message_ready", 0),
+                "to_validate": counts.get("pending_validation", 0) + counts.get("message_ready", 0),
                 "message_sent": counts.get("message_sent", 0),
                 "replied": counts.get("replied", 0),
                 "errors": counts.get("message_failed", 0),
@@ -154,6 +174,8 @@ class EngagementProspectsView(APIView):
 
         if status_filter and status_filter != "all":
             legacy_statuses = {
+                "pending_validation": ["pending_validation", "message_ready"],
+                "message_ready": ["pending_validation", "message_ready"],
                 "message_failed": ["message_failed", "failed"],
                 "message_sent": ["message_sent", "contacted", "waiting_reply"],
                 "preparing": ["preparing", "analyzing", "qualified"],
@@ -189,15 +211,15 @@ class PrepareEngagementView(APIView):
         prospect.last_engagement_at = timezone.now()
         prospect.save(update_fields=["engagement_status", "engagement_error", "last_engagement_at"])
 
-        result = prepare_engagement(prospect=prospect, user=request.user, scrape=bool(request.data.get("scrape", True)))
+        result = prepare_engagement(prospect=prospect, user=request.user, scrape=request_bool(request.data.get("scrape"), True))
         prospect.refresh_from_db()
 
-        if result.get("success") and normalize_status(prospect.engagement_status) == "message_ready":
+        if result.get("success") and normalize_status(prospect.engagement_status) == "pending_validation":
             log = create_log(
                 prospect,
                 request.user,
                 "message_generated",
-                "message_ready",
+                "pending_validation",
                 prospect.last_engagement_channel,
                 prospect.generated_message,
             )
@@ -210,15 +232,15 @@ class PrepareEngagementView(APIView):
             )
             notify(
                 request.user,
-                f"Message pret pour {prospect.first_name} {prospect.last_name}",
-                "Un message IA est pret a etre relu.",
+                f"Message pret a valider pour {prospect.first_name} {prospect.last_name}",
+                "Un message IA est pret a etre valide.",
                 "success",
                 prospect,
             )
             return Response(
                 {
                     "success": True,
-                    "status": "message_ready",
+                    "status": "pending_validation",
                     "message": prospect.generated_message or "",
                     "channel": prospect.last_engagement_channel,
                     "prospect": serialize_prospect(prospect, request),
@@ -260,6 +282,96 @@ class PrepareEngagementView(APIView):
         return Response(result)
 
 
+class LaunchEngagementAgentView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        limit = int(request.data.get("limit") or getattr(settings, "ENGAGEMENT_AGENT_BATCH_LIMIT", 25))
+        scrape = request_bool(request.data.get("scrape"), True)
+        auto_send = request_bool(request.data.get("auto_send"), False)
+
+        if auto_send:
+            allow_auto_send = getattr(settings, "ENGAGEMENT_AGENT_AUTO_SEND_ENABLED", False)
+            if not allow_auto_send:
+                return Response(
+                    {
+                        "success": False,
+                        "error": "L'envoi automatique est desactive. Activez ENGAGEMENT_AGENT_AUTO_SEND_ENABLED pour l'utiliser.",
+                    },
+                    status=400,
+                )
+
+        candidate_qs = prospect_queryset(request.user).filter(
+            Q(engagement_status__isnull=True)
+            | Q(engagement_status="")
+            | Q(engagement_status="new")
+            | Q(engagement_status="message_failed")
+        )
+        required = set()
+        for prospect in candidate_qs[: min(limit, 500)]:
+            if prospect.linkedin_url:
+                required.add("linkedin")
+            if prospect.facebook_url:
+                required.add("facebook")
+            if prospect.instagram_url:
+                required.add("instagram")
+
+        sessions = {}
+        missing = []
+        for platform in sorted(required):
+            session_result = check_social_session(request.user.id, platform)
+            sessions[platform] = session_result
+            if not session_result.get("success"):
+                missing.append(platform)
+
+        if missing:
+            return Response(
+                {
+                    "success": False,
+                    "status": "social_login_required",
+                    "missing": missing,
+                    "sessions": sessions,
+                    "message": "Connectez les reseaux sociaux requis avant de lancer l'agent.",
+                },
+                status=400,
+            )
+
+        first_prospect = prospect_queryset(request.user).first()
+        if first_prospect:
+            create_log(
+                first_prospect,
+                request.user,
+                "agent_launched",
+                "queued",
+                message=f"limit={limit}; scrape={scrape}; auto_send={auto_send}",
+            )
+
+        try:
+            from .tasks import launch_engagement_agent_task
+        except Exception:
+            launch_engagement_agent_task = None
+
+        if launch_engagement_agent_task is not None:
+            task = launch_engagement_agent_task.delay(
+                request.user.company_id,
+                request.user.id,
+                limit,
+                scrape,
+                auto_send,
+            )
+            return Response({"success": True, "status": "queued", "task_id": task.id})
+
+        result = launch_engagement_agent(
+            company=request.user.company,
+            user=request.user,
+            limit=limit,
+            scrape=scrape,
+            auto_send=auto_send,
+        )
+
+        return Response(result)
+
+
 class ProspectMessageView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -275,10 +387,19 @@ class ProspectMessageView(APIView):
             return Response({"success": False, "error": "Message vide interdit."}, status=400)
         if channel_error:
             return Response({"success": False, "error": channel_error}, status=400)
+        if prospect.engagement_status not in {"pending_validation", "message_ready", "task_created", "sending"}:
+            return Response(
+                {
+                    "success": False,
+                    "status": "message_not_ready",
+                    "engagement_status": normalize_status(prospect.engagement_status),
+                },
+                status=400,
+            )
 
         prospect.generated_message = message
         prospect.last_engagement_channel = channel
-        prospect.engagement_status = "message_ready"
+        prospect.engagement_status = "pending_validation"
         prospect.engagement_error = None
         prospect.last_engagement_at = timezone.now()
         prospect.save(
@@ -290,9 +411,43 @@ class ProspectMessageView(APIView):
                 "last_engagement_at",
             ]
         )
-        log = create_log(prospect, request.user, "message_updated", "message_ready", channel, message)
+        log = create_log(prospect, request.user, "message_updated", "pending_validation", channel, message)
         mark_channel_task_ready(prospect, channel, message, user=request.user, engagement_log=log)
-        return Response({"success": True, "status": "message_ready", "prospect": serialize_prospect(prospect, request)})
+        return Response({"success": True, "status": "pending_validation", "prospect": serialize_prospect(prospect, request)})
+
+
+class RejectPreparedEngagementView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, prospect_id):
+        try:
+            prospect = get_prospect_or_404(request.user, prospect_id)
+        except Prospect.DoesNotExist:
+            return Response({"success": False, "error": "Prospect introuvable"}, status=404)
+
+        reason = request.data.get("reason") or "Message refuse par le commercial."
+        prospect.engagement_status = "rejected"
+        prospect.engagement_error = reason
+        prospect.last_engagement_at = timezone.now()
+        prospect.save(update_fields=["engagement_status", "engagement_error", "last_engagement_at"])
+
+        create_log(
+            prospect,
+            request.user,
+            "message_rejected",
+            "rejected",
+            prospect.last_engagement_channel,
+            prospect.generated_message,
+            error=reason,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "status": "rejected",
+                "prospect": serialize_prospect(prospect, request),
+            }
+        )
 
 
 class SendPreparedEngagementView(APIView):
@@ -317,7 +472,7 @@ class SendPreparedEngagementView(APIView):
 
         prospect.generated_message = message
         prospect.last_engagement_channel = channel
-        prospect.engagement_status = "sending" if send else "message_ready"
+        prospect.engagement_status = "sending" if send else "pending_validation"
         prospect.last_engagement_at = timezone.now()
         prospect.save(update_fields=["generated_message", "last_engagement_channel", "engagement_status", "last_engagement_at"])
 
@@ -332,12 +487,14 @@ class SendPreparedEngagementView(APIView):
             return Response({"success": True, "status": "message_sent", "sent": True, "prospect": serialize_prospect(prospect, request)})
 
         if result.get("test_mode"):
-            log = create_log(prospect, request.user, "message_updated", "message_ready", channel, message)
+            prospect.engagement_status = "pending_validation"
+            prospect.save(update_fields=["engagement_status"])
+            log = create_log(prospect, request.user, "message_updated", "pending_validation", channel, message)
             mark_channel_task_ready(prospect, channel, message, user=request.user, engagement_log=log)
-            return Response({"success": True, "status": "message_ready", "sent": False, "test_mode": True, "prospect": serialize_prospect(prospect, request)})
+            return Response({"success": True, "status": "pending_validation", "sent": False, "test_mode": True, "prospect": serialize_prospect(prospect, request)})
 
         if result.get("status") in {"linkedin_login_required", "login_required", "checkpoint_required"}:
-            prospect.engagement_status = "message_ready"
+            prospect.engagement_status = "pending_validation"
             prospect.engagement_error = result.get("message")
             prospect.save(update_fields=["engagement_status", "engagement_error"])
             return Response({**result, "prospect": serialize_prospect(prospect, request)})
@@ -480,20 +637,19 @@ class SocialLoginView(APIView):
 
     def post(self, request):
         platform = (request.data.get("platform") or "").strip().lower()
-        if platform == "facebook":
-            return Response(open_facebook_login_session())
 
-        result = ensure_platform_session(request.user.id, platform)
-        if result.get("status") == "login_required":
-            result["message"] = "Une fenetre vient de s'ouvrir. Connectez-vous puis cliquez sur Verifier la session."
+        if platform not in {"linkedin", "facebook", "instagram"}:
+            return Response(
+                {
+                    "success": False,
+                    "status": "unsupported_platform",
+                    "message": "Plateforme non supportee.",
+                },
+                status=400,
+            )
+
+        result = open_social_login_window(request.user.id, platform)
         return Response(result)
-
-
-class FacebookOpenSessionView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        return Response(open_facebook_login_session())
 
 
 class SocialSessionCheckView(APIView):
@@ -501,5 +657,36 @@ class SocialSessionCheckView(APIView):
 
     def get(self, request):
         platform = (request.query_params.get("platform") or "").strip().lower()
-        result = ensure_platform_session(request.user.id, platform)
+
+        if platform not in {"linkedin", "facebook", "instagram"}:
+            return Response(
+                {
+                    "success": False,
+                    "status": "unsupported_platform",
+                    "message": "Plateforme non supportee.",
+                },
+                status=400,
+            )
+
+        result = check_social_session(request.user.id, platform)
+        return Response(result)
+
+
+class SocialSessionResetView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        platform = (request.data.get("platform") or "").strip().lower()
+
+        if platform not in {"linkedin", "facebook", "instagram"}:
+            return Response(
+                {
+                    "success": False,
+                    "status": "unsupported_platform",
+                    "message": "Plateforme non supportee.",
+                },
+                status=400,
+            )
+
+        result = reset_social_session(request.user.id, platform)
         return Response(result)

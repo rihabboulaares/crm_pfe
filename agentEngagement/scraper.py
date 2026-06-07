@@ -6,14 +6,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 
 from .social.session_manager import (
     ensure_platform_session,
-    ensure_linkedin_session,
     get_profile_dir,
-    get_social_profile_dir,
-    linkedin_login_required_response,
-)
-from .social.manual_login import (
-    instagram_login_required,
-    wait_manual_login,
 )
 
 logger = logging.getLogger("agentEngagement.scraper")
@@ -152,11 +145,13 @@ class EngagementScraper:
         if not user_id:
             return {"error": "missing_user_id", "platform": "linkedin", "url": url}
 
-        if not ensure_linkedin_session(user_id):
+        session_result = ensure_platform_session(user_id=user_id, platform="linkedin")
+        if not session_result.get("success"):
             return {
-                **linkedin_login_required_response(),
-                "error": "linkedin_login_required",
+                **session_result,
+                "error": session_result.get("status") or "login_required",
                 "platform": "linkedin",
+                "data": {},
                 "url": url,
             }
 
@@ -165,7 +160,7 @@ class EngagementScraper:
         with sync_playwright() as p:
             context = p.chromium.launch_persistent_context(
                 user_data_dir=str(profile_dir),
-                headless=False,
+                headless=True,
                 slow_mo=300,
                 viewport={"width": 1400, "height": 900},
                 args=[
@@ -182,8 +177,8 @@ class EngagementScraper:
 
                 if self._linkedin_login_required(page):
                     return {
-                        "error": "linkedin_login_required",
-                        "status": "linkedin_login_required",
+                        "error": "login_required",
+                        "status": "login_required",
                         "success": False,
                         "platform": "linkedin",
                         "message": "Veuillez vous connecter à LinkedIn dans la fenêtre ouverte puis relancer l’action.",
@@ -197,8 +192,8 @@ class EngagementScraper:
 
                 if self._linkedin_login_text(body):
                     return {
-                        "error": "linkedin_login_required",
-                        "status": "linkedin_login_required",
+                        "error": "login_required",
+                        "status": "login_required",
                         "success": False,
                         "platform": "linkedin",
                         "message": "Veuillez vous connecter à LinkedIn dans la fenêtre ouverte puis relancer l’action.",
@@ -340,13 +335,13 @@ class EngagementScraper:
             message = session_result.get("message") or FACEBOOK_LOGIN_MESSAGE
             return _facebook_session_required_response(url, status=status, message=message)
 
-        profile_dir = get_social_profile_dir("facebook", user_id)
+        profile_dir = get_profile_dir("facebook", user_id)
         playwright = sync_playwright().start()
 
         try:
             context = playwright.chromium.launch_persistent_context(
                 user_data_dir=str(profile_dir),
-                headless=False,
+                headless=True,
                 slow_mo=80,
                 viewport={"width": 1366, "height": 900},
                 args=[
@@ -504,14 +499,13 @@ class EngagementScraper:
         if not session_result.get("success"):
             return {**session_result, "data": {}, "platform": "instagram", "url": url}
 
-        profile_dir = get_social_profile_dir("instagram", user_id)
-        keep_context_open = False
+        profile_dir = get_profile_dir("instagram", user_id)
         playwright = sync_playwright().start()
 
         try:
             context = playwright.chromium.launch_persistent_context(
                 user_data_dir=str(profile_dir),
-                headless=False,
+                headless=True,
                 slow_mo=80,
                 viewport={"width": 1366, "height": 900},
                 args=[
@@ -526,17 +520,13 @@ class EngagementScraper:
                 page.goto(url, wait_until="domcontentloaded", timeout=60000)
                 logger.info("[scraper][instagram] profile opened")
 
-                if instagram_login_required(page):
-                    ok = wait_manual_login(page, "instagram")
-
-                    if not ok:
-                        keep_context_open = True
-                        return {
+                if self._instagram_login_required(page):
+                    return {
                         "success": False,
-                        "status": "instagram_login_required",
+                        "status": "login_required",
                         "error": "login_required",
                         "platform": "instagram",
-                        "message": "Connexion Instagram ou vérification requise.",
+                        "message": "Connexion Instagram requise. Cliquez sur Connecter puis terminez la connexion.",
                         "data": {},
                         "url": url,
                     }
@@ -547,42 +537,27 @@ class EngagementScraper:
 
                 current_url = page.url.lower()
                 if "accounts/login" in current_url or "challenge" in current_url:
-                    ok = wait_manual_login(page, "instagram")
-
-                    if not ok:
-                        keep_context_open = True
-                        return {
+                    return {
                         "success": False,
-                        "status": "instagram_login_required",
+                        "status": "checkpoint_required" if "challenge" in current_url else "login_required",
                         "platform": "instagram",
-                        "message": "Instagram demande une connexion ou une vérification.",
+                        "message": "Instagram demande une connexion ou une verification. Utilisez Connecter puis Verifier.",
                         "data": {},
-                            "url": url,
-                        }
-
-                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                    page.wait_for_timeout(8000)
+                        "url": url,
+                    }
 
                 body = self._safe_body_text(page)
 
                 if self._instagram_login_text(body):
-                    ok = wait_manual_login(page, "instagram")
-
-                    if not ok:
-                        keep_context_open = True
-                        return {
+                    return {
                         "success": False,
-                        "status": "instagram_login_required",
+                        "status": "login_required",
                         "error": "login_required",
                         "platform": "instagram",
-                        "message": "Instagram demande une connexion ou une vérification.",
+                        "message": "Connexion Instagram requise. Cliquez sur Connecter puis terminez la connexion.",
                         "data": {},
-                            "url": url,
-                        }
-
-                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                    page.wait_for_timeout(8000)
-                    body = self._safe_body_text(page)
+                        "url": url,
+                    }
 
                 data = {
                     "profile_url": url,
@@ -651,11 +626,9 @@ class EngagementScraper:
                 }
 
             finally:
-                if not keep_context_open:
-                    context.close()
+                context.close()
         finally:
-            if not keep_context_open:
-                playwright.stop()
+            playwright.stop()
 
     def _instagram_login_required(self, page) -> bool:
         url = page.url.lower()
@@ -918,3 +891,4 @@ class EngagementScraper:
             return page.inner_text("body", timeout=10000)
         except Exception:
             return ""
+

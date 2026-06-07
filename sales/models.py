@@ -107,6 +107,7 @@ class Prospect(models.Model):
     ENGAGEMENT_STATUS_CHOICES = [
         ("new", "New"),
         ("preparing", "Preparing"),
+        ("pending_validation", "Pending Validation"),
         ("message_ready", "Message Ready"),
         ("sending", "Sending"),
         ("message_sent", "Message Sent"),
@@ -114,6 +115,7 @@ class Prospect(models.Model):
         ("replied", "Replied"),
         ("follow_up_required", "Follow-up Required"),
         ("closed", "Closed"),
+        ("rejected", "Rejected"),
         # Legacy agent statuses kept readable for existing rows.
         ("queued", "Queued"),
         ("analyzing", "Analyzing"),
