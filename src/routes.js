@@ -126,7 +126,7 @@ const routes = [
     component: <PipelineAdmin />,
   },
   {
-    type: "collapse",
+    type: "route",
     name: "Profile",
     key: "profile",
     icon: <Icon fontSize="small">person</Icon>,
@@ -143,7 +143,7 @@ const routes = [
   },
 
   {
-    type: "collapse",
+    type: "route",
     name: "Agent Prospection",
     key: "prospect-search",
     icon: <Icon fontSize="small">travel_explore</Icon>,

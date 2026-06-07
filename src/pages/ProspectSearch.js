@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import PropTypes from "prop-types";
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
+import SocialConnectionBox, { isSessionReady } from "../components/social/SocialConnectionBox";
 import { importProspectionResult, searchProspectsAgent } from "../services/prospectAgentApi";
 
 // Google Maps API Key (depuis .env)
@@ -949,15 +950,15 @@ function ResultsBlock({ result, onImport, imported }) {
   };
   const hasTechnicalDetails = Object.values(technicalDetails).some((items) => items.length > 0);
   const loginRequired = Boolean(
-    result?.logs?.some((item) => item.step === "manual_login_required") ||
+    result?.logs?.some((item) => item.step === "login_required") ||
       result?.scrape_debug_events?.some((item) => item.requires_login) ||
-      result?.errors?.some((item) => item.step === "manual_login_required")
+      result?.errors?.some((item) => item.step === "login_required")
   );
   const loginPlatforms = [
     ...new Set(
       [
         ...(result?.logs || [])
-          .filter((item) => item.step === "manual_login_required")
+          .filter((item) => item.step === "login_required")
           .map((item) => item.platform),
         ...(result?.scrape_debug_events || [])
           .filter((item) => item.requires_login)
@@ -1020,9 +1021,8 @@ function ResultsBlock({ result, onImport, imported }) {
             borderRadius: 10,
           }}
         >
-          Connexion {loginPlatforms.join(", ") || "reseau social"} requise. Une fenetre navigateur
-          s&apos;est ouverte : connectez-vous une seule fois, puis l&apos;agent continuera
-          automatiquement.
+          Connexion {loginPlatforms.join(", ") || "reseau social"} requise. Utilisez le panneau
+          Connexions sociales pour ouvrir la fenetre de connexion, puis cliquez sur Verifier session.
         </div>
       )}
 
@@ -1265,6 +1265,7 @@ export default function ProspectAgent() {
   const [toast, setToast] = useState(null);
   const [sessionCount, setSessionCount] = useState(0);
   const [lastResult, setLastResult] = useState(null);
+  const [socialSessions, setSocialSessions] = useState({});
 
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -1293,11 +1294,39 @@ export default function ProspectAgent() {
     clearInterval(thinkTimerRef.current);
   }, []);
 
+  const requiredSocialPlatforms = useMemo(() => {
+    const query = input.toLowerCase();
+    const required = [];
+    if (query.includes("linkedin")) required.push("linkedin");
+    if (query.includes("facebook")) required.push("facebook");
+    if (query.includes("instagram")) required.push("instagram");
+    return required.length ? required : ["linkedin"];
+  }, [input]);
+
+  const missingRequiredPlatforms = useCallback(
+    (queryText) => {
+      const query = (queryText || input).toLowerCase();
+      const required = [];
+      if (query.includes("linkedin")) required.push("linkedin");
+      if (query.includes("facebook")) required.push("facebook");
+      if (query.includes("instagram")) required.push("instagram");
+      const platforms = required.length ? required : ["linkedin"];
+      return platforms.filter((platform) => !isSessionReady(socialSessions?.[platform]));
+    },
+    [input, socialSessions]
+  );
+
   // Envoi d'une requête
   const handleSend = useCallback(
     async (queryText) => {
       const text = (queryText || input).trim();
       if (!text || loading) return;
+
+      const missing = missingRequiredPlatforms(text);
+      if (missing.length > 0) {
+        notify(`Connectez d'abord : ${missing.join(", ")}`, "error");
+        return;
+      }
 
       setInput("");
 
@@ -1351,7 +1380,7 @@ export default function ProspectAgent() {
         setLoading(false);
       }
     },
-    [input, loading, startThinking, stopThinking, notify]
+    [input, loading, missingRequiredPlatforms, startThinking, stopThinking, notify]
   );
 
   const handleKeyDown = useCallback(
@@ -1408,6 +1437,31 @@ export default function ProspectAgent() {
                 <button className="pa-clear-btn" onClick={handleClear}>
                   ✨ Nouvelle conversation
                 </button>
+              )}
+            </div>
+
+            <div style={{ padding: "16px 24px", background: T.white, borderBottom: `1px solid ${T.border}` }}>
+              <SocialConnectionBox
+                title="Connexions requises pour l'agent de prospection"
+                requiredPlatforms={requiredSocialPlatforms}
+                compact
+                onStatusChange={setSocialSessions}
+              />
+              {missingRequiredPlatforms().length > 0 && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    border: "1px solid #FDE68A",
+                    background: "#FFFBEB",
+                    color: "#92400E",
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                    fontSize: 13,
+                  }}
+                >
+                  Connectez les plateformes suivantes avant de lancer l&apos;agent :{" "}
+                  {missingRequiredPlatforms().join(", ")}
+                </div>
               )}
             </div>
 

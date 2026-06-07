@@ -114,6 +114,7 @@ import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 import { useTrackActivity } from "../superadmin/Marketingwidgets";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import PaginationBar from "../../components/PaginationBar";
+import SocialConnectionBox, { isSessionReady } from "../../components/social/SocialConnectionBox";
 import { runProspectionAgent } from "../../services/prospectAgentApi";
 
 const SOURCE_CONFIG = {
@@ -3460,6 +3461,7 @@ export default function Prospects() {
   const [agentResult, setAgentResult] = useState(null);
   const [agentError, setAgentError] = useState("");
   const [agentOpen, setAgentOpen] = useState(false);
+  const [socialSessions, setSocialSessions] = useState({});
 
   const [showForm, setShowForm] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -3594,15 +3596,15 @@ export default function Prospects() {
 
   // ── Stats ──
   const loginRequired = Boolean(
-    agentResult?.logs?.some((item) => item.step === "manual_login_required") ||
+    agentResult?.logs?.some((item) => item.step === "login_required") ||
       agentResult?.scrape_debug_events?.some((item) => item.requires_login) ||
-      agentResult?.errors?.some((item) => item.step === "manual_login_required")
+      agentResult?.errors?.some((item) => item.step === "login_required")
   );
   const loginPlatforms = [
     ...new Set(
       [
         ...(agentResult?.logs || [])
-          .filter((item) => item.step === "manual_login_required")
+          .filter((item) => item.step === "login_required")
           .map((item) => item.platform),
         ...(agentResult?.scrape_debug_events || [])
           .filter((item) => item.requires_login)
@@ -3611,10 +3613,33 @@ export default function Prospects() {
     ),
   ];
 
+  const requiredAgentPlatforms = useMemo(() => {
+    const query = agentQuery.toLowerCase();
+    const required = [];
+    if (query.includes("linkedin")) required.push("linkedin");
+    if (query.includes("facebook")) required.push("facebook");
+    if (query.includes("instagram")) required.push("instagram");
+    return required.length ? required : ["linkedin"];
+  }, [agentQuery]);
+
+  const missingRequiredAgentPlatforms = useMemo(
+    () => requiredAgentPlatforms.filter((platform) => !isSessionReady(socialSessions?.[platform])),
+    [requiredAgentPlatforms, socialSessions]
+  );
+
+  const canLaunchProspecting = missingRequiredAgentPlatforms.length === 0;
+
   const runAgentFromProspects = async () => {
     const query = agentQuery.trim();
     if (!query) {
       setAgentError("Veuillez saisir une requete");
+      return;
+    }
+
+    if (!canLaunchProspecting) {
+      const messageText = `Connectez d'abord : ${missingRequiredAgentPlatforms.join(", ")}`;
+      setAgentError(messageText);
+      showSnackbar(messageText, "warning");
       return;
     }
 
@@ -4060,6 +4085,20 @@ export default function Prospects() {
                   </Tooltip>
                 </Box>
 
+                <SocialConnectionBox
+                  title="Connexions sociales pour la prospection"
+                  compact
+                  requiredPlatforms={requiredAgentPlatforms}
+                  onStatusChange={setSocialSessions}
+                />
+
+                {missingRequiredAgentPlatforms.length > 0 && (
+                  <Alert severity="warning">
+                    Connectez les plateformes suivantes avant de lancer l&apos;agent :{" "}
+                    {missingRequiredAgentPlatforms.join(", ")}
+                  </Alert>
+                )}
+
                 <TextField
                   fullWidth
                   multiline
@@ -4076,7 +4115,7 @@ export default function Prospects() {
                       agentLoading ? <CircularProgress size={16} color="inherit" /> : <SendIcon />
                     }
                     onClick={runAgentFromProspects}
-                    disabled={agentLoading}
+                    disabled={agentLoading || !canLaunchProspecting}
                   >
                     {agentLoading ? "Prospection en cours..." : "Lancer l'agent"}
                   </GradientButton>
@@ -4089,9 +4128,9 @@ export default function Prospects() {
 
                 {loginRequired && (
                   <Alert severity="warning">
-                    Connexion {loginPlatforms.join(", ") || "reseau social"} requise. Une fenetre
-                    navigateur s&apos;est ouverte : connectez-vous une seule fois, l&apos;agent
-                    continuera ensuite automatiquement.
+                    Connexion {loginPlatforms.join(", ") || "reseau social"} requise. Utilisez le
+                    panneau Connexions sociales pour ouvrir la fenetre de connexion, puis cliquez
+                    sur Verifier session.
                   </Alert>
                 )}
 

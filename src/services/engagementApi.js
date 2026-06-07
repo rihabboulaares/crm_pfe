@@ -17,6 +17,8 @@ salesApi.interceptors.request.use((config) => {
 
 export const getEngagementDashboard = () => api.get("/dashboard/");
 
+export const launchEngagementAgent = (payload = {}) => api.post("/launch/", payload);
+
 export const getEngagementProspects = (params = {}) => api.get("/prospects/", { params });
 
 export const prepareEngagementMessage = (prospectId) =>
@@ -27,6 +29,9 @@ export const saveEngagementMessage = (prospectId, payload) =>
 
 export const sendEngagementMessage = (prospectId, payload) =>
   api.post(`/prospects/${prospectId}/send/`, payload);
+
+export const rejectEngagementMessage = (prospectId, payload = {}) =>
+  api.post(`/prospects/${prospectId}/reject/`, payload);
 
 export const getEngagementLogs = (prospectId) => api.get(`/prospects/${prospectId}/logs/`);
 
@@ -41,10 +46,10 @@ export const createFollowUpTask = (prospectId, payload = {}) =>
 
 export const startSocialLogin = (platform) => api.post("/social-login/", { platform });
 
-export const openFacebookSession = () => api.post("/facebook/open-session/");
-
 export const checkSocialSession = (platform) =>
   api.get("/social-session/check/", { params: { platform } });
+
+export const resetSocialSession = (platform) => api.post("/social-session/reset/", { platform });
 
 export const getProspectTasks = (prospectId) => salesApi.get(`/prospects/${prospectId}/tasks/`);
 

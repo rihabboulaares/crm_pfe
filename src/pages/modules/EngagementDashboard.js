@@ -58,6 +58,7 @@ import {
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 import MDBox from "components/MDBox";
+import SocialConnectionBox from "../../components/social/SocialConnectionBox";
 import {
   createFollowUpTask,
   completeCrmTask,
@@ -65,9 +66,10 @@ import {
   getEngagementLogs,
   getEngagementProspects,
   getProspectTasks,
+  launchEngagementAgent,
   markEngagementReplied,
-  openFacebookSession,
   prepareEngagementMessage,
+  rejectEngagementMessage,
   saveEngagementMessage,
   sendEngagementMessage,
   startSocialLogin,
@@ -86,6 +88,7 @@ const AGENT_THEME = {
 const STATUS_META = {
   new: { label: "Nouveau", color: "#6b7280" },
   preparing: { label: "Preparation", color: "#d97706" },
+  pending_validation: { label: "A valider", color: "#059669" },
   message_ready: { label: "Message pret", color: "#059669" },
   sending: { label: "Envoi", color: "#2563eb" },
   message_sent: { label: "Envoye", color: "#1e40af" },
@@ -93,11 +96,12 @@ const STATUS_META = {
   replied: { label: "Reponse recue", color: "#7c3aed" },
   follow_up_required: { label: "Relance requise", color: "#ea580c" },
   closed: { label: "Termine", color: "#111827" },
+  rejected: { label: "Refuse", color: "#991b1b" },
 };
 
 const KANBAN = [
   { key: "new", label: "Nouveau" },
-  { key: "message_ready", label: "Message pret" },
+  { key: "pending_validation", label: "A valider" },
   { key: "message_sent", label: "Envoye" },
   { key: "replied", label: "Reponse recue" },
   { key: "follow_up_required", label: "Relance" },
@@ -107,7 +111,7 @@ const KANBAN = [
 const FILTERS = [
   { key: "all", label: "Tous" },
   { key: "new", label: "Nouveau" },
-  { key: "message_ready", label: "Message pret" },
+  { key: "pending_validation", label: "A valider" },
   { key: "message_sent", label: "Envoye" },
   { key: "message_failed", label: "Erreur" },
   { key: "replied", label: "Reponse recue" },
@@ -116,6 +120,8 @@ const FILTERS = [
 const emptyStats = {
   new: 0,
   to_prepare: 0,
+  pending_validation: 0,
+  to_validate: 0,
   message_ready: 0,
   message_sent: 0,
   replied: 0,
@@ -262,6 +268,8 @@ function EngagementDashboard() {
   const [testMode, setTestMode] = useState(true);
   const [toast, setToast] = useState(null);
   const [linkedinModal, setLinkedinModal] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const [, setSocialSessions] = useState({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -343,10 +351,38 @@ function EngagementDashboard() {
     }
   };
 
+  const handleLaunchAgent = async () => {
+    setLaunching(true);
+    try {
+      const res = await launchEngagementAgent({
+        limit: 25,
+        scrape: true,
+        auto_send: false,
+      });
+      const processed = res.data?.processed || 0;
+      const queuedText = res.data?.status === "queued" ? "Agent lance en arriere-plan." : `Agent lance : ${processed} prospects traites.`;
+      setToast({ severity: "success", message: queuedText });
+      const [dashboardRes, prospectsRes] = await Promise.all([
+        getEngagementDashboard(),
+        getEngagementProspects({ status: "pending_validation", search }),
+      ]);
+      setStats(dashboardRes.data || emptyStats);
+      setProspects(prospectsRes.data?.results || []);
+      setFilter("pending_validation");
+    } catch (error) {
+      setToast({
+        severity: "error",
+        message: error.response?.data?.error || "Erreur lors du lancement de l'agent.",
+      });
+    } finally {
+      setLaunching(false);
+    }
+  };
+
   const handleSocialLogin = async (platform) => {
     setBusyAction(`login-${platform}`);
     try {
-      const res = platform === "facebook" ? await openFacebookSession() : await startSocialLogin(platform);
+      const res = await startSocialLogin(platform);
       setToast({
         severity: res.data?.success ? "success" : "info",
         message:
@@ -384,10 +420,15 @@ function EngagementDashboard() {
     }, {});
   }, [prospects]);
 
+  const pendingValidationProspects = useMemo(
+    () => prospects.filter((prospect) => prospect.engagement_status === "pending_validation"),
+    [prospects]
+  );
+
   const statCards = [
     { title: "Nouveaux prospects", value: stats.new, icon: <PendingActions />, color: AGENT_THEME.red },
     { title: "Messages a preparer", value: stats.to_prepare, icon: <AutoFixHigh />, color: AGENT_THEME.red },
-    { title: "Messages prets", value: stats.message_ready, icon: <TaskAlt />, color: AGENT_THEME.red },
+    { title: "Messages a valider", value: stats.to_validate || stats.pending_validation || stats.message_ready, icon: <TaskAlt />, color: AGENT_THEME.red },
     { title: "Messages envoyes", value: stats.message_sent, icon: <Send />, color: AGENT_THEME.red },
     { title: "Reponses recues", value: stats.replied, icon: <MarkEmailRead />, color: AGENT_THEME.red },
     { title: "Erreurs", value: stats.errors, icon: <ErrorOutline />, color: AGENT_THEME.red },
@@ -418,6 +459,15 @@ function EngagementDashboard() {
                 },
               }}
             />
+            <Button
+              startIcon={launching ? <CircularProgress size={16} color="inherit" /> : <AutoFixHigh />}
+              variant="contained"
+              disabled={launching}
+              onClick={handleLaunchAgent}
+              sx={{ bgcolor: AGENT_THEME.red, "&:hover": { bgcolor: AGENT_THEME.redDeep }, textTransform: "none" }}
+            >
+              {launching ? "Agent en cours..." : "Lancer l'agent"}
+            </Button>
             <Tooltip title="Rafraichir">
               <IconButton onClick={load} disabled={loading}>
                 {loading ? <CircularProgress size={20} /> : <Refresh />}
@@ -425,6 +475,15 @@ function EngagementDashboard() {
             </Tooltip>
           </Stack>
         </Stack>
+
+        <Box mb={2}>
+          <SocialConnectionBox
+            title="Connexions sociales pour l'agent d'engagement"
+            compact
+            requiredPlatforms={["linkedin", "facebook", "instagram"]}
+            onStatusChange={setSocialSessions}
+          />
+        </Box>
 
         <Grid container spacing={2} mb={2}>
           {statCards.map((card) => (
@@ -499,6 +558,47 @@ function EngagementDashboard() {
               </Stack>
             </Grid>
           </Grid>
+        </Paper>
+
+        <Paper sx={{ p: 2, mb: 2, borderRadius: 1, border: `1px solid ${AGENT_THEME.redBorder}` }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+            <Typography variant="subtitle1" fontWeight={800}>
+              Messages a valider
+            </Typography>
+            <Chip size="small" label={pendingValidationProspects.length} />
+          </Stack>
+          {pendingValidationProspects.length === 0 ? (
+            <Alert severity="info">Aucun message en attente de validation.</Alert>
+          ) : (
+            <Grid container spacing={1.5}>
+              {pendingValidationProspects.slice(0, 6).map((prospect) => (
+                <Grid item xs={12} md={6} lg={4} key={prospect.id}>
+                  <Card variant="outlined" sx={{ borderRadius: 1, height: "100%" }}>
+                    <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                      <Stack spacing={1}>
+                        <Stack direction="row" justifyContent="space-between" spacing={1}>
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="body2" fontWeight={800} noWrap>
+                              {getFullName(prospect)}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" display="block" noWrap>
+                              {prospect.company_name || prospect.prospect_company_detail?.name || "Societe inconnue"}
+                            </Typography>
+                          </Box>
+                          {statusChip(prospect.engagement_status)}
+                        </Stack>
+                        <FieldLine label="Canal" value={prospect.engagement_channel || prospect.last_engagement_channel} />
+                        <AiTextBlock>{prospect.social_profile_hook || prospect.social_profile_summary}</AiTextBlock>
+                        <Button size="small" onClick={() => openProspect(prospect)} sx={{ color: AGENT_THEME.red, alignSelf: "flex-start" }}>
+                          Ouvrir et valider
+                        </Button>
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          )}
         </Paper>
 
         <Grid container spacing={2} alignItems="stretch" mb={2}>
@@ -893,6 +993,20 @@ function EngagementDashboard() {
                     }
                   >
                     Envoyer maintenant
+                  </Button>
+                  <Button
+                    startIcon={<Close />}
+                    disabled={Boolean(busyAction)}
+                    sx={{ color: AGENT_THEME.red }}
+                    onClick={() =>
+                      runAction(
+                        "reject",
+                        () => rejectEngagementMessage(selected.id, { reason: "Message non pertinent" }),
+                        "Message refuse."
+                      )
+                    }
+                  >
+                    Refuser
                   </Button>
                   <Button
                     startIcon={<MarkEmailRead />}
