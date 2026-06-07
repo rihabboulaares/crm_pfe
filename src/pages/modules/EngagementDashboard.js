@@ -1,5 +1,6 @@
 /* eslint-disable prettier/prettier */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import PropTypes from "prop-types";
 import {
   Alert,
   alpha,
@@ -65,9 +66,13 @@ import {
   getEngagementProspects,
   getProspectTasks,
   markEngagementReplied,
+  openFacebookSession,
   prepareEngagementMessage,
   saveEngagementMessage,
   sendEngagementMessage,
+  startSocialLogin,
+  checkSocialSession,
+  analyzeSocialProfile,
 } from "../../services/engagementApi";
 
 const AGENT_THEME = {
@@ -147,6 +152,100 @@ function channelOptions(prospect) {
   ];
 }
 
+function DetailCard({ title, children }) {
+  return (
+    <Card variant="outlined" sx={{ borderRadius: 1, borderColor: AGENT_THEME.redBorder }}>
+      <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+        <Typography variant="subtitle2" fontWeight={800} mb={1}>
+          {title}
+        </Typography>
+        {children}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AiTextBlock({ children }) {
+  if (!children) return <Typography variant="body2" color="text.secondary">-</Typography>;
+  return (
+    <Box
+      sx={{
+        bgcolor: "#fff",
+        border: "1px solid #fee2e2",
+        borderRadius: 1,
+        p: 1.5,
+        lineHeight: 1.6,
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+        overflowWrap: "anywhere",
+      }}
+    >
+      <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        {children}
+      </Typography>
+    </Box>
+  );
+}
+
+function BadgeList({ items }) {
+  const values = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (!values.length) return <Typography variant="body2" color="text.secondary">-</Typography>;
+  return (
+    <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ rowGap: 1 }}>
+      {values.map((item) => (
+        <Chip key={item} size="small" label={item} sx={{ borderRadius: 1, maxWidth: "100%" }} />
+      ))}
+    </Stack>
+  );
+}
+
+function FieldLine({ label, value }) {
+  return (
+    <Stack direction="row" justifyContent="space-between" spacing={2} sx={{ py: 0.5 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ minWidth: 120 }}>
+        {label}
+      </Typography>
+      <Typography variant="body2" align="right" sx={{ wordBreak: "break-word", whiteSpace: "normal" }}>
+        {value || "-"}
+      </Typography>
+    </Stack>
+  );
+}
+
+DetailCard.propTypes = {
+  title: PropTypes.string.isRequired,
+  children: PropTypes.node,
+};
+
+DetailCard.defaultProps = {
+  children: null,
+};
+
+AiTextBlock.propTypes = {
+  children: PropTypes.node,
+};
+
+AiTextBlock.defaultProps = {
+  children: null,
+};
+
+BadgeList.propTypes = {
+  items: PropTypes.arrayOf(PropTypes.oneOfType([PropTypes.string, PropTypes.number])),
+};
+
+BadgeList.defaultProps = {
+  items: [],
+};
+
+FieldLine.propTypes = {
+  label: PropTypes.string.isRequired,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+};
+
+FieldLine.defaultProps = {
+  value: "",
+};
+
 function EngagementDashboard() {
   const [stats, setStats] = useState(emptyStats);
   const [prospects, setProspects] = useState([]);
@@ -220,11 +319,59 @@ function EngagementDashboard() {
         setLinkedinModal(true);
         return;
       }
+      if (res.data?.success === false) {
+        const updatedProspect = res.data?.prospect || selected;
+        if (res.data?.prospect) {
+          await refreshSelected(updatedProspect);
+        }
+        setToast({
+          severity:
+            res.data?.status === "login_required" || res.data?.status === "checkpoint_required"
+              ? "warning"
+              : "error",
+          message: res.data?.message || res.data?.error || "Action impossible.",
+        });
+        return;
+      }
       const updatedProspect = res.data?.prospect || selected;
       await refreshSelected(updatedProspect);
       setToast({ severity: "success", message: successText });
     } catch (error) {
       setToast({ severity: "error", message: error.response?.data?.error || "Action impossible." });
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleSocialLogin = async (platform) => {
+    setBusyAction(`login-${platform}`);
+    try {
+      const res = platform === "facebook" ? await openFacebookSession() : await startSocialLogin(platform);
+      setToast({
+        severity: res.data?.success ? "success" : "info",
+        message:
+          res.data?.message ||
+          (platform === "facebook"
+            ? "Une fenetre Facebook vient de s'ouvrir. Connectez-vous puis relancez Preparer engagement."
+            : "Une fenetre vient de s'ouvrir. Connectez-vous puis cliquez sur Verifier la session."),
+      });
+    } catch (error) {
+      setToast({ severity: "error", message: error.response?.data?.error || "Connexion sociale impossible." });
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleSocialSessionCheck = async (platform) => {
+    setBusyAction(`check-${platform}`);
+    try {
+      const res = await checkSocialSession(platform);
+      setToast({
+        severity: res.data?.success ? "success" : "warning",
+        message: res.data?.success ? `Session ${platform} active.` : res.data?.message || "Session non connectee.",
+      });
+    } catch (error) {
+      setToast({ severity: "error", message: error.response?.data?.error || "Verification impossible." });
     } finally {
       setBusyAction("");
     }
@@ -419,11 +566,13 @@ function EngagementDashboard() {
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell>Prospect</TableCell>
-                <TableCell>Societe</TableCell>
-                <TableCell>Canal</TableCell>
+                <TableCell>Nom</TableCell>
+                <TableCell>Email</TableCell>
+                <TableCell>Telephone</TableCell>
                 <TableCell>Statut</TableCell>
-                <TableCell>Dernier envoi</TableCell>
+                <TableCell>Source</TableCell>
+                <TableCell>Canal recommande</TableCell>
+                <TableCell>Statut engagement</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -434,17 +583,14 @@ function EngagementDashboard() {
                     <Typography variant="body2" fontWeight={700}>
                       {getFullName(prospect)}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {prospect.email || prospect.linkedin_url || "Contact incomplet"}
-                    </Typography>
                   </TableCell>
-                  <TableCell>{prospect.company_name || prospect.prospect_company_detail?.name || "-"}</TableCell>
-                  <TableCell>{prospect.engagement_channel || "-"}</TableCell>
-                  <TableCell>{statusChip(prospect.engagement_status)}</TableCell>
+                  <TableCell>{prospect.email || "-"}</TableCell>
+                  <TableCell>{prospect.phone || prospect.mobile || "-"}</TableCell>
+                  <TableCell>{prospect.status || "-"}</TableCell>
+                  <TableCell>{prospect.source || prospect.origin || "-"}</TableCell>
+                  <TableCell>{prospect.engagement_channel || prospect.last_engagement_channel || "-"}</TableCell>
                   <TableCell>
-                    {prospect.last_engagement_at
-                      ? new Date(prospect.last_engagement_at).toLocaleString("fr-FR")
-                      : "-"}
+                    {statusChip(prospect.engagement_status)}
                   </TableCell>
                   <TableCell align="right">
                     <Button size="small" onClick={() => openProspect(prospect)} sx={{ color: AGENT_THEME.red }}>
@@ -462,7 +608,17 @@ function EngagementDashboard() {
         anchor="right"
         open={Boolean(selected)}
         onClose={() => setSelected(null)}
-        PaperProps={{ sx: { width: { xs: "100%", md: 560 }, p: 2 } }}
+        PaperProps={{
+          sx: {
+            width: "min(720px, 95vw)",
+            maxWidth: "95vw",
+            p: 2,
+            overflowY: "auto",
+            overflowX: "hidden",
+            wordBreak: "break-word",
+            whiteSpace: "normal",
+          },
+        }}
       >
         {selected && (
           <Stack spacing={2}>
@@ -488,11 +644,105 @@ function EngagementDashboard() {
                 "& .MuiTabs-indicator": { bgcolor: AGENT_THEME.red },
               }}
             >
-              <Tab label="Agent Engagement IA" />
-              <Tab icon={<History />} label="Historique" iconPosition="start" />
+              <Tab label="Informations" />
+              <Tab label="Taches & Appels" />
+              <Tab icon={<History />} label="Activites" iconPosition="start" />
+              <Tab label="Agent IA" />
             </Tabs>
 
             {tab === 0 && (
+              <Stack spacing={2}>
+                <DetailCard title="Presence en ligne">
+                  <Stack spacing={1}>
+                    <FieldLine label="LinkedIn" value={selected.linkedin_url} />
+                    <FieldLine label="Facebook" value={selected.facebook_url} />
+                    <FieldLine label="Instagram" value={selected.instagram_url} />
+                  </Stack>
+                </DetailCard>
+                <DetailCard title="Coordonnees">
+                  <Stack spacing={1}>
+                    <FieldLine label="Email" value={selected.email} />
+                    <FieldLine label="Telephone" value={selected.phone || selected.mobile} />
+                    <FieldLine label="Poste" value={selected.title} />
+                  </Stack>
+                </DetailCard>
+                <DetailCard title="Societe">
+                  <Stack spacing={1}>
+                    <FieldLine label="Nom" value={selected.company_name || selected.prospect_company_detail?.name} />
+                    <FieldLine label="Source" value={selected.source || selected.origin} />
+                    <FieldLine label="URL source" value={selected.source_url} />
+                  </Stack>
+                </DetailCard>
+              </Stack>
+            )}
+
+            {tab === 1 && (
+              <Stack spacing={1}>
+                <Button
+                  startIcon={<TaskAlt />}
+                  sx={{ color: AGENT_THEME.red, alignSelf: "flex-start" }}
+                  onClick={() =>
+                    runAction(
+                      "followup",
+                      () => createFollowUpTask(selected.id, { due_days: 3 }),
+                      "Tache de relance creee."
+                    )
+                  }
+                >
+                  Planifier tache
+                </Button>
+                {tasks.length === 0 && <Alert severity="info">Aucune tache liee a ce prospect.</Alert>}
+                {tasks.map((task) => (
+                  <Paper key={task.id} variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="body2" fontWeight={800} sx={{ wordBreak: "break-word" }}>
+                          {task.title}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {task.task_type} - {task.status}
+                          {task.due_date ? ` - ${new Date(task.due_date).toLocaleDateString("fr-FR")}` : ""}
+                        </Typography>
+                      </Box>
+                      {!["completed", "done", "cancelled"].includes(task.status) && (
+                        <Button
+                          size="small"
+                          sx={{ color: AGENT_THEME.red }}
+                          onClick={() =>
+                            runAction(`task-${task.id}`, () => completeCrmTask(task.id), "Tache terminee.")
+                          }
+                        >
+                          Terminer
+                        </Button>
+                      )}
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+            )}
+
+            {tab === 2 && (
+              <Stack spacing={1}>
+                {logs.length === 0 && <Alert severity="info">Aucun historique pour ce prospect.</Alert>}
+                {logs.map((log) => (
+                  <Paper key={log.id} variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                      <Typography variant="body2" fontWeight={800}>
+                        {log.action}
+                      </Typography>
+                      {statusChip(log.status)}
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary">
+                      {new Date(log.created_at).toLocaleString("fr-FR")} - {log.channel || "canal non defini"}
+                    </Typography>
+                    {log.message && <AiTextBlock>{log.message}</AiTextBlock>}
+                    {log.error && <Alert severity="error" sx={{ mt: 1 }}>{log.error}</Alert>}
+                  </Paper>
+                ))}
+              </Stack>
+            )}
+
+            {tab === 3 && (
               <Stack spacing={2}>
                 <Stack direction="row" spacing={1} flexWrap="wrap">
                   {statusChip(selected.engagement_status)}
@@ -501,6 +751,64 @@ function EngagementDashboard() {
                   <Chip size="small" label={`Facebook: ${selected.facebook_url ? "ok" : "manquant"}`} />
                   <Chip size="small" label={`Instagram: ${selected.instagram_url ? "ok" : "manquant"}`} />
                 </Stack>
+                <DetailCard title="Sessions sociales">
+                  <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ rowGap: 1 }}>
+                    {[
+                      { key: "linkedin", label: "Connecter LinkedIn", icon: <LinkedIn /> },
+                      { key: "facebook", label: "Connecter Facebook", icon: <Facebook /> },
+                      { key: "instagram", label: "Connecter Instagram", icon: <Instagram /> },
+                    ].map((item) => (
+                      <Stack key={item.key} direction="row" spacing={1}>
+                        <Button
+                          size="small"
+                          startIcon={item.icon}
+                          variant="outlined"
+                          disabled={Boolean(busyAction)}
+                          sx={{ color: AGENT_THEME.red, borderColor: AGENT_THEME.redBorder, textTransform: "none" }}
+                          onClick={() => handleSocialLogin(item.key)}
+                        >
+                          {item.label}
+                        </Button>
+                        <Button
+                          size="small"
+                          disabled={Boolean(busyAction)}
+                          sx={{ color: AGENT_THEME.red, textTransform: "none" }}
+                          onClick={() => handleSocialSessionCheck(item.key)}
+                        >
+                          Verifier la session
+                        </Button>
+                      </Stack>
+                    ))}
+                  </Stack>
+                </DetailCard>
+                <DetailCard title="Resume social IA">
+                  <AiTextBlock>{selected.social_profile_summary}</AiTextBlock>
+                </DetailCard>
+                <DetailCard title="Description IA">
+                  <AiTextBlock>{selected.social_profile_description}</AiTextBlock>
+                </DetailCard>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={6}>
+                    <DetailCard title="Interets">
+                      <BadgeList items={selected.social_profile_interests} />
+                    </DetailCard>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <DetailCard title="Sujets recents">
+                      <BadgeList items={selected.social_profile_topics} />
+                    </DetailCard>
+                  </Grid>
+                </Grid>
+                <DetailCard title="Signaux IA">
+                  <Stack spacing={1}>
+                    <FieldLine label="Activite" value={selected.social_profile_activity_level} />
+                    <FieldLine label="Pertinence" value={selected.social_profile_relevance} />
+                    <FieldLine label="Ton" value={selected.social_profile_tone} />
+                  </Stack>
+                </DetailCard>
+                <DetailCard title="Accroche recommandee">
+                  <AiTextBlock>{selected.social_profile_hook}</AiTextBlock>
+                </DetailCard>
                 <FormControl fullWidth size="small">
                   <InputLabel>Canal</InputLabel>
                   <Select label="Canal" value={channel} onChange={(event) => setChannel(event.target.value)}>
@@ -515,7 +823,7 @@ function EngagementDashboard() {
                   </Select>
                 </FormControl>
                 <TextField
-                  label="Dernier message genere"
+                  label="Message prepare"
                   value={message}
                   onChange={(event) => setMessage(event.target.value)}
                   fullWidth
@@ -546,6 +854,16 @@ function EngagementDashboard() {
                     }
                   >
                     Regenerer
+                  </Button>
+                  <Button
+                    startIcon={<Refresh />}
+                    disabled={Boolean(busyAction)}
+                    sx={{ color: AGENT_THEME.red }}
+                    onClick={() =>
+                      runAction("analyze-social", () => analyzeSocialProfile(selected.id), "Analyse sociale relancee.")
+                    }
+                  >
+                    Relancer analyse
                   </Button>
                   <Button
                     startIcon={<Save />}
@@ -647,30 +965,6 @@ function EngagementDashboard() {
               </Stack>
             )}
 
-            {tab === 1 && (
-              <Stack spacing={1}>
-                {logs.length === 0 && <Alert severity="info">Aucun historique pour ce prospect.</Alert>}
-                {logs.map((log) => (
-                  <Paper key={log.id} variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center">
-                      <Typography variant="body2" fontWeight={800}>
-                        {log.action}
-                      </Typography>
-                      {statusChip(log.status)}
-                    </Stack>
-                    <Typography variant="caption" color="text.secondary">
-                      {new Date(log.created_at).toLocaleString("fr-FR")} - {log.channel || "canal non defini"}
-                    </Typography>
-                    {log.message && (
-                      <Typography variant="body2" sx={{ mt: 1, whiteSpace: "pre-wrap" }}>
-                        {log.message}
-                      </Typography>
-                    )}
-                    {log.error && <Alert severity="error" sx={{ mt: 1 }}>{log.error}</Alert>}
-                  </Paper>
-                ))}
-              </Stack>
-            )}
           </Stack>
         )}
       </Drawer>

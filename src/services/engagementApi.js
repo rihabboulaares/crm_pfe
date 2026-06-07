@@ -30,11 +30,21 @@ export const sendEngagementMessage = (prospectId, payload) =>
 
 export const getEngagementLogs = (prospectId) => api.get(`/prospects/${prospectId}/logs/`);
 
+export const analyzeSocialProfile = (prospectId) =>
+  api.post(`/prospects/${prospectId}/analyze-social/`, {});
+
 export const markEngagementReplied = (prospectId) =>
   api.post(`/prospects/${prospectId}/mark-replied/`);
 
 export const createFollowUpTask = (prospectId, payload = {}) =>
   api.post(`/prospects/${prospectId}/create-follow-up-task/`, payload);
+
+export const startSocialLogin = (platform) => api.post("/social-login/", { platform });
+
+export const openFacebookSession = () => api.post("/facebook/open-session/");
+
+export const checkSocialSession = (platform) =>
+  api.get("/social-session/check/", { params: { platform } });
 
 export const getProspectTasks = (prospectId) => salesApi.get(`/prospects/${prospectId}/tasks/`);
 

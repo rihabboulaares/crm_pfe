@@ -348,6 +348,7 @@ const StyledChip = styled(Chip)(({ evaluation }) => ({
 // ==============================
 const STATUS_LABELS = {
   new: "Nouveau",
+  review_needed: "A revoir",
   contacted: "Contacté",
   qualified: "Qualifié",
   lost: "Perdu",
@@ -362,6 +363,7 @@ const ORIGIN_LABELS = {
 };
 const STATUS_COLORS = {
   new: THEME.info,
+  review_needed: THEME.warning,
   contacted: THEME.warning,
   qualified: THEME.success,
   lost: THEME.error,
@@ -408,6 +410,7 @@ const getStatusColor = (s) => STATUS_COLORS[s] || "#9e9e9e";
 const getStatusIcon = (status) =>
   ({
     new: <ScheduleIcon sx={{ fontSize: 16 }} />,
+    review_needed: <ScheduleIcon sx={{ fontSize: 16 }} />,
     contacted: <PhoneIcon sx={{ fontSize: 16 }} />,
     qualified: <CheckCircleIcon sx={{ fontSize: 16 }} />,
     lost: <CancelIcon sx={{ fontSize: 16 }} />,
@@ -590,31 +593,6 @@ const ProspectTableRow = ({
             {linkedCompanyName || "Sans societe"}
           </Typography>
         </Box>
-      </TableCell>
-
-      <TableCell>
-        {prospect.description ? (
-          <Tooltip title={prospect.description}>
-            <Typography
-              variant="caption"
-              sx={{
-                display: "-webkit-box",
-                maxWidth: 220,
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-                color: "text.secondary",
-                lineHeight: 1.35,
-              }}
-            >
-              {prospect.description}
-            </Typography>
-          </Tooltip>
-        ) : (
-          <Typography variant="caption" color="textSecondary">
-            -
-          </Typography>
-        )}
       </TableCell>
 
       {/* Assigné à */}
@@ -1758,7 +1736,7 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
     }
   };
 
-  const tabs = ["Informations", "Tâches & Appels", "Activités"];
+  const tabs = ["Informations", "Tâches & Appels", "Activités", "Agent IA"];
 
   return (
     <Drawer
@@ -1766,7 +1744,16 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
       open={open}
       onClose={onClose}
       PaperProps={{
-        sx: { width: { xs: "100%", sm: 520 }, borderTopLeftRadius: 24, borderBottomLeftRadius: 24 },
+        sx: {
+          width: "min(720px, 95vw)",
+          maxWidth: "95vw",
+          overflowY: "auto",
+          overflowX: "hidden",
+          wordBreak: "break-word",
+          whiteSpace: "normal",
+          borderTopLeftRadius: 24,
+          borderBottomLeftRadius: 24,
+        },
       }}
     >
       <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -2022,7 +2009,13 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
               )}
 
               <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                <Box display="flex" alignItems="center" justifyContent="space-between" gap={1.5} mb={1.5}>
+                <Box
+                  display="flex"
+                  alignItems="center"
+                  justifyContent="space-between"
+                  gap={1.5}
+                  mb={1.5}
+                >
                   <Box display="flex" alignItems="center" gap={1}>
                     <AssessmentIcon sx={{ fontSize: 18, color: THEME.primary }} />
                     <Typography variant="subtitle2" sx={{ color: THEME.primary, fontWeight: 700 }}>
@@ -2060,6 +2053,29 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
                       {socialAnalysis.summary}
                     </Typography>
 
+                    {socialAnalysis.description && (
+                      <Typography
+                        variant="body2"
+                        color="textSecondary"
+                        sx={{ whiteSpace: "pre-wrap" }}
+                      >
+                        {socialAnalysis.description}
+                      </Typography>
+                    )}
+
+                    {socialAnalysis.profile_type && (
+                      <Chip
+                        size="small"
+                        label={socialAnalysis.profile_type}
+                        sx={{
+                          alignSelf: "flex-start",
+                          bgcolor: alpha(THEME.primary, 0.08),
+                          color: THEME.primaryDark,
+                          fontWeight: 600,
+                        }}
+                      />
+                    )}
+
                     {Boolean(socialAnalysis.interests?.length) && (
                       <Box display="flex" gap={0.75} flexWrap="wrap">
                         {socialAnalysis.interests.map((interest) => (
@@ -2073,6 +2089,14 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
                               fontWeight: 600,
                             }}
                           />
+                        ))}
+                      </Box>
+                    )}
+
+                    {Boolean(socialAnalysis.recent_topics?.length) && (
+                      <Box display="flex" gap={0.75} flexWrap="wrap">
+                        {socialAnalysis.recent_topics.map((topic) => (
+                          <Chip key={topic} size="small" label={topic} variant="outlined" />
                         ))}
                       </Box>
                     )}
@@ -2192,6 +2216,134 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
               <ActivityTimeline key={refreshKey} prospect={prospect} />
             </Box>
           )}
+
+          {activeTab === 3 && (
+            <Stack spacing={2} pt={1}>
+              <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5}>
+                  <Typography variant="subtitle2" sx={{ color: THEME.primary, fontWeight: 600 }}>
+                    Resume social IA
+                  </Typography>
+                  <Button
+                    size="small"
+                    onClick={runSocialAnalysis}
+                    disabled={socialAnalysisLoading}
+                    sx={{
+                      textTransform: "none",
+                      borderColor: alpha(THEME.primary, 0.3),
+                      color: THEME.primary,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Relancer analyse
+                  </Button>
+                </Box>
+                {socialAnalysisError && (
+                  <Alert severity="warning" sx={{ mb: 1.5, borderRadius: 2 }}>
+                    {socialAnalysisError}
+                  </Alert>
+                )}
+                <Box
+                  sx={{
+                    bgcolor: "#fff",
+                    border: "1px solid #fee2e2",
+                    borderRadius: 2,
+                    p: 1.5,
+                    lineHeight: 1.6,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  <Typography variant="body2" color="textSecondary" sx={{ whiteSpace: "pre-wrap" }}>
+                    {socialAnalysis?.summary || "Aucune analyse sociale disponible pour ce prospect."}
+                  </Typography>
+                </Box>
+              </Card>
+
+              <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                <Typography variant="subtitle2" sx={{ color: THEME.primary, mb: 1.5, fontWeight: 600 }}>
+                  Description IA
+                </Typography>
+                <Box
+                  sx={{
+                    bgcolor: "#fff",
+                    border: "1px solid #fee2e2",
+                    borderRadius: 2,
+                    p: 1.5,
+                    lineHeight: 1.6,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  <Typography variant="body2" color="textSecondary" sx={{ whiteSpace: "pre-wrap" }}>
+                    {socialAnalysis?.description || prospect.social_profile_description || "-"}
+                  </Typography>
+                </Box>
+              </Card>
+
+              <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                <Typography variant="subtitle2" sx={{ color: THEME.primary, mb: 1.5, fontWeight: 600 }}>
+                  Interets et sujets recents
+                </Typography>
+                <Stack spacing={1.5}>
+                  <Box display="flex" gap={1} flexWrap="wrap">
+                    {(socialAnalysis?.interests || prospect.social_profile_interests || []).length ? (
+                      (socialAnalysis?.interests || prospect.social_profile_interests || []).map((interest) => (
+                        <Chip key={interest} size="small" label={interest} />
+                      ))
+                    ) : (
+                      <Typography variant="body2" color="textSecondary">-</Typography>
+                    )}
+                  </Box>
+                  <Box display="flex" gap={1} flexWrap="wrap">
+                    {(socialAnalysis?.recent_topics || prospect.social_profile_topics || []).length ? (
+                      (socialAnalysis?.recent_topics || prospect.social_profile_topics || []).map((topic) => (
+                        <Chip key={topic} size="small" label={topic} variant="outlined" />
+                      ))
+                    ) : (
+                      <Typography variant="body2" color="textSecondary">-</Typography>
+                    )}
+                  </Box>
+                </Stack>
+              </Card>
+
+              <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                <Typography variant="subtitle2" sx={{ color: THEME.primary, mb: 1.5, fontWeight: 600 }}>
+                  Recommandations IA
+                </Typography>
+                <Stack spacing={1}>
+                  {[
+                    ["Niveau d'activite", socialAnalysis?.activity_level || prospect.social_profile_activity_level],
+                    ["Pertinence commerciale", socialAnalysis?.commercial_relevance || prospect.social_profile_relevance],
+                    ["Accroche recommandee", socialAnalysis?.personalized_hook || prospect.social_profile_hook],
+                    ["Message prepare", prospect.generated_message],
+                  ].map(([label, value]) => (
+                    <Box key={label}>
+                      <Typography variant="caption" color="textSecondary">
+                        {label}
+                      </Typography>
+                      <Box
+                        sx={{
+                          mt: 0.5,
+                          bgcolor: "#fff",
+                          border: "1px solid #fee2e2",
+                          borderRadius: 2,
+                          p: 1.25,
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-word",
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        <Typography variant="body2">{value || "-"}</Typography>
+                      </Box>
+                    </Box>
+                  ))}
+                </Stack>
+              </Card>
+            </Stack>
+          )}
         </Box>
       </Box>
     </Drawer>
@@ -2270,6 +2422,7 @@ const FiltersDrawer = ({ open, onClose, filters, onApply, onReset, companies, co
             >
               {[
                 ["new", "Nouveau"],
+                ["review_needed", "A revoir"],
                 ["contacted", "Contacté"],
                 ["qualified", "Qualifié"],
                 ["lost", "Perdu"],
@@ -3022,6 +3175,7 @@ const ProspectFormDrawer = ({
                         renderValue={(v) => (v ? getStatusLabel(v) : "Statut")}
                       >
                         <MenuItem value="new">Nouveau</MenuItem>
+                        <MenuItem value="review_needed">A revoir</MenuItem>
                         <MenuItem value="contacted">Contacté</MenuItem>
                         <MenuItem value="qualified">Qualifié</MenuItem>
                         <MenuItem value="lost">Perdu</MenuItem>
@@ -4409,7 +4563,6 @@ export default function Prospects() {
 
                     <TableCell sx={{ width: 140 }}>Société</TableCell>
                     {isAdminOrManager && <TableCell sx={{ width: 140 }}>Assigné à</TableCell>}
-                    <TableCell sx={{ width: 240 }}>Description</TableCell>
                     <TableCell sx={{ width: 100 }} align="center">
                       Évaluation
                     </TableCell>
@@ -4427,7 +4580,7 @@ export default function Prospects() {
                 <TableBody>
                   {prospectsList.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={isAdminOrManager ? 12 : 11} align="center" sx={{ py: 5 }}>
+                      <TableCell colSpan={isAdminOrManager ? 11 : 10} align="center" sx={{ py: 5 }}>
                         <Box textAlign="center">
                           <PeopleIcon
                             sx={{ fontSize: 48, color: alpha(THEME.primary, 0.3), mb: 2 }}
