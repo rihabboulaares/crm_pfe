@@ -284,6 +284,27 @@ const initials = (name) => {
   return name.slice(0, 2).toUpperCase();
 };
 
+const getActorName = (log) =>
+  log.performed_by_display ||
+  log.actor?.full_name ||
+  log.actor?.username ||
+  log.actor_name ||
+  "Système";
+
+const getActorInitials = (log) => {
+  if (log.actor_type === "prospection_agent") return "AP";
+  if (log.actor_type === "engagement_agent") return "AE";
+  if (log.actor_type === "system") return "SYS";
+  return initials(getActorName(log));
+};
+
+const getActorRoleLabel = (log) => {
+  if (log.actor_type === "prospection_agent") return "Agent de prospection";
+  if (log.actor_type === "engagement_agent") return "Agent d'engagement";
+  if (log.actor_type === "system") return "Système";
+  return log.actor?.role ? roleLabel(log.actor.role) : "";
+};
+
 // ─── BADGE ACTION ────────────────────────────────────────────────
 function ActionBadge({ action }) {
   const cfg = ACTION[action] || {
@@ -333,30 +354,17 @@ function EntityBadge({ type }) {
 EntityBadge.propTypes = { type: PropTypes.string.isRequired };
 
 // ─── AVATAR ACTEUR ───────────────────────────────────────────────
-function ActorCell({ actor }) {
-  if (!actor) {
-    return (
-      <Stack direction="row" alignItems="center" spacing={1}>
-        <Avatar
-          sx={{
-            width: 32,
-            height: 32,
-            bgcolor: alpha(THEME.primary, 0.08),
-            color: THEME.primary,
-            fontSize: "0.75rem",
-          }}
-        >
-          SYS
-        </Avatar>
-        <Typography variant="body2" color="textSecondary">
-          Système
-        </Typography>
-      </Stack>
-    );
-  }
+function ActorCell({ log }) {
+  const actor = log.actor;
+  const actorTypeColors = {
+    prospection_agent: THEME.success,
+    engagement_agent: THEME.warning,
+    system: "#4A5568",
+  };
   const roleColors = { ADMIN: THEME.primary, MANAGER: "#6D28D9", COMMERCIAL: THEME.info };
-  const bgColor = alpha(roleColors[actor.role] || "#4A5568", 0.1);
-  const txtColor = roleColors[actor.role] || "#4A5568";
+  const txtColor = actorTypeColors[log.actor_type] || roleColors[actor?.role] || "#4A5568";
+  const bgColor = alpha(txtColor, 0.1);
+  const role = getActorRoleLabel(log);
 
   return (
     <Stack direction="row" alignItems="center" spacing={1}>
@@ -370,22 +378,22 @@ function ActorCell({ actor }) {
           fontWeight: 600,
         }}
       >
-        {initials(actor.username)}
+        {getActorInitials(log)}
       </Avatar>
       <Box>
         <Typography variant="body2" fontWeight={600}>
-          {actor.username}
+          {getActorName(log)}
         </Typography>
-        {actor.role && (
+        {role && (
           <Typography variant="caption" color="textSecondary">
-            {roleLabel(actor.role)}
+            {role}
           </Typography>
         )}
       </Box>
     </Stack>
   );
 }
-ActorCell.propTypes = { actor: PropTypes.object };
+ActorCell.propTypes = { log: PropTypes.object.isRequired };
 
 // ─── PANNEAU DÉTAIL ───────────────────────────────────────────────
 function DetailPanel({ log }) {
@@ -490,11 +498,11 @@ function DetailPanel({ log }) {
                 color: THEME.primary,
               }}
             >
-              {log.actor ? initials(log.actor.username) : "SYS"}
+              {getActorInitials(log)}
             </Avatar>
             <Box>
               <Typography variant="body2" fontWeight={600}>
-                {log.actor ? log.actor.username : "Système"}
+                {getActorName(log)}
               </Typography>
               <Typography variant="caption" color="textSecondary">
                 Le {formatDate(log.created_at)} à {formatTime(log.created_at)}
@@ -729,7 +737,7 @@ function HistoryRow({ log, index, open, onToggle }) {
 
         {/* Réalisé par */}
         <TableCell sx={{ width: 180 }}>
-          <ActorCell actor={log.actor} />
+          <ActorCell log={log} />
         </TableCell>
 
         {/* Action */}
@@ -910,7 +918,7 @@ export default function HistoryPage() {
       const rows = logs.map((log) => [
         formatDate(log.created_at),
         formatTime(log.created_at),
-        log.actor?.username || "Système",
+        getActorName(log),
         ACTION[log.action]?.label || log.action,
         ENTITY[log.entity_type]?.label || log.entity_type,
         log.entity_name || "",

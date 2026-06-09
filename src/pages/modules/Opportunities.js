@@ -12,7 +12,7 @@
 //   - Blocage changement stage commercial tant que tâches non terminées
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import PropTypes from "prop-types";
 import {
@@ -626,6 +626,7 @@ const CreateOpportunityDrawer = ({
   contacts,
   commercials,
   currentUser,
+  initialProspectId,
 }) => {
   const isEdit = !!editOpp?.id;
   const [step, setStep] = useState(0);
@@ -673,9 +674,13 @@ const CreateOpportunityDrawer = ({
       });
       setStep(0);
     } else {
+      const prefilledProspect = prospects.find((prospect) => String(prospect.id) === String(initialProspectId));
+      const prefilledName = prefilledProspect
+        ? `Opportunite - ${`${prefilledProspect.first_name || ""} ${prefilledProspect.last_name || ""}`.trim()}`
+        : "";
       setForm({
-        name: "",
-        prospect: "",
+        name: prefilledName,
+        prospect: initialProspectId || "",
         contact: "",
         amount: "",
         stage: "new",
@@ -689,7 +694,7 @@ const CreateOpportunityDrawer = ({
       setCustomTasks([]);
     }
     setError("");
-  }, [open, editOpp]);
+  }, [open, editOpp, initialProspectId, prospects]);
 
   useEffect(() => {
     if (!form.pipeline_id) {
@@ -1310,6 +1315,7 @@ CreateOpportunityDrawer.propTypes = {
   contacts: PropTypes.array.isRequired,
   commercials: PropTypes.array.isRequired,
   currentUser: PropTypes.object,
+  initialProspectId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
 };
 
 // ──────────────────────────────────────────────────────────────
@@ -2723,6 +2729,7 @@ PipelineView.propTypes = { currentUser: PropTypes.object, onOppStageChanged: Pro
 // ──────────────────────────────────────────────────────────────
 export default function Opportunities() {
   const navigate = useNavigate();
+  const location = useLocation();
   useTrackActivity("opportunities");
 
   const [currentUser, setCurrentUser] = useState(null);
@@ -2736,6 +2743,7 @@ export default function Opportunities() {
 
   const [formOpen, setFormOpen] = useState(false);
   const [editOpp, setEditOpp] = useState(null);
+  const [prefillProspectId, setPrefillProspectId] = useState("");
   const [detailOpp, setDetailOpp] = useState(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [delDialogId, setDelDialogId] = useState(null);
@@ -2802,6 +2810,15 @@ export default function Opportunities() {
       .then((r) => setPipelineAlerts(r.data.total_unread || 0))
       .catch(() => {});
   }, [mainTab]);
+
+  useEffect(() => {
+    const prospectId = location.state?.prospectId;
+    if (!prospectId || prospects.length === 0) return;
+    setPrefillProspectId(prospectId);
+    setEditOpp(null);
+    setFormOpen(true);
+    navigate("/opportunities", { replace: true, state: {} });
+  }, [location.state, prospects, navigate]);
 
   const loadSupport = async (user, t) => {
     try {
@@ -3657,6 +3674,7 @@ export default function Opportunities() {
           onClose={() => {
             setFormOpen(false);
             setEditOpp(null);
+            setPrefillProspectId("");
           }}
           onSaved={() => {
             refresh();
@@ -3666,6 +3684,7 @@ export default function Opportunities() {
           contacts={contacts}
           commercials={commercials}
           currentUser={currentUser}
+          initialProspectId={prefillProspectId}
         />
 
         <OpportunityDetailDrawer

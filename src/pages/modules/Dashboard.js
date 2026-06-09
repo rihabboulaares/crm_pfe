@@ -2,6 +2,7 @@
 // src/pages/modules/Dashboard.js
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
+import PropTypes from "prop-types";
 import axios from "axios";
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
@@ -53,7 +54,7 @@ const ErrorAlert = styled(Alert)(({ theme }) => ({
   },
 }));
 
-const Dashboard = () => {
+const Dashboard = ({ forcedRole = null }) => {
   const [state, setState] = useState({
     role: null,
     data: null,
@@ -80,58 +81,18 @@ const Dashboard = () => {
   const dataConfigs = useMemo(
     () => ({
       ADMIN: async () => {
-        const endpoints = [
-          { key: "prospects", url: `${API}/api/sales/prospects/` },
-          { key: "contacts", url: `${API}/api/sales/contacts/` },
-          { key: "opportunities", url: `${API}/api/sales/opportunities/` },
-          { key: "tasks", url: `${API}/api/sales/tasks/` },
-          { key: "users", url: `${API}/api/users/users/` },
-        ];
-
-        const responses = await Promise.all(
-          endpoints.map(({ url }) => axios.get(url, authHeader()))
-        );
-
-        return endpoints.reduce((acc, { key }, index) => {
-          acc[key] = responses[index].data;
-          return acc;
-        }, {});
+        const response = await axios.get(`${API}/api/dashboard/admin/`, authHeader());
+        return response.data;
       },
 
       MANAGER: async () => {
-        const endpoints = [
-          { key: "prospects", url: `${API}/api/sales/prospects/` },
-          { key: "tasks", url: `${API}/api/sales/tasks/` },
-          { key: "opportunities", url: `${API}/api/sales/opportunities/` },
-          { key: "members", url: `${API}/api/users/assignable-users/` },
-        ];
-
-        const responses = await Promise.all(
-          endpoints.map(({ url }) => axios.get(url, authHeader()))
-        );
-
-        return endpoints.reduce((acc, { key }, index) => {
-          acc[key] = responses[index].data;
-          return acc;
-        }, {});
+        const response = await axios.get(`${API}/api/dashboard/manager/`, authHeader());
+        return response.data;
       },
 
       COMMERCIAL: async () => {
-        const endpoints = [
-          { key: "prospects", url: `${API}/api/sales/prospects/` },
-          { key: "tasks", url: `${API}/api/sales/tasks/` },
-          { key: "opportunities", url: `${API}/api/sales/opportunities/` },
-          { key: "contacts", url: `${API}/api/sales/contacts/` },
-        ];
-
-        const responses = await Promise.all(
-          endpoints.map(({ url }) => axios.get(url, authHeader()))
-        );
-
-        return endpoints.reduce((acc, { key }, index) => {
-          acc[key] = responses[index].data;
-          return acc;
-        }, {});
+        const response = await axios.get(`${API}/api/dashboard/commercial/`, authHeader());
+        return response.data;
       },
     }),
     [authHeader]
@@ -143,7 +104,7 @@ const Dashboard = () => {
       try {
         // Récupération du rôle depuis le localStorage
         const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
-        const userRole = storedUser.role;
+        const userRole = forcedRole || storedUser.role;
 
         if (!userRole) {
           setState((prev) => ({
@@ -199,7 +160,7 @@ const Dashboard = () => {
     };
 
     loadDashboardData();
-  }, [dataConfigs]);
+  }, [dataConfigs, forcedRole]);
 
   // Rafraîchissement manuel des données
   const handleRefresh = useCallback(async () => {
@@ -343,6 +304,14 @@ const Dashboard = () => {
       />
     </DashboardLayout>
   );
+};
+
+Dashboard.propTypes = {
+  forcedRole: PropTypes.oneOf(["ADMIN", "MANAGER", "COMMERCIAL"]),
+};
+
+Dashboard.defaultProps = {
+  forcedRole: null,
 };
 
 export default React.memo(Dashboard);

@@ -1,6 +1,7 @@
 /* eslint-disable prettier/prettier */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
+import { useNavigate } from "react-router-dom";
 import {
   Alert,
   alpha,
@@ -58,6 +59,7 @@ import {
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 import MDBox from "components/MDBox";
+import PaginationBar from "../../components/PaginationBar";
 import SocialConnectionBox from "../../components/social/SocialConnectionBox";
 import {
   createFollowUpTask,
@@ -74,6 +76,7 @@ import {
   sendEngagementMessage,
   startSocialLogin,
   checkSocialSession,
+  checkEngagementReply,
   analyzeSocialProfile,
 } from "../../services/engagementApi";
 
@@ -92,6 +95,10 @@ const STATUS_META = {
   message_ready: { label: "Message pret", color: "#059669" },
   sending: { label: "Envoi", color: "#2563eb" },
   message_sent: { label: "Envoye", color: "#1e40af" },
+  waiting_reply: { label: "En attente reponse", color: "#1e40af" },
+  reply_detected: { label: "Reponse detectee", color: "#7c3aed" },
+  followup_generated: { label: "Relance generee", color: "#ea580c" },
+  opportunity_ready: { label: "Opportunite prete", color: "#059669" },
   message_failed: { label: "Erreur", color: "#dc2626" },
   replied: { label: "Reponse recue", color: "#7c3aed" },
   follow_up_required: { label: "Relance requise", color: "#ea580c" },
@@ -103,8 +110,12 @@ const KANBAN = [
   { key: "new", label: "Nouveau" },
   { key: "pending_validation", label: "A valider" },
   { key: "message_sent", label: "Envoye" },
+  { key: "waiting_reply", label: "Attente" },
+  { key: "reply_detected", label: "Reponse IA" },
   { key: "replied", label: "Reponse recue" },
+  { key: "followup_generated", label: "Relance IA" },
   { key: "follow_up_required", label: "Relance" },
+  { key: "opportunity_ready", label: "Opportunite" },
   { key: "message_failed", label: "Erreur" },
 ];
 
@@ -113,9 +124,34 @@ const FILTERS = [
   { key: "new", label: "Nouveau" },
   { key: "pending_validation", label: "A valider" },
   { key: "message_sent", label: "Envoye" },
+  { key: "reply_detected", label: "Reponse detectee" },
+  { key: "followup_generated", label: "Relance generee" },
+  { key: "opportunity_ready", label: "Opportunite prete" },
   { key: "message_failed", label: "Erreur" },
   { key: "replied", label: "Reponse recue" },
 ];
+
+const SOCIAL_REPLY_CHANNELS = ["linkedin", "facebook", "instagram"];
+const REPLY_CHECK_STATUSES = [
+  "message_sent",
+  "waiting_reply",
+  "replied",
+  "reply_detected",
+  "follow_up_required",
+  "followup_generated",
+  "opportunity_ready",
+];
+
+function canCheckReply(prospect) {
+  const activeChannel = prospect?.engagement_channel || prospect?.last_engagement_channel;
+  return Boolean(
+    prospect &&
+      REPLY_CHECK_STATUSES.includes(prospect.engagement_status) &&
+      SOCIAL_REPLY_CHANNELS.includes(activeChannel) &&
+      !prospect.has_opportunity &&
+      prospect.status !== "won"
+  );
+}
 
 const emptyStats = {
   new: 0,
@@ -253,8 +289,13 @@ FieldLine.defaultProps = {
 };
 
 function EngagementDashboard() {
+  const navigate = useNavigate();
   const [stats, setStats] = useState(emptyStats);
   const [prospects, setProspects] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(1);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -269,6 +310,9 @@ function EngagementDashboard() {
   const [toast, setToast] = useState(null);
   const [linkedinModal, setLinkedinModal] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const [replyDialogOpen, setReplyDialogOpen] = useState(false);
+  const [replyCheckResult, setReplyCheckResult] = useState(null);
+  const [replyDraft, setReplyDraft] = useState("");
   const [, setSocialSessions] = useState({});
 
   const load = useCallback(async () => {
@@ -276,20 +320,29 @@ function EngagementDashboard() {
     try {
       const [dashboardRes, prospectsRes] = await Promise.all([
         getEngagementDashboard(),
-        getEngagementProspects({ status: filter, search }),
+        getEngagementProspects({ status: filter, search, page, page_size: pageSize }),
       ]);
       setStats(dashboardRes.data || emptyStats);
       setProspects(prospectsRes.data?.results || []);
+      setTotal(prospectsRes.data?.total ?? prospectsRes.data?.count ?? 0);
+      setPages(prospectsRes.data?.pages || 1);
+      if (prospectsRes.data?.page && prospectsRes.data.page !== page) {
+        setPage(prospectsRes.data.page);
+      }
     } catch (error) {
       setToast({ severity: "error", message: "Impossible de charger l'agent d'engagement." });
     } finally {
       setLoading(false);
     }
-  }, [filter, search]);
+  }, [filter, search, page, pageSize]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filter, search]);
 
   const openProspect = async (prospect) => {
     setSelected(prospect);
@@ -316,6 +369,21 @@ function EngagementDashboard() {
     setLogs(res.data?.results || []);
     const taskRes = await getProspectTasks(updatedProspect.id);
     setTasks(Array.isArray(taskRes.data) ? taskRes.data : taskRes.data?.results || []);
+  };
+
+  const syncUpdatedProspect = async (updatedProspect) => {
+    if (!updatedProspect?.id) {
+      await load();
+      return;
+    }
+    setProspects((items) =>
+      items.map((item) => (item.id === updatedProspect.id ? { ...item, ...updatedProspect } : item))
+    );
+    if (selected?.id === updatedProspect.id) {
+      await refreshSelected(updatedProspect);
+      return;
+    }
+    await load();
   };
 
   const runAction = async (name, fn, successText) => {
@@ -364,10 +432,13 @@ function EngagementDashboard() {
       setToast({ severity: "success", message: queuedText });
       const [dashboardRes, prospectsRes] = await Promise.all([
         getEngagementDashboard(),
-        getEngagementProspects({ status: "pending_validation", search }),
+        getEngagementProspects({ status: "pending_validation", search, page: 1, page_size: pageSize }),
       ]);
       setStats(dashboardRes.data || emptyStats);
       setProspects(prospectsRes.data?.results || []);
+      setTotal(prospectsRes.data?.total ?? prospectsRes.data?.count ?? 0);
+      setPages(prospectsRes.data?.pages || 1);
+      setPage(1);
       setFilter("pending_validation");
     } catch (error) {
       setToast({
@@ -408,6 +479,77 @@ function EngagementDashboard() {
       });
     } catch (error) {
       setToast({ severity: "error", message: error.response?.data?.error || "Verification impossible." });
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleCheckReply = async (prospect) => {
+    if (!prospect?.id) return;
+    setBusyAction(`check-reply-${prospect.id}`);
+    try {
+      const res = await checkEngagementReply(prospect.id);
+      const result = res.data || {};
+      const updatedProspect = result.prospect || prospect;
+      await syncUpdatedProspect(updatedProspect);
+      setReplyCheckResult({ ...result, prospect: updatedProspect });
+      setReplyDraft(result.generated_reply || updatedProspect.generated_followup_message || "");
+      setReplyDialogOpen(true);
+      setToast({
+        severity: result.success === false ? (result.requires_login ? "warning" : "error") : result.has_reply ? "success" : "info",
+        message: result.message || (result.has_reply ? "Reponse detectee." : "Aucune reponse detectee."),
+      });
+    } catch (error) {
+      const data = error.response?.data;
+      if (data?.prospect) {
+        await syncUpdatedProspect(data.prospect);
+      }
+      if (data) {
+        setReplyCheckResult(data);
+        setReplyDraft(data.generated_reply || data.prospect?.generated_followup_message || "");
+        setReplyDialogOpen(true);
+      }
+      setToast({
+        severity: data?.requires_login ? "warning" : "error",
+        message: data?.message || data?.error || "Verification de la reponse impossible.",
+      });
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleUseGeneratedReply = async () => {
+    const prospect = replyCheckResult?.prospect || selected;
+    if (!prospect?.id || !replyDraft.trim()) return;
+    const replyChannel = prospect.engagement_channel || prospect.last_engagement_channel || channel;
+    setBusyAction("send-generated-reply");
+    try {
+      const res = await sendEngagementMessage(prospect.id, {
+        message: replyDraft,
+        channel: replyChannel,
+        send: !testMode,
+      });
+      if (res.data?.success === false) {
+        if (res.data?.prospect) {
+          await syncUpdatedProspect(res.data.prospect);
+        }
+        setToast({
+          severity:
+            res.data?.status === "login_required" || res.data?.status === "checkpoint_required"
+              ? "warning"
+              : "error",
+          message: res.data?.message || res.data?.error || "Envoi impossible.",
+        });
+        return;
+      }
+      await syncUpdatedProspect(res.data?.prospect || prospect);
+      setReplyDialogOpen(false);
+      setToast({
+        severity: "success",
+        message: testMode ? "Mode test: reponse preparee sans clic final." : "Reponse envoyee.",
+      });
+    } catch (error) {
+      setToast({ severity: "error", message: error.response?.data?.error || "Envoi de la reponse impossible." });
     } finally {
       setBusyAction("");
     }
@@ -649,9 +791,16 @@ function EngagementDashboard() {
                           <Button size="small" onClick={() => openProspect(prospect)} sx={{ minWidth: 0, color: AGENT_THEME.red }}>
                             Ouvrir
                           </Button>
-                          <Button size="small" onClick={() => openProspect(prospect)} sx={{ minWidth: 0, color: AGENT_THEME.red }}>
-                            Generer
-                          </Button>
+                          {canCheckReply(prospect) && (
+                            <Button
+                              size="small"
+                              disabled={Boolean(busyAction)}
+                              onClick={() => handleCheckReply(prospect)}
+                              sx={{ minWidth: 0, color: AGENT_THEME.red }}
+                            >
+                              Reponse
+                            </Button>
+                          )}
                         </Stack>
                       </CardContent>
                     </Card>
@@ -677,30 +826,68 @@ function EngagementDashboard() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {prospects.map((prospect) => (
-                <TableRow key={prospect.id} hover>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight={700}>
-                      {getFullName(prospect)}
+              {prospects.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} align="center" sx={{ py: 5 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Aucun prospect d&apos;engagement trouve.
                     </Typography>
                   </TableCell>
-                  <TableCell>{prospect.email || "-"}</TableCell>
-                  <TableCell>{prospect.phone || prospect.mobile || "-"}</TableCell>
-                  <TableCell>{prospect.status || "-"}</TableCell>
-                  <TableCell>{prospect.source || prospect.origin || "-"}</TableCell>
-                  <TableCell>{prospect.engagement_channel || prospect.last_engagement_channel || "-"}</TableCell>
-                  <TableCell>
-                    {statusChip(prospect.engagement_status)}
-                  </TableCell>
-                  <TableCell align="right">
-                    <Button size="small" onClick={() => openProspect(prospect)} sx={{ color: AGENT_THEME.red }}>
-                      Ouvrir
-                    </Button>
-                  </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                prospects.map((prospect) => (
+                  <TableRow key={prospect.id} hover>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight={700}>
+                        {getFullName(prospect)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>{prospect.email || "-"}</TableCell>
+                    <TableCell>{prospect.phone || prospect.mobile || "-"}</TableCell>
+                    <TableCell>{prospect.status || "-"}</TableCell>
+                    <TableCell>{prospect.source || prospect.origin || "-"}</TableCell>
+                    <TableCell>{prospect.engagement_channel || prospect.last_engagement_channel || "-"}</TableCell>
+                    <TableCell>
+                      {statusChip(prospect.engagement_status)}
+                    </TableCell>
+                    <TableCell align="right">
+                      <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+                        {canCheckReply(prospect) && (
+                          <Button
+                            size="small"
+                            startIcon={
+                              busyAction === `check-reply-${prospect.id}` ? (
+                                <CircularProgress size={14} color="inherit" />
+                              ) : (
+                                <MarkEmailRead />
+                              )
+                            }
+                            disabled={Boolean(busyAction)}
+                            onClick={() => handleCheckReply(prospect)}
+                            sx={{ color: AGENT_THEME.red, textTransform: "none" }}
+                          >
+                            Verifier reponse
+                          </Button>
+                        )}
+                        <Button size="small" onClick={() => openProspect(prospect)} sx={{ color: AGENT_THEME.red }}>
+                          Ouvrir
+                        </Button>
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
+          <PaginationBar
+            page={page}
+            pages={pages}
+            total={total}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            loading={loading}
+          />
         </Paper>
       </MDBox>
 
@@ -1010,6 +1197,7 @@ function EngagementDashboard() {
                   </Button>
                   <Button
                     startIcon={<MarkEmailRead />}
+                    disabled={Boolean(busyAction)}
                     sx={{ color: AGENT_THEME.red }}
                     onClick={() =>
                       runAction("replied", () => markEngagementReplied(selected.id), "Prospect marque comme repondu.")
@@ -1017,8 +1205,25 @@ function EngagementDashboard() {
                   >
                     Marquer repondu
                   </Button>
+                  {canCheckReply(selected) && (
+                    <Button
+                      startIcon={
+                        busyAction === `check-reply-${selected.id}` ? (
+                          <CircularProgress size={16} color="inherit" />
+                        ) : (
+                          <MarkEmailRead />
+                        )
+                      }
+                      disabled={Boolean(busyAction)}
+                      sx={{ color: AGENT_THEME.red }}
+                      onClick={() => handleCheckReply(selected)}
+                    >
+                      Verifier reponse
+                    </Button>
+                  )}
                   <Button
                     startIcon={<TaskAlt />}
+                    disabled={Boolean(busyAction)}
                     sx={{ color: AGENT_THEME.red }}
                     onClick={() =>
                       runAction(
@@ -1082,6 +1287,147 @@ function EngagementDashboard() {
           </Stack>
         )}
       </Drawer>
+
+      <Dialog open={replyDialogOpen} onClose={() => setReplyDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Verification de reponse</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            {replyCheckResult?.requires_login && (
+              <Alert severity="warning">
+                {replyCheckResult.message || "Connexion requise pour lire la conversation sociale."}
+              </Alert>
+            )}
+            {!replyCheckResult?.requires_login && replyCheckResult?.has_reply === false && (
+              <Alert severity="info">
+                {replyCheckResult.message || "Aucune reponse detectee apres le dernier message envoye."}
+              </Alert>
+            )}
+            {replyCheckResult?.has_reply && (
+              <Alert severity="success">Une reponse a ete detectee apres le dernier message envoye.</Alert>
+            )}
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <DetailCard title="Reponse detectee">
+                  <AiTextBlock>
+                    {replyCheckResult?.reply_text || replyCheckResult?.prospect?.last_reply_text}
+                  </AiTextBlock>
+                  <FieldLine
+                    label="Date"
+                    value={
+                      replyCheckResult?.reply_at || replyCheckResult?.prospect?.last_reply_at
+                        ? new Date(
+                            replyCheckResult.reply_at || replyCheckResult.prospect.last_reply_at
+                          ).toLocaleString("fr-FR")
+                        : ""
+                    }
+                  />
+                </DetailCard>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <DetailCard title="Analyse Gemini">
+                  <Stack spacing={1}>
+                    <FieldLine
+                      label="Sentiment"
+                      value={replyCheckResult?.sentiment || replyCheckResult?.prospect?.reply_sentiment}
+                    />
+                    <FieldLine
+                      label="Action"
+                      value={
+                        replyCheckResult?.recommended_action ||
+                        replyCheckResult?.prospect?.next_recommended_action
+                      }
+                    />
+                    <AiTextBlock>
+                      {replyCheckResult?.reply_summary || replyCheckResult?.prospect?.reply_summary}
+                    </AiTextBlock>
+                  </Stack>
+                </DetailCard>
+              </Grid>
+            </Grid>
+            {replyCheckResult?.messages?.length > 0 && (
+              <DetailCard title="Derniers messages scrapes">
+                <Stack spacing={1}>
+                  {replyCheckResult.messages.map((msg, index) => (
+                    <Box
+                      key={`${msg.sender || "message"}-${index}`}
+                      sx={{
+                        alignSelf: msg.sender === "me" ? "flex-end" : "flex-start",
+                        maxWidth: "85%",
+                        p: 1.25,
+                        borderRadius: 1,
+                        bgcolor: msg.sender === "me" ? AGENT_THEME.redSoft : "#f3f4f6",
+                        border: `1px solid ${
+                          msg.sender === "me" ? AGENT_THEME.redBorder : "#e5e7eb"
+                        }`,
+                      }}
+                    >
+                      <Typography variant="caption" fontWeight={800} color="text.secondary">
+                        {msg.sender === "me" ? "Moi" : "Prospect"}
+                      </Typography>
+                      <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                        {msg.text}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Stack>
+              </DetailCard>
+            )}
+            <TextField
+              label="Message genere"
+              value={replyDraft}
+              onChange={(event) => setReplyDraft(event.target.value)}
+              fullWidth
+              multiline
+              minRows={5}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ flexWrap: "wrap", rowGap: 1 }}>
+          <Button onClick={() => setReplyDialogOpen(false)} sx={{ color: AGENT_THEME.red }}>
+            Fermer
+          </Button>
+          <Button
+            disabled={!replyDraft.trim()}
+            sx={{ color: AGENT_THEME.red }}
+            onClick={() => {
+              setMessage(replyDraft);
+              if (replyCheckResult?.prospect) {
+                setSelected(replyCheckResult.prospect);
+                setChannel(
+                  replyCheckResult.prospect.engagement_channel ||
+                    replyCheckResult.prospect.last_engagement_channel ||
+                    channel
+                );
+                setTab(3);
+              }
+              setToast({ severity: "info", message: "Message charge dans l'editeur." });
+            }}
+          >
+            Modifier le message
+          </Button>
+          {(replyCheckResult?.recommended_action ||
+            replyCheckResult?.prospect?.next_recommended_action) === "create_opportunity" && (
+            <Button
+              startIcon={<TaskAlt />}
+              sx={{ color: AGENT_THEME.red }}
+              onClick={() => navigate("/opportunities", { state: { prospectId: replyCheckResult?.prospect?.id } })}
+            >
+              Creer opportunite
+            </Button>
+          )}
+          <Button
+            startIcon={
+              busyAction === "send-generated-reply" ? <CircularProgress size={16} color="inherit" /> : <Send />
+            }
+            variant="contained"
+            disabled={Boolean(busyAction) || !replyDraft.trim() || replyCheckResult?.requires_login}
+            sx={{ bgcolor: AGENT_THEME.red, "&:hover": { bgcolor: AGENT_THEME.redDeep } }}
+            onClick={handleUseGeneratedReply}
+          >
+            Envoyer cette reponse
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={linkedinModal} onClose={() => setLinkedinModal(false)}>
         <DialogTitle>Connexion LinkedIn requise</DialogTitle>

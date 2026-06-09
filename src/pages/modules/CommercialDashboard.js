@@ -52,6 +52,7 @@ import {
   useMyFeedbacks,
 } from "../../hooks/usePerformance";
 import { FeedbackButton, useTrackActivity } from "../superadmin/Marketingwidgets";
+import DashboardDataFrame, { useOfficialDashboardData } from "./DashboardDataFrame";
 
 const toList = (d) => (Array.isArray(d) ? d : d?.results || []);
 
@@ -393,13 +394,17 @@ function PerformanceTab() {
 
 // ─── MAIN COMPONENT ──────────────────────────────────────────────
 export default function CommercialDashboard({ data }) {
+  const remote = useOfficialDashboardData("COMMERCIAL", data);
   const [activeTab, setActiveTab] = useState(0);
   useTrackActivity("dashboard");
-  const prospects = toList(data?.prospects);
-  const tasks = toList(data?.tasks);
-  const opportunities = toList(data?.opportunities);
-  const contacts = toList(data?.contacts);
+  const effectiveData = data || remote.data || {};
+  const prospects = toList(effectiveData?.prospects);
+  const tasks = toList(effectiveData?.tasks);
+  const opportunities = toList(effectiveData?.opportunities);
+  const contacts = toList(effectiveData?.contacts);
   const user = JSON.parse(localStorage.getItem("user") || "{}");
+
+  const standaloneBlocked = !data && (remote.loading || remote.error);
 
   const overdueTasks = tasks.filter(
     (t) =>
@@ -442,7 +447,7 @@ export default function CommercialDashboard({ data }) {
     { label: "Ma Performance", icon: <EmojiEvents sx={{ fontSize: 15 }} /> },
   ];
 
-  return (
+  const body = (
     <Box sx={{ animation: `${fadeUp} 0.2s ease` }}>
       {/* ── HEADER ── */}
       <Box
@@ -941,7 +946,22 @@ export default function CommercialDashboard({ data }) {
       {activeTab === 1 && <PerformanceTab />}
     </Box>
   );
+
+  if (!data) {
+    return (
+      <DashboardDataFrame
+        loading={standaloneBlocked && remote.loading}
+        error={standaloneBlocked ? remote.error : null}
+        onRefresh={remote.refresh}
+        lastUpdated={remote.lastUpdated}
+      >
+        {standaloneBlocked ? null : body}
+      </DashboardDataFrame>
+    );
+  }
+
+  return body;
 }
 
 CommercialDashboard.propTypes = { data: PropTypes.object };
-CommercialDashboard.defaultProps = { data: {} };
+CommercialDashboard.defaultProps = { data: null };

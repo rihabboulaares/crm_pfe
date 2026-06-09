@@ -41,6 +41,9 @@ export const analyzeSocialProfile = (prospectId) =>
 export const markEngagementReplied = (prospectId) =>
   api.post(`/prospects/${prospectId}/mark-replied/`);
 
+export const checkEngagementReply = (prospectId) =>
+  api.post(`/prospects/${prospectId}/check-reply/`);
+
 export const createFollowUpTask = (prospectId, payload = {}) =>
   api.post(`/prospects/${prospectId}/create-follow-up-task/`, payload);
 

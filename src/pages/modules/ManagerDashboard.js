@@ -77,6 +77,7 @@ import {
   perfApi,
 } from "../../hooks/usePerformance";
 import { FeedbackButton, useTrackActivity } from "../superadmin/Marketingwidgets";
+import DashboardDataFrame, { useOfficialDashboardData } from "./DashboardDataFrame";
 
 const toList = (d) => (Array.isArray(d) ? d : d?.results || []);
 
@@ -1470,13 +1471,17 @@ TeamPerformanceTab.defaultProps = { members: [] };
 
 // MAIN
 export default function ManagerDashboard({ data }) {
+  const remote = useOfficialDashboardData("MANAGER", data);
   const [activeTab, setActiveTab] = useState(0);
   useTrackActivity("dashboard");
-  const prospects = toList(data?.prospects);
-  const tasks = toList(data?.tasks);
-  const opportunities = toList(data?.opportunities);
-  const members = toList(data?.members);
+  const effectiveData = data || remote.data || {};
+  const prospects = toList(effectiveData?.prospects);
+  const tasks = toList(effectiveData?.tasks);
+  const opportunities = toList(effectiveData?.opportunities);
+  const members = toList(effectiveData?.members);
   const user = JSON.parse(localStorage.getItem("user") || "{}");
+
+  const standaloneBlocked = !data && (remote.loading || remote.error);
   const overdueTasks = tasks.filter(
     (t) =>
       t.status !== "done" &&
@@ -1508,7 +1513,7 @@ export default function ManagerDashboard({ data }) {
     { label: "Performance & KPIs", icon: <EmojiEvents sx={{ fontSize: 15 }} /> },
   ];
 
-  return (
+  const body = (
     <Box sx={{ animation: `${fadeUp} 0.2s ease` }}>
       <Box
         sx={{
@@ -1895,6 +1900,21 @@ export default function ManagerDashboard({ data }) {
       {activeTab === 1 && <TeamPerformanceTab members={members} />}
     </Box>
   );
+
+  if (!data) {
+    return (
+      <DashboardDataFrame
+        loading={standaloneBlocked && remote.loading}
+        error={standaloneBlocked ? remote.error : null}
+        onRefresh={remote.refresh}
+        lastUpdated={remote.lastUpdated}
+      >
+        {standaloneBlocked ? null : body}
+      </DashboardDataFrame>
+    );
+  }
+
+  return body;
 }
 ManagerDashboard.propTypes = { data: PropTypes.object };
-ManagerDashboard.defaultProps = { data: {} };
+ManagerDashboard.defaultProps = { data: null };

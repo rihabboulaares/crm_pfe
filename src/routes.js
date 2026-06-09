@@ -1,6 +1,8 @@
 /* eslint-disable prettier/prettier */
 // src/routes.js
-import Dashboard from "./pages/modules/Dashboard";
+import AdminDashboard from "./pages/modules/AdminDashboard";
+import ManagerDashboard from "./pages/modules/ManagerDashboard";
+import CommercialDashboard from "./pages/modules/CommercialDashboard";
 import Welcome from "layouts/authentication/welcome";
 import SignIn from "layouts/authentication/sign-in";
 import SignUp from "layouts/authentication/sign-up";
@@ -37,6 +39,13 @@ import ProspectSearch from "./pages/ProspectSearch";
 
 const sa = (component) => <SuperAdminRoute>{component}</SuperAdminRoute>;
 
+const RoleDashboard = () => {
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  if (user.role === "ADMIN") return <AdminDashboard />;
+  if (user.role === "MANAGER") return <ManagerDashboard />;
+  return <CommercialDashboard />;
+};
+
 const routes = [
   {
     type: "route",
@@ -57,7 +66,25 @@ const routes = [
     key: "dashboard",
     icon: <Icon fontSize="small">dashboard</Icon>,
     route: "/dashboard",
-    component: <Dashboard />,
+    component: <RoleDashboard />,
+  },
+  {
+    type: "route",
+    key: "dashboard-admin",
+    route: "/dashboard/admin",
+    component: <AdminDashboard />,
+  },
+  {
+    type: "route",
+    key: "dashboard-manager",
+    route: "/dashboard/manager",
+    component: <ManagerDashboard />,
+  },
+  {
+    type: "route",
+    key: "dashboard-commercial",
+    route: "/dashboard/commercial",
+    component: <CommercialDashboard />,
   },
   {
     type: "collapse",

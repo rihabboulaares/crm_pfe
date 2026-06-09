@@ -300,7 +300,6 @@ if (!document.getElementById(STYLE_ID)) {
       height: 200px;
       border: none;
     }
-
     .pa-contacts {
       display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0;
     }

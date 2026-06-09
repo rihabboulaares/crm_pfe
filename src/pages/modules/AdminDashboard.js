@@ -120,6 +120,7 @@ import {
 import { ScoreRing, AlertRow, PerfSkeleton } from "./PerformanceWidgets";
 import { useTeamKPI, useAlerts, useLeaderboard, perfApi } from "../../hooks/usePerformance";
 import { FeedbackButton, useTrackActivity } from "../superadmin/Marketingwidgets";
+import DashboardDataFrame, { useOfficialDashboardData } from "./DashboardDataFrame";
 
 // ─── FONCTION LOCALE POUR FORMATER EN DINAR TUNISIEN ────────────────
 const fmtTND = (n) => {
@@ -1745,15 +1746,20 @@ AdminPerformanceTab.defaultProps = { allUsers: [] };
 
 // ─── MAIN ADMIN DASHBOARD ────────────────────────────────────────
 export default function AdminDashboard({ data, onRefresh }) {
+  const remote = useOfficialDashboardData("ADMIN", data);
   const [activeTab, setActiveTab] = useState(0);
   useTrackActivity("dashboard");
 
-  const prospects = toList(data?.prospects);
-  const contacts = toList(data?.contacts);
-  const opportunities = toList(data?.opportunities);
-  const tasks = toList(data?.tasks);
-  const users = toList(data?.users);
+  const effectiveData = data || remote.data || {};
+  const effectiveRefresh = onRefresh || remote.refresh;
+  const prospects = toList(effectiveData?.prospects);
+  const contacts = toList(effectiveData?.contacts);
+  const opportunities = toList(effectiveData?.opportunities);
+  const tasks = toList(effectiveData?.tasks);
+  const users = toList(effectiveData?.users);
   const user = JSON.parse(localStorage.getItem("user") || "{}");
+
+  const standaloneBlocked = !data && (remote.loading || remote.error);
 
   const totalPipeline = opportunities.reduce((s, o) => s + parseFloat(o.amount || 0), 0);
   const wonOpps = opportunities.filter((o) => o.stage === "won");
@@ -1823,7 +1829,7 @@ export default function AdminDashboard({ data, onRefresh }) {
   const { data: leaderboard } = useLeaderboard();
   const leaderboardList = leaderboard?.leaderboard || [];
 
-  return (
+  const body = (
     <Box sx={{ animation: `${fadeUp} .25s ease` }}>
       <HeroBanner>
         <Box
@@ -1948,7 +1954,7 @@ export default function AdminDashboard({ data, onRefresh }) {
               </Typography>
             </Box>
             <Box
-              onClick={onRefresh}
+              onClick={effectiveRefresh}
               sx={{
                 display: "flex",
                 alignItems: "center",
@@ -2299,7 +2305,22 @@ export default function AdminDashboard({ data, onRefresh }) {
       {activeTab === 1 && <AdminPerformanceTab allUsers={users} />}
     </Box>
   );
+
+  if (!data) {
+    return (
+      <DashboardDataFrame
+        loading={standaloneBlocked && remote.loading}
+        error={standaloneBlocked ? remote.error : null}
+        onRefresh={remote.refresh}
+        lastUpdated={remote.lastUpdated}
+      >
+        {standaloneBlocked ? null : body}
+      </DashboardDataFrame>
+    );
+  }
+
+  return body;
 }
 
 AdminDashboard.propTypes = { data: PropTypes.object, onRefresh: PropTypes.func };
-AdminDashboard.defaultProps = { data: {}, onRefresh: () => {} };
+AdminDashboard.defaultProps = { data: null, onRefresh: null };

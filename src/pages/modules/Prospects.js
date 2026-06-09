@@ -3,6 +3,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import PropTypes from "prop-types";
+import L from "leaflet";
+import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 // LIGNE 7 - Modifier le chemin d'import
 import { syncTaskToCalendar } from "../../components/calendarSyncService";
 import axios from "axios";
@@ -221,6 +224,236 @@ SocialLink.propTypes = {
   label: PropTypes.string.isRequired,
   color: PropTypes.string.isRequired,
 };
+
+const prospectMapIcon = L.divIcon({
+  className: "prospects-map-marker",
+  html: '<span></span>',
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+});
+
+const agentCompanies = (result) => result?.prospect_companies || result?.companies || [];
+const agentPersons = (result) => result?.prospect_persons || result?.prospects || [];
+const agentMapProspects = (result) => result?.map_prospects || [];
+const agentLeadName = (item) =>
+  item?.name ||
+  item?.company_name ||
+  item?.full_name ||
+  [item?.first_name, item?.last_name].filter(Boolean).join(" ").trim() ||
+  "Prospect";
+const agentLeadSourceLabel = (item) =>
+  item?.source_label || SOURCE_CONFIG[item?.source]?.label || item?.source || "Source inconnue";
+const agentLeadScore = (item) =>
+  Number(item?.lead_score ?? item?.score_ia ?? item?.score ?? 0);
+const hasCoordinates = (item) => item?.latitude && item?.longitude;
+
+const ProspectLocationsMap = ({ prospects }) => {
+  const validProspects = (prospects || []).filter(hasCoordinates);
+  if (!validProspects.length) return null;
+
+  const center = [
+    Number(validProspects[0].latitude) || 36.8065,
+    Number(validProspects[0].longitude) || 10.1815,
+  ];
+
+  return (
+    <Paper
+      variant="outlined"
+      sx={{
+        mt: 2,
+        overflow: "hidden",
+        borderRadius: 2,
+        "& .leaflet-container": { height: 300, width: "100%" },
+        "& .prospects-map-marker span": {
+          display: "block",
+          width: 18,
+          height: 18,
+          borderRadius: "50%",
+          bgcolor: THEME.primary,
+          border: "3px solid #fff",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.28)",
+        },
+      }}
+    >
+      <MapContainer center={center} zoom={7} scrollWheelZoom={false}>
+        <TileLayer
+          attribution="&copy; OpenStreetMap contributors"
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        {validProspects.map((prospect, index) => (
+          <Marker
+            key={prospect.id || `${agentLeadName(prospect)}-${index}`}
+            position={[Number(prospect.latitude), Number(prospect.longitude)]}
+            icon={prospectMapIcon}
+          >
+            <Popup>
+              <strong>{agentLeadName(prospect)}</strong>
+              <br />
+              Source : {agentLeadSourceLabel(prospect)}
+              {prospect.address && (
+                <>
+                  <br />
+                  {prospect.address}
+                </>
+              )}
+              {prospect.phone && (
+                <>
+                  <br />
+                  Tel : {prospect.phone}
+                </>
+              )}
+              {prospect.google_maps_url && (
+                <>
+                  <br />
+                  <a href={prospect.google_maps_url} target="_blank" rel="noreferrer">
+                    Ouvrir dans Google Maps
+                  </a>
+                </>
+              )}
+            </Popup>
+          </Marker>
+        ))}
+      </MapContainer>
+    </Paper>
+  );
+};
+
+ProspectLocationsMap.propTypes = {
+  prospects: PropTypes.arrayOf(PropTypes.object),
+};
+ProspectLocationsMap.defaultProps = { prospects: [] };
+
+const AgentLeadCard = ({ item, leadType }) => {
+  const score = agentLeadScore(item);
+  const googleMapsUrl = item.google_maps_url || item.maps_url;
+  const website = item.website || item.site_web;
+
+  return (
+    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, height: "100%" }}>
+      <Stack spacing={1}>
+        <Box display="flex" justifyContent="space-between" gap={1} alignItems="flex-start">
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle2" fontWeight={800} noWrap>
+              {agentLeadName(item)}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {item.industry || item.title || (leadType === "company" ? "Entreprise" : "Prospect")}
+            </Typography>
+          </Box>
+          {item.source === "google_maps" ? (
+            <Chip size="small" color="success" label="Google Maps" sx={{ borderRadius: 1 }} />
+          ) : item.source ? (
+            <SourceBadge source={item.source} />
+          ) : (
+            <Chip size="small" label="Source inconnue" sx={{ borderRadius: 1 }} />
+          )}
+        </Box>
+
+        {(item.address || item.city || item.country) && (
+          <Box display="flex" gap={0.75} alignItems="flex-start">
+            <LocationOnIcon sx={{ fontSize: 18, color: alpha(THEME.primary, 0.65), mt: 0.1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {[item.address, item.city, item.country].filter(Boolean).join(", ")}
+            </Typography>
+          </Box>
+        )}
+
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {item.phone && (
+            <Chip size="small" icon={<PhoneIcon />} label={item.phone} sx={{ borderRadius: 1 }} />
+          )}
+          {item.email && (
+            <Chip size="small" icon={<EmailIcon />} label={item.email} sx={{ borderRadius: 1 }} />
+          )}
+          {website && (
+            <Button
+              size="small"
+              component="a"
+              href={website}
+              target="_blank"
+              rel="noopener noreferrer"
+              startIcon={<LanguageIcon />}
+            >
+              Site web
+            </Button>
+          )}
+          {googleMapsUrl && (
+            <Button
+              size="small"
+              component="a"
+              href={googleMapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              startIcon={<LocationOnIcon />}
+            >
+              Google Maps
+            </Button>
+          )}
+        </Stack>
+
+        <Box>
+          <Box display="flex" justifyContent="space-between" mb={0.5}>
+            <Typography variant="caption" color="text.secondary">
+              Score IA
+            </Typography>
+            <Typography variant="caption" fontWeight={800}>
+              {score}/100
+            </Typography>
+          </Box>
+          <LinearProgress
+            variant="determinate"
+            value={Math.max(0, Math.min(100, score))}
+            sx={{ height: 6, borderRadius: 1 }}
+          />
+        </Box>
+
+        {(item.raison_score || item.reason || item.evaluation) && (
+          <Typography variant="caption" color="text.secondary">
+            Qualification : {item.raison_score || item.reason || item.evaluation}
+          </Typography>
+        )}
+      </Stack>
+    </Paper>
+  );
+};
+
+AgentLeadCard.propTypes = {
+  item: PropTypes.object.isRequired,
+  leadType: PropTypes.oneOf(["company", "person"]).isRequired,
+};
+
+const AgentResultsPreview = ({ result }) => {
+  const companies = agentCompanies(result);
+  const persons = agentPersons(result);
+  const mapItems = agentMapProspects(result);
+  const hasResults = companies.length || persons.length || mapItems.length;
+
+  if (!hasResults) return null;
+
+  return (
+    <Box mt={2}>
+      <ProspectLocationsMap prospects={mapItems} />
+
+      <Grid container spacing={1.25} sx={{ mt: 0.75 }}>
+        {companies.slice(0, 6).map((company, index) => (
+          <Grid item xs={12} key={company.google_place_id || company.company_name || index}>
+            <AgentLeadCard item={company} leadType="company" />
+          </Grid>
+        ))}
+        {persons.slice(0, 6).map((person, index) => (
+          <Grid item xs={12} key={person.linkedin_url || person.email || person.full_name || index}>
+            <AgentLeadCard item={person} leadType="person" />
+          </Grid>
+        ))}
+      </Grid>
+    </Box>
+  );
+};
+
+AgentResultsPreview.propTypes = {
+  result: PropTypes.object,
+};
+AgentResultsPreview.defaultProps = { result: null };
 
 // ==============================
 // CONFIG
@@ -793,6 +1026,7 @@ const ProspectCard = ({
   onDelete,
 }) => {
   const isAdminOrManager = currentUser && ["ADMIN", "MANAGER"].includes(currentUser.role);
+  const googleMapsUrl = prospect.google_maps_url;
   return (
     <StyledCard onDoubleClick={() => onView(prospect)}>
       <CardContent>
@@ -834,6 +1068,11 @@ const ProspectCard = ({
               borderRadius: 1,
             }}
           />
+          {prospect.source === "google_maps" ? (
+            <Chip size="small" color="success" label="Google Maps" sx={{ borderRadius: 1 }} />
+          ) : (
+            prospect.source && <SourceBadge source={prospect.source} />
+          )}
         </Box>
         <Divider sx={{ my: 2 }} />
         <Stack spacing={1.5}>
@@ -857,6 +1096,12 @@ const ProspectCard = ({
               <Typography variant="body2">
                 {[prospect.city, prospect.country].filter(Boolean).join(", ")}
               </Typography>
+            </Box>
+          )}
+          {prospect.address && (
+            <Box display="flex" alignItems="flex-start" gap={1}>
+              <LocationOnIcon sx={{ fontSize: 18, color: alpha(THEME.primary, 0.6), mt: 0.25 }} />
+              <Typography variant="body2">{prospect.address}</Typography>
             </Box>
           )}
           <Box display="flex" alignItems="center" gap={1}>
@@ -884,6 +1129,20 @@ const ProspectCard = ({
             })}
             <Typography variant="body2">{getOriginLabel(prospect.origin)}</Typography>
           </Box>
+          {googleMapsUrl && (
+            <Button
+              component="a"
+              href={googleMapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              size="small"
+              startIcon={<LocationOnIcon />}
+              onClick={(e) => e.stopPropagation()}
+              sx={{ alignSelf: "flex-start" }}
+            >
+              Ouvrir dans Google Maps
+            </Button>
+          )}
           <Box display="flex" alignItems="center" gap={1}>
             <CalendarIcon sx={{ fontSize: 18, color: alpha(THEME.primary, 0.6) }} />
             <Typography variant="body2">{formatDate(prospect.created_at)}</Typography>
@@ -1928,6 +2187,14 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
                       <Typography variant="body2">
                         {[prospect.city, prospect.country].filter(Boolean).join(", ")}
                       </Typography>
+                    </Box>
+                  )}
+                  {prospect.address && (
+                    <Box display="flex" alignItems="flex-start" gap={1}>
+                      <LocationOnIcon
+                        sx={{ fontSize: 18, color: alpha(THEME.primary, 0.6), mt: 0.25 }}
+                      />
+                      <Typography variant="body2">{prospect.address}</Typography>
                     </Box>
                   )}
                   <Box display="flex" alignItems="center" gap={1}>
@@ -3132,6 +3399,44 @@ const ProspectFormDrawer = ({
                       }
                     />
                   </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Adresse"
+                      value={prospectData.address || ""}
+                      disabled={!isCompanyStepValid}
+                      onChange={(e) =>
+                        onProspectDataChange({ ...prospectData, address: e.target.value })
+                      }
+                    />
+                  </Grid>
+                  <Grid item xs={6}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Latitude"
+                      type="number"
+                      value={prospectData.latitude || ""}
+                      disabled={!isCompanyStepValid}
+                      onChange={(e) =>
+                        onProspectDataChange({ ...prospectData, latitude: e.target.value })
+                      }
+                    />
+                  </Grid>
+                  <Grid item xs={6}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Longitude"
+                      type="number"
+                      value={prospectData.longitude || ""}
+                      disabled={!isCompanyStepValid}
+                      onChange={(e) =>
+                        onProspectDataChange({ ...prospectData, longitude: e.target.value })
+                      }
+                    />
+                  </Grid>
                   <Grid item xs={6}>
                     <FormControl fullWidth size="small" disabled={!isCompanyStepValid}>
                       <Select
@@ -3486,6 +3791,9 @@ export default function Prospects() {
     source: "",
     source_url: "",
     google_maps_url: "",
+    latitude: "",
+    longitude: "",
+    address: "",
     website: "",
     linkedin_url: "",
     facebook_url: "",
@@ -3585,6 +3893,26 @@ export default function Prospects() {
       return companies.find((c) => c.id === id)?.name || null;
     },
     [companies]
+  );
+  const crmMapProspects = useMemo(
+    () =>
+      prospectsList
+        .filter((prospect) => prospect.latitude && prospect.longitude)
+        .map((prospect) => ({
+          id: prospect.id,
+          name: getProspectDisplayName(prospect),
+          source: prospect.source,
+          source_label: prospect.source_display || SOURCE_CONFIG[prospect.source]?.label,
+          latitude: prospect.latitude,
+          longitude: prospect.longitude,
+          address: prospect.address,
+          city: prospect.city,
+          country: prospect.country,
+          phone: prospect.phone,
+          website: prospect.website,
+          google_maps_url: prospect.google_maps_url,
+        })),
+    [prospectsList]
   );
 
   const showNotification = (text, type = "success") => {
@@ -3800,6 +4128,9 @@ export default function Prospects() {
       source: p.source || "",
       source_url: p.source_url || "",
       google_maps_url: p.google_maps_url || "",
+      latitude: p.latitude || "",
+      longitude: p.longitude || "",
+      address: p.address || "",
       website: p.website || "",
       linkedin_url: p.linkedin_url || "",
       facebook_url: p.facebook_url || "",
@@ -3869,6 +4200,9 @@ export default function Prospects() {
         source: prospectData.source || null,
         source_url: prospectData.source_url || null,
         google_maps_url: prospectData.google_maps_url || null,
+        latitude: prospectData.latitude || null,
+        longitude: prospectData.longitude || null,
+        address: prospectData.address || null,
         website: prospectData.website || null,
         linkedin_url: prospectData.linkedin_url || null,
         facebook_url: prospectData.facebook_url || null,
@@ -4160,6 +4494,8 @@ export default function Prospects() {
                       ))}
                     </Grid>
 
+                    <AgentResultsPreview result={agentResult} />
+
                     <Collapse
                       in={Boolean(
                         agentResult.logs?.length ||
@@ -4324,6 +4660,30 @@ export default function Prospects() {
             </Grid>
           ))}
         </Grid>
+
+        {crmMapProspects.length > 0 && (
+          <StyledCard sx={{ mb: 3 }}>
+            <CardContent>
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={1.5}>
+                <Box>
+                  <Typography variant="h6" fontWeight={800}>
+                    Localisation des prospects
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {crmMapProspects.length} prospect(s) avec coordonnees verifiees.
+                  </Typography>
+                </Box>
+                <Chip
+                  size="small"
+                  icon={<LocationOnIcon />}
+                  label="Carte"
+                  sx={{ borderRadius: 1, bgcolor: alpha(THEME.primary, 0.08), color: THEME.primary }}
+                />
+              </Box>
+              <ProspectLocationsMap prospects={crmMapProspects} />
+            </CardContent>
+          </StyledCard>
+        )}
 
         {/* Barre de recherche + filtres actifs */}
         <StyledCard sx={{ mb: 3 }}>
