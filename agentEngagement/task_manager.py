@@ -72,7 +72,7 @@ def create_engagement_task(prospect, result, user):
     priority = result.priority or "medium"
     due_date = timezone.now() + timedelta(days=PRIORITY_DUE_DAYS.get(priority, 2))
 
-    task = Task.objects.create(
+    task = Task(
         title=title,
         description="\n\n".join(description_parts),
         task_type="classic",
@@ -84,6 +84,11 @@ def create_engagement_task(prospect, result, user):
         created_by=user,
         company=prospect.company,
     )
+    task._history_actor_type = "engagement_agent"
+    task._history_actor_name = "Agent d'engagement"
+    task._history_performed_by = user
+    task._actor = user
+    task.save()
 
     logger.info("[task_manager] Task #%s created for Prospect #%s", task.pk, prospect.pk)
 

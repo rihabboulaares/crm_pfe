@@ -50,6 +50,7 @@ class ProspectProfileData(BaseModel):
     linkedin_url: str = ""
     facebook_url: str = ""
     instagram_url: str = ""
+    lead_origin: str = "manual"
 
     linkedin_data: dict = Field(default_factory=dict)
     facebook_data: dict = Field(default_factory=dict)

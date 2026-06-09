@@ -890,6 +890,32 @@ def local_decision_from_memory(memory_summary: dict, error: str | None = None) -
         )
     ]
     target_total = int(plan.get("target_total") or 50)
+    maps_websites = []
+
+    for company in memory_summary.get("companies_sample") or []:
+        website = company.get("website")
+        if (
+            company.get("source") in {"google_maps", "maps", "maps_search"}
+            and website
+        ):
+            already_crawled = any(
+                page.get("website") == website or page.get("raw_url") == website
+                for page in memory_summary.get("crawled_pages_sample") or []
+            )
+            if not already_crawled:
+                maps_websites.append(website)
+
+    if maps_websites:
+        return {
+            "decision": "crawl_urls",
+            "tool": "website_scraper",
+            "query": "",
+            "target_urls": maps_websites[:3],
+            "reason": "Enrichir les entreprises Google Maps via leur site web avant qualification CRM.",
+            "confidence": 0.8,
+            "gemini_error": error,
+            "fallback_local": bool(error),
+        }
 
     if needs_batch_analysis and (total_count >= target_total or (not pending_urls and not remaining_searches)):
         return {

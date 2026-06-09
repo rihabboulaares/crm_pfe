@@ -3,7 +3,7 @@ import logging
 from django.db.models import Q
 from django.utils import timezone
 
-from .brain import analyze_and_generate
+from .brain import analyze_and_generate, clean_crm_message
 from .schemas import ProspectProfileData
 from .scraper import EngagementScraper
 from .memory import (
@@ -20,6 +20,14 @@ from .social.social_profile_scraper import normalize_scraped_social_profile, scr
 logger = logging.getLogger("agentEngagement.runner")
 
 
+def mark_engagement_actor(instance, user=None):
+    instance._history_actor_type = "engagement_agent"
+    instance._history_actor_name = "Agent d'engagement"
+    if user:
+        instance._history_performed_by = user
+        instance._actor = user
+
+
 def _dump(obj):
     if obj is None:
         return None
@@ -28,6 +36,85 @@ def _dump(obj):
     if hasattr(obj, "dict"):
         return obj.dict()
     return obj
+
+
+def get_lead_origin(prospect) -> str:
+    return (getattr(prospect, "lead_origin", "") or "manual").strip().lower()
+
+
+def is_manual_prospect(prospect) -> bool:
+    return get_lead_origin(prospect) == "manual"
+
+
+def force_manual_prospect_engagement_result(prospect, result):
+    result.qualified = True
+    result.should_generate_message = True
+    result.should_create_task = True
+    result.should_send_now = False
+
+    if not result.priority or result.priority not in {"low", "medium", "high"}:
+        result.priority = "low"
+
+    if result.best_channel == "manual":
+        if getattr(prospect, "email", None):
+            result.best_channel = "email"
+            result.action_type = "send_email"
+        elif getattr(prospect, "linkedin_url", None):
+            result.best_channel = "linkedin"
+            result.action_type = "send_linkedin"
+        elif getattr(prospect, "facebook_url", None):
+            result.best_channel = "facebook"
+            result.action_type = "send_facebook"
+        elif getattr(prospect, "instagram_url", None):
+            result.best_channel = "instagram"
+            result.action_type = "send_instagram"
+        elif getattr(prospect, "phone", None):
+            result.best_channel = "phone"
+            result.action_type = "call"
+        else:
+            result.best_channel = "manual"
+            result.action_type = "create_task"
+
+    if result.action_type == "no_action":
+        if result.best_channel == "email":
+            result.action_type = "send_email"
+        elif result.best_channel == "linkedin":
+            result.action_type = "send_linkedin"
+        elif result.best_channel == "facebook":
+            result.action_type = "send_facebook"
+        elif result.best_channel == "instagram":
+            result.action_type = "send_instagram"
+        elif result.best_channel == "phone":
+            result.action_type = "call"
+        else:
+            result.action_type = "create_task"
+
+    first_name = getattr(prospect, "first_name", "") or ""
+    greeting_name = first_name.strip() or "Bonjour"
+
+    if not result.message and result.best_channel != "phone":
+        result.message = (
+            f"Bonjour {greeting_name},\n\n"
+            "Je me permets de vous contacter afin d'echanger sur vos enjeux professionnels actuels.\n\n"
+            "Seriez-vous disponible pour un court echange cette semaine ?"
+        )
+
+    if not result.call_script and result.best_channel == "phone":
+        result.call_script = (
+            "Bonjour, je vous appelle pour echanger brievement sur vos enjeux professionnels actuels "
+            "et voir s'il existe un sujet sur lequel nous pourrions vous accompagner."
+        )
+
+    if not result.task_title:
+        result.task_title = f"Contacter {first_name or 'le prospect'} via {result.best_channel}"
+
+    if not result.task_description:
+        result.task_description = (
+            "Prospect ajoute manuellement : ne pas rejeter automatiquement. "
+            "Preparer une approche commerciale prudente et valider le message avant envoi."
+        )
+
+    return result
 
 
 def build_profile_data(prospect, scraped_data=None):
@@ -49,6 +136,7 @@ def build_profile_data(prospect, scraped_data=None):
         linkedin_url=prospect.linkedin_url or "",
         facebook_url=prospect.facebook_url or "",
         instagram_url=prospect.instagram_url or "",
+        lead_origin=getattr(prospect, "lead_origin", "manual") or "manual",
         linkedin_data=scraped_data.get("linkedin", {}),
         facebook_data=scraped_data.get("facebook", {}),
         instagram_data=scraped_data.get("instagram", {}),
@@ -249,6 +337,7 @@ def prepare_engagement(prospect, user, scrape=True) -> dict:
                 "engagement_status": prospect.engagement_status,
             }
 
+        mark_engagement_actor(prospect, user)
         set_status(prospect, "preparing")
 
         scraped_data = {}
@@ -265,6 +354,7 @@ def prepare_engagement(prospect, user, scrape=True) -> dict:
                     prospect.pk,
                     facebook_block_response.get("message"),
                 )
+                mark_engagement_actor(prospect, user)
                 set_status(
                     prospect,
                     "new",
@@ -312,6 +402,7 @@ def prepare_engagement(prospect, user, scrape=True) -> dict:
         result = analyze_and_generate(profile_data, social_analysis=social_analysis)
 
         if not result:
+            mark_engagement_actor(prospect, user)
             set_status(prospect, "message_failed", error="Gemini n'a pas retourné un résultat valide.")
             return {
                 "success": False,
@@ -320,8 +411,20 @@ def prepare_engagement(prospect, user, scrape=True) -> dict:
             }
 
         result.should_send_now = False
+        result.message = clean_crm_message(result.message)
 
-        if not result.qualified or result.action_type == "no_action":
+        logger.warning(
+            "[CRM MESSAGE] prospect=%s qualified=%s channel=%s action=%s",
+            prospect.pk,
+            result.qualified,
+            result.best_channel,
+            result.action_type,
+        )
+
+        manual_prospect = is_manual_prospect(prospect)
+
+        if (not result.qualified or result.action_type == "no_action") and not manual_prospect:
+            mark_engagement_actor(prospect, user)
             set_status(
                 prospect,
                 "not_qualified",
@@ -335,14 +438,28 @@ def prepare_engagement(prospect, user, scrape=True) -> dict:
                 "result": _dump(result),
             }
 
+        if manual_prospect and (not result.qualified or result.action_type == "no_action"):
+            logger.info(
+                "[ENGAGEMENT] Prospect manuel #%s conserve malgre qualified=%s action=%s",
+                prospect.pk,
+                result.qualified,
+                result.action_type,
+            )
+            result = force_manual_prospect_engagement_result(prospect, result)
+            result.message = clean_crm_message(result.message)
+            result.should_send_now = False
+
+        mark_engagement_actor(prospect, user)
         set_status(prospect, "qualified", channel=result.best_channel)
 
+        mark_engagement_actor(prospect, user)
         save_prepared_message(prospect, result)
 
         task = create_engagement_task(prospect, result, user)
         activity = create_task_activity(task, prospect, result, user, sent=False)
 
         prospect.engagement_status = "pending_validation"
+        mark_engagement_actor(prospect, user)
         prospect.save(update_fields=["engagement_status"])
 
         return {
@@ -358,6 +475,7 @@ def prepare_engagement(prospect, user, scrape=True) -> dict:
         logger.exception("[runner] Erreur prepare Prospect #%s", getattr(prospect, "pk", None))
 
         try:
+            mark_engagement_actor(prospect, user)
             set_status(prospect, "message_failed", error=str(exc)[:500])
         except Exception:
             pass
@@ -387,8 +505,10 @@ def send_prepared_engagement(prospect, user) -> dict:
         result = sender.send_prepared(prospect, user)
 
         if result.get("sent"):
+            mark_engagement_actor(prospect, user)
             mark_contacted(prospect, prospect.last_engagement_channel)
         else:
+            mark_engagement_actor(prospect, user)
             set_status(
                 prospect,
                 "message_failed",
@@ -400,6 +520,7 @@ def send_prepared_engagement(prospect, user) -> dict:
 
     except Exception as exc:
         logger.exception("[runner] Erreur send Prospect #%s", prospect.pk)
+        mark_engagement_actor(prospect, user)
         set_status(prospect, "message_failed", error=str(exc)[:500])
         return {
             "success": False,
@@ -425,6 +546,12 @@ def launch_engagement_agent(company, user, limit=25, scrape=True, auto_send=Fals
 
     for prospect in qs:
         try:
+            logger.warning(
+                "[ENGAGEMENT AGENT] prospect=%s status=%s channel=%s",
+                prospect.pk,
+                prospect.engagement_status,
+                prospect.last_engagement_channel,
+            )
             result = prepare_engagement(
                 prospect=prospect,
                 user=user,
@@ -449,12 +576,14 @@ def launch_engagement_agent(company, user, limit=25, scrape=True, auto_send=Fals
                         "prospect_id": prospect.pk,
                         "status": result.get("status"),
                         "success": result.get("success", False),
+                        "message_ready": result.get("status") == "pending_validation",
                         "auto_sent": False,
                     }
                 )
 
         except Exception as exc:
             logger.exception("[runner] launch agent failed for Prospect #%s", prospect.pk)
+            mark_engagement_actor(prospect, user)
             set_status(prospect, "message_failed", error=str(exc)[:500])
             results.append(
                 {

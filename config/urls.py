@@ -25,6 +25,7 @@ urlpatterns = [
     path("api/subscriptions/", include("subscriptions.urls")),
     path("api/superadmin/", include("superadmin.urls")),
     path("api/notifications/", include("Notifications.urls")),
+    path("api/dashboard/", include("dashboard.urls")),
     path("api/agent/prospect/", ProspectAgentView.as_view(), name="agent-prospect"),
     path(
         "api/prospecting/social-sessions/required/",

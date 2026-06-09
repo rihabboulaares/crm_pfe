@@ -242,6 +242,7 @@ class AgentMemory:
                 if not item.get("crawled")
             ][:15],
             "crawled_pages_count": len(self.crawled_pages),
+            "crawled_pages_sample": self.crawled_pages[-10:],
             "scraping_debug": self.scraping_debug,
             "scrape_debug_sample": self.scrape_debug_events[-5:],
             "companies_count": len(self.companies),

@@ -48,6 +48,24 @@ class HistoryLog(models.Model):
     actor       = models.ForeignKey(User, on_delete=models.SET_NULL, null=True,
                                     related_name="actions_performed",
                                     verbose_name="Auteur de l'action")
+    actor_type = models.CharField(
+        max_length=30,
+        choices=[
+            ("user", "User"),
+            ("prospection_agent", "Agent de prospection"),
+            ("engagement_agent", "Agent d'engagement"),
+            ("system", "Système"),
+        ],
+        default="system",
+    )
+    actor_name = models.CharField(max_length=255, blank=True, null=True)
+    performed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_logs",
+    )
     action      = models.CharField(max_length=20, choices=ACTION_CHOICES)
     entity_type = models.CharField(max_length=30, choices=ENTITY_CHOICES)
     entity_id   = models.PositiveIntegerField(null=True, blank=True)
@@ -74,7 +92,7 @@ class HistoryLog(models.Model):
         verbose_name_plural = "Historiques"
 
     def __str__(self):
-        actor_name = self.actor.username if self.actor else "Système"
+        actor_name = self.actor_name or (self.actor.username if self.actor else "Système")
         return f"[{self.get_action_display()}] {self.entity_type} #{self.entity_id} par {actor_name}"
 
 

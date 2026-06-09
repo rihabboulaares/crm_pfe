@@ -49,6 +49,14 @@ def sync_task_calendar(task):
     return event
 
 
+def mark_engagement_task_actor(task, user=None):
+    task._history_actor_type = "engagement_agent"
+    task._history_actor_name = "Agent d'engagement"
+    if user:
+        task._history_performed_by = user
+        task._actor = user
+
+
 def upsert_prospect_task(
     prospect,
     task_type,
@@ -99,9 +107,12 @@ def upsert_prospect_task(
                 changed.append(field)
         if changed:
             changed.append("updated_at")
+            mark_engagement_task_actor(task, user)
             task.save(update_fields=list(set(changed)))
     else:
-        task = Task.objects.create(prospect=prospect, task_type=task_type, **defaults)
+        task = Task(prospect=prospect, task_type=task_type, **defaults)
+        mark_engagement_task_actor(task, user)
+        task.save()
 
     sync_task_calendar(task)
     return task

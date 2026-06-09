@@ -56,6 +56,10 @@ class ProspectCompany(models.Model):
     instagram_url = models.URLField(blank=True, null=True)
     linkedin_url = models.URLField(blank=True, null=True)
     google_place_id = models.CharField(max_length=150, blank=True, null=True)
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    address = models.TextField(null=True, blank=True)
+    google_maps_url = models.URLField(max_length=500, null=True, blank=True)
     score_ia = models.IntegerField(default=0)
     evaluation = models.CharField(
         max_length=10,
@@ -92,9 +96,12 @@ class Prospect(models.Model):
     ]
 
     ORIGIN_CHOICES = [
+        ("agent_prospection", "Agent de prospection"),
         ("website", "Website"),
         ("facebook", "Facebook"),
+        ("instagram", "Instagram"),
         ("linkedin", "LinkedIn"),
+        ("google_maps", "Google Maps"),
         ("referral", "Referral"),
     ]
 
@@ -111,6 +118,9 @@ class Prospect(models.Model):
         ("message_ready", "Message Ready"),
         ("sending", "Sending"),
         ("message_sent", "Message Sent"),
+        ("reply_detected", "Reply Detected"),
+        ("followup_generated", "Follow-up Generated"),
+        ("opportunity_ready", "Opportunity Ready"),
         ("message_failed", "Message Failed"),
         ("replied", "Replied"),
         ("follow_up_required", "Follow-up Required"),
@@ -138,6 +148,16 @@ class Prospect(models.Model):
         ("other", "Autre"),
     ]
 
+    LEAD_ORIGIN_CHOICES = [
+        ("manual", "Manual"),
+        ("prospection_agent", "Prospection Agent"),
+        ("google_maps", "Google Maps"),
+        ("linkedin", "LinkedIn"),
+        ("facebook", "Facebook"),
+        ("instagram", "Instagram"),
+        ("website", "Website"),
+    ]
+
     first_name = models.CharField(max_length=50)
     last_name = models.CharField(max_length=50)
     title = models.CharField(max_length=100, blank=True, null=True)
@@ -161,6 +181,16 @@ class Prospect(models.Model):
     generated_message = models.TextField(blank=True, null=True)
     engagement_error = models.TextField(blank=True, null=True)
     engagement_subject = models.CharField(max_length=255, blank=True, null=True)
+    last_message_sent = models.TextField(blank=True, null=True)
+    last_message_sent_at = models.DateTimeField(blank=True, null=True)
+    last_reply_checked_at = models.DateTimeField(blank=True, null=True)
+    last_reply_text = models.TextField(blank=True, null=True)
+    last_reply_at = models.DateTimeField(blank=True, null=True)
+    reply_summary = models.TextField(blank=True, null=True)
+    reply_sentiment = models.CharField(max_length=50, blank=True, null=True)
+    next_recommended_action = models.CharField(max_length=50, blank=True, null=True)
+    generated_followup_message = models.TextField(blank=True, null=True)
+    conversation_status = models.CharField(max_length=40, default="not_contacted")
     social_profile_summary = models.TextField(blank=True, null=True)
     social_profile_description = models.TextField(blank=True, null=True)
     social_profile_interests = models.JSONField(default=list, blank=True)
@@ -176,12 +206,20 @@ class Prospect(models.Model):
         choices=SOURCE_CHOICES,
         default="commercial",
     )
+    lead_origin = models.CharField(
+        max_length=50,
+        choices=LEAD_ORIGIN_CHOICES,
+        default="manual",
+    )
     linkedin_url = models.URLField(blank=True, null=True)
     facebook_url = models.URLField(blank=True, null=True)
     instagram_url = models.URLField(blank=True, null=True)
     website = models.URLField(blank=True, null=True)
     source_url = models.URLField(blank=True, null=True)
-    google_maps_url = models.URLField(blank=True, null=True)
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    address = models.TextField(null=True, blank=True)
+    google_maps_url = models.URLField(max_length=500, blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
     raison_score = models.TextField(blank=True, null=True)
 

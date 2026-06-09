@@ -151,7 +151,8 @@ def is_same_person(a: dict, b: dict) -> bool:
 
 SOURCE_PRIORITY = {
     "maps": 90,
-    "google_maps": 90,
+    "google_maps": 95,
+    "maps_search": 95,
     "profile_scraper_linkedin": 85,
     "profile_scraper_facebook": 80,
     "profile_scraper_instagram": 75,

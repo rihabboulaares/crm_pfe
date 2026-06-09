@@ -19,6 +19,7 @@ from django.dispatch import receiver, Signal
 from django.contrib.auth import get_user_model
 
 from .models import HistoryLog, Notification
+from .utils import get_user_display_name
 from .middleware import get_current_user   # ✅ Import du middleware
 
 User = get_user_model()
@@ -34,7 +35,7 @@ def resolve_actor(instance):
     Évite que l'acteur soit None quand la view ne pose pas _actor.
     """
     # 1. Posé explicitement par la view (priorité absolue)
-    explicit = getattr(instance, "_actor", None)
+    explicit = getattr(instance, "_history_actor", None) or getattr(instance, "_actor", None)
     if explicit is not None:
         return explicit
     # 2. Depuis le middleware (thread-local de la requête HTTP courante)
@@ -43,6 +44,27 @@ def resolve_actor(instance):
         return from_middleware
     # 3. Vraiment aucun user (tâche Celery, commande manage.py, etc.)
     return None
+
+
+def user_display_name(user):
+    return get_user_display_name(user)
+
+
+def resolve_actor_metadata(instance, actor):
+    actor_type = getattr(instance, "_history_actor_type", None) or ("user" if actor else "system")
+    actor_name = getattr(instance, "_history_actor_name", None)
+    performed_by = getattr(instance, "_history_performed_by", None) or actor
+
+    if actor_type == "user" and performed_by:
+        actor_name = get_user_display_name(performed_by)
+    elif actor_type == "prospection_agent":
+        actor_name = "Agent de prospection"
+    elif actor_type == "engagement_agent":
+        actor_name = "Agent d'engagement"
+    elif not actor_name:
+        actor_name = "Système"
+
+    return actor_type, actor_name, performed_by
 
 
 def get_company_from_instance(instance):
@@ -106,9 +128,22 @@ def get_notif_type(action):
 def create_history_and_notifications(
     actor, action, entity_type, entity_id, entity_name,
     description, old_value=None, new_value=None,
-    affected_users=None, company=None
+    affected_users=None, company=None,
+    actor_type=None, actor_name=None, performed_by=None
 ):
     """Fonction centrale — crée le HistoryLog + toutes les Notifications."""
+    actor_type = actor_type or ("user" if actor else "system")
+    performed_by = performed_by or actor
+
+    if actor_type == "user" and performed_by:
+        actor_name = get_user_display_name(performed_by)
+    elif actor_type == "engagement_agent":
+        actor_name = "Agent d'engagement"
+    elif actor_type == "prospection_agent":
+        actor_name = "Agent de prospection"
+    elif not actor_name:
+        actor_name = "Système"
+
     log = HistoryLog.objects.create(
         actor=actor,
         action=action,
@@ -119,11 +154,14 @@ def create_history_and_notifications(
         old_value=old_value,
         new_value=new_value,
         company=company,
+        actor_type=actor_type,
+        actor_name=actor_name,
+        performed_by=performed_by,
     )
     if affected_users:
         log.affected_users.set(affected_users)
 
-    actor_name = actor.username if actor else "Système"
+    actor_name = log.actor_name or "Système"
     notif_type = get_notif_type(action)
 
     action_labels = {
@@ -167,6 +205,7 @@ def prospect_pre_save(sender, instance, **kwargs):
 @receiver(post_save, sender="sales.Prospect")
 def prospect_post_save(sender, instance, created, **kwargs):
     actor    = resolve_actor(instance)          # ✅ résolution fiable
+    actor_type, actor_name, performed_by = resolve_actor_metadata(instance, actor)
     company  = get_company_from_instance(instance)
     affected = get_affected_users(instance, actor, "prospect")
     name     = f"{instance.first_name} {instance.last_name}"
@@ -181,6 +220,7 @@ def prospect_post_save(sender, instance, created, **kwargs):
             ),
             new_value={"email": instance.email, "status": instance.status},
             affected_users=affected, company=company,
+            actor_type=actor_type, actor_name=actor_name, performed_by=performed_by,
         )
     else:
         old = getattr(instance, "_pre_save_state", None)
@@ -205,20 +245,23 @@ def prospect_post_save(sender, instance, created, **kwargs):
             old_value={k:v["from"] for k,v in changes.items()},
             new_value={k:v["to"]   for k,v in changes.items()},
             affected_users=affected, company=company,
+            actor_type=actor_type, actor_name=actor_name, performed_by=performed_by,
         )
 
 
 @receiver(post_delete, sender="sales.Prospect")
 def prospect_post_delete(sender, instance, **kwargs):
     actor   = resolve_actor(instance)
+    actor_type, actor_name, performed_by = resolve_actor_metadata(instance, actor)
     company = get_company_from_instance(instance)
     affected = get_affected_users(instance, actor, "prospect")
     create_history_and_notifications(
         actor=actor, action="delete", entity_type="prospect",
         entity_id=instance.pk,
         entity_name=f"{instance.first_name} {instance.last_name}",
-        description=f"Prospect « {instance.first_name} {instance.last_name} » supprimé",
         affected_users=affected, company=company,
+        description=f"Prospect « {instance.first_name} {instance.last_name} » supprimé",
+        actor_type=actor_type, actor_name=actor_name, performed_by=performed_by,
     )
 
 
@@ -354,6 +397,7 @@ def task_pre_save(sender, instance, **kwargs):
 @receiver(post_save, sender="sales.Task")
 def task_post_save(sender, instance, created, **kwargs):
     actor    = resolve_actor(instance)
+    actor_type, actor_name, performed_by = resolve_actor_metadata(instance, actor)
     company  = get_company_from_instance(instance)
     affected = get_affected_users(instance, actor, "task")
 
@@ -367,6 +411,7 @@ def task_post_save(sender, instance, created, **kwargs):
             ),
             new_value={"status": instance.status, "priority": instance.priority},
             affected_users=affected, company=company,
+            actor_type=actor_type, actor_name=actor_name, performed_by=performed_by,
         )
     else:
         old = getattr(instance, "_pre_save_state", None)
@@ -391,19 +436,22 @@ def task_post_save(sender, instance, created, **kwargs):
             old_value={k:v["from"] for k,v in changes.items()},
             new_value={k:v["to"]   for k,v in changes.items()},
             affected_users=affected, company=company,
+            actor_type=actor_type, actor_name=actor_name, performed_by=performed_by,
         )
 
 
 @receiver(post_delete, sender="sales.Task")
 def task_post_delete(sender, instance, **kwargs):
     actor   = resolve_actor(instance)
+    actor_type, actor_name, performed_by = resolve_actor_metadata(instance, actor)
     company = get_company_from_instance(instance)
     affected = get_affected_users(instance, actor, "task")
     create_history_and_notifications(
         actor=actor, action="delete", entity_type="task",
         entity_id=instance.pk, entity_name=instance.title,
-        description=f"Tâche « {instance.title} » supprimée",
         affected_users=affected, company=company,
+        description=f"Tâche « {instance.title} » supprimée",
+        actor_type=actor_type, actor_name=actor_name, performed_by=performed_by,
     )
 
 

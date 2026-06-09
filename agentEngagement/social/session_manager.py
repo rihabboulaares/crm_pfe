@@ -232,6 +232,87 @@ def get_existing_open_session(user_id: int | str, platform: str):
     return None
 
 
+def check_persistent_session_with_playwright(user_id: int, platform: str) -> dict:
+    playwright = None
+    context = None
+
+    try:
+        profile_dir = get_profile_dir(platform, user_id)
+        playwright = sync_playwright().start()
+
+        context = playwright.chromium.launch_persistent_context(
+            user_data_dir=str(profile_dir),
+            headless=True,
+            viewport={"width": 1400, "height": 900},
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ],
+        )
+
+        page = context.pages[0] if context.pages else context.new_page()
+        page.goto(get_home_url(platform), wait_until="domcontentloaded", timeout=90000)
+        page.wait_for_timeout(2500)
+        close_popups(page, platform)
+
+        if is_checkpoint_url(page.url):
+            return checkpoint_required_response(platform)
+
+        if login_required_by_selectors(page, platform):
+            return login_required_response(platform)
+
+        return session_ready_response(platform)
+
+    finally:
+        try:
+            if context:
+                context.close()
+        except Exception:
+            pass
+
+        try:
+            if playwright:
+                playwright.stop()
+        except Exception:
+            pass
+
+
+def run_session_check_in_worker(user_id: int, platform: str) -> dict:
+    """
+    Playwright Sync API cannot be started in a thread that already runs an
+    asyncio loop. Keep the existing sync code isolated in a short-lived worker.
+    """
+    result_queue = queue.Queue(maxsize=1)
+
+    def worker():
+        try:
+            result_queue.put(check_persistent_session_with_playwright(user_id, platform), timeout=1)
+        except Exception as exc:
+            result_queue.put(exc, timeout=1)
+
+    thread = threading.Thread(
+        target=worker,
+        name=f"social-session-check-{platform}-{user_id}",
+        daemon=True,
+    )
+    thread.start()
+    thread.join(timeout=120)
+
+    if thread.is_alive():
+        return {
+            "success": False,
+            "status": "session_check_timeout",
+            "platform": platform,
+            "message": f"Verification {platform} trop longue.",
+        }
+
+    result = result_queue.get_nowait()
+    if isinstance(result, Exception):
+        raise result
+    return result
+
+
 def run_social_login_worker(platform: str, user_id: int, startup_queue, command_queue):
     playwright = None
     context = None
@@ -461,56 +542,10 @@ def check_social_session(user_id: int, platform: str) -> dict:
                 logger.warning("[social-session] open page check failed %s: %s", platform, exc)
                 close_open_social_window(user_id, platform)
 
-        playwright = None
-        context = None
-
         try:
-            profile_dir = get_profile_dir(platform, user_id)
-            playwright = sync_playwright().start()
-
-            context = playwright.chromium.launch_persistent_context(
-                user_data_dir=str(profile_dir),
-                headless=True,
-                viewport={"width": 1400, "height": 900},
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                ],
-            )
-
-            page = context.pages[0] if context.pages else context.new_page()
-            page.goto(get_home_url(platform), wait_until="domcontentloaded", timeout=90000)
-            page.wait_for_timeout(2500)
-            close_popups(page, platform)
-
-            if is_checkpoint_url(page.url):
-                context.close()
-                playwright.stop()
-                return checkpoint_required_response(platform)
-
-            if login_required_by_selectors(page, platform):
-                context.close()
-                playwright.stop()
-                return login_required_response(platform)
-
-            context.close()
-            playwright.stop()
-            return session_ready_response(platform)
+            return run_session_check_in_worker(user_id, platform)
 
         except Exception as exc:
-            try:
-                if context:
-                    context.close()
-            except Exception:
-                pass
-
-            try:
-                if playwright:
-                    playwright.stop()
-            except Exception:
-                pass
-
             logger.exception("[social-session] check failed %s", platform)
 
             return {
@@ -527,7 +562,9 @@ def ensure_platform_session(user_id: int, platform: str) -> dict:
     Used by scrapers/senders. Never opens a login window and never waits for
     user input; it only checks the shared persistent session.
     """
-    return check_social_session(user_id, platform)
+    result = check_social_session(user_id, platform)
+    logger.warning("[ensure-session] user_id=%s platform=%s result=%s", user_id, platform, result)
+    return result
 
 
 def reset_social_session(user_id: int, platform: str) -> dict:

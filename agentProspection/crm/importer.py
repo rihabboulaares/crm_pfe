@@ -77,14 +77,32 @@ def clip(value, max_length: int):
 def safe_origin(value: str | None) -> str:
     text = str(value or "agent_prospection").lower()
 
+    if "google_maps" in text or "maps" in text:
+        return "google_maps"
     if "linkedin" in text:
         return "linkedin"
     if "facebook" in text:
         return "facebook"
+    if "instagram" in text:
+        return "instagram"
     if "website" in text or "web" in text:
         return "website"
 
-    return "website"
+    return "agent_prospection"
+
+
+def safe_company_source(value: str | None) -> str:
+    origin = safe_origin(value)
+    if origin == "google_maps":
+        return "google_maps"
+    return "agent_prospection"
+
+
+def safe_lead_origin(value: str | None) -> str:
+    origin = safe_origin(value)
+    if origin in {"google_maps", "linkedin", "facebook", "instagram", "website"}:
+        return origin
+    return "prospection_agent"
 
 
 def safe_evaluation(value: str | None, default: str = "cold") -> str:
@@ -98,6 +116,14 @@ def safe_status_from_analysis(item: dict) -> str:
     if item.get("analysis_status") == "review_needed":
         return "review_needed"
     return "new"
+
+
+def mark_prospection_actor(instance, user=None):
+    instance._history_actor_type = "prospection_agent"
+    instance._history_actor_name = "Agent de prospection"
+    if user:
+        instance._history_performed_by = user
+        instance._actor = user
 
 
 def text_value(item: dict, *fields: str) -> str | None:
@@ -206,6 +232,8 @@ def update_missing_fields(obj, item: dict, fields: list[str]) -> bool:
         "country": 100,
         "title": 100,
         "google_place_id": 150,
+        "address": 500,
+        "google_maps_url": 500,
         "first_name": 50,
         "last_name": 50,
     }
@@ -214,6 +242,10 @@ def update_missing_fields(obj, item: dict, fields: list[str]) -> bool:
         source_field = field
         if field == "google_place_id":
             new_value = maps_identity(item)
+        elif field in {"latitude", "longitude"}:
+            new_value = item.get(field)
+        elif field == "google_maps_url":
+            new_value = item.get("google_maps_url") or item.get("maps_url")
         elif field == "raison_score":
             new_value = item.get("raison_score") or item.get("content")
         else:
@@ -348,9 +380,13 @@ def save_result_to_crm(result: dict, assigned_user_id: int, tenant_company_id: i
             facebook_url=clip(result.get("facebook_url"), 200),
             instagram_url=clip(result.get("instagram_url"), 200),
             google_place_id=clip(maps_identity(result), 150),
+            address=clip(result.get("address"), 500),
+            latitude=result.get("latitude"),
+            longitude=result.get("longitude"),
+            google_maps_url=clip(result.get("google_maps_url") or result.get("maps_url"), 500),
             score_ia=score,
             evaluation=evaluation,
-            source="agent_prospection",
+            source=safe_company_source(result.get("source")),
         )
         company_created = True
         company_updated = False
@@ -370,6 +406,10 @@ def save_result_to_crm(result: dict, assigned_user_id: int, tenant_company_id: i
                 "facebook_url",
                 "instagram_url",
                 "google_place_id",
+                "address",
+                "latitude",
+                "longitude",
+                "google_maps_url",
             ],
         )
 
@@ -402,7 +442,7 @@ def save_result_to_crm(result: dict, assigned_user_id: int, tenant_company_id: i
     )
 
     if not prospect:
-        prospect = Prospect.objects.create(
+        prospect = Prospect(
             first_name=prospect_first_name,
             last_name=prospect_last_name,
             prospect_company=company,
@@ -413,6 +453,7 @@ def save_result_to_crm(result: dict, assigned_user_id: int, tenant_company_id: i
             city=clip(result.get("city"), 100),
             country=clip(result.get("country"), 100),
             origin=safe_origin(result.get("source")),
+            lead_origin=safe_lead_origin(result.get("source")),
             evaluation=safe_evaluation(result.get("evaluation"), "warm"),
             status=safe_status_from_analysis(result),
             assigned_to=user,
@@ -421,8 +462,14 @@ def save_result_to_crm(result: dict, assigned_user_id: int, tenant_company_id: i
             linkedin_url=clip(result.get("linkedin_url"), 200),
             facebook_url=clip(result.get("facebook_url"), 200),
             instagram_url=clip(result.get("instagram_url"), 200),
+            address=clip(result.get("address"), 500),
+            latitude=result.get("latitude"),
+            longitude=result.get("longitude"),
+            google_maps_url=clip(result.get("google_maps_url") or result.get("maps_url"), 500),
             raison_score=result.get("raison_score") or result.get("content"),
         )
+        mark_prospection_actor(prospect, user)
+        prospect.save()
         prospect_created = True
         prospect_updated = False
     else:
@@ -453,6 +500,10 @@ def save_result_to_crm(result: dict, assigned_user_id: int, tenant_company_id: i
                 "linkedin_url",
                 "facebook_url",
                 "instagram_url",
+                "address",
+                "latitude",
+                "longitude",
+                "google_maps_url",
                 "raison_score",
             ],
         ) or prospect_updated
@@ -465,6 +516,14 @@ def save_result_to_crm(result: dict, assigned_user_id: int, tenant_company_id: i
             prospect.origin = safe_origin(result.get("source"))
             prospect_updated = True
 
+        if (
+            result.get("source")
+            and getattr(prospect, "source", None) == "agent_prospection"
+            and getattr(prospect, "lead_origin", "manual") == "manual"
+        ):
+            prospect.lead_origin = safe_lead_origin(result.get("source"))
+            prospect_updated = True
+
         if result.get("evaluation") and not prospect.evaluation:
             prospect.evaluation = safe_evaluation(result.get("evaluation"), "warm")
             prospect_updated = True
@@ -474,6 +533,7 @@ def save_result_to_crm(result: dict, assigned_user_id: int, tenant_company_id: i
             prospect_updated = True
 
         if prospect_updated:
+            mark_prospection_actor(prospect, user)
             prospect.save()
 
     prospect._agent_import_meta = {

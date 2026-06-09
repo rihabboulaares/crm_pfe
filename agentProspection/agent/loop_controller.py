@@ -81,11 +81,30 @@ def normalize_lead(lead: dict, source: str) -> dict:
     lead.setdefault("facebook_url", None)
     lead.setdefault("instagram_url", None)
     lead.setdefault("google_place_id", None)
+    lead.setdefault("google_maps_url", None)
+    lead.setdefault("maps_url", lead.get("google_maps_url"))
+    lead.setdefault("latitude", None)
+    lead.setdefault("longitude", None)
+    lead.setdefault("address", None)
+    lead.setdefault("source_label", None)
+    lead.setdefault("map_location", None)
     lead.setdefault("raw_url", None)
     lead.setdefault("source_url", lead.get("raw_url") or lead.get("linkedin_url") or lead.get("facebook_url") or lead.get("instagram_url") or lead.get("website"))
     lead.setdefault("profile_url", lead.get("source_url"))
     lead.setdefault("job_title", lead.get("title"))
     lead.setdefault("content", None)
+
+    if lead.get("source") in {"maps", "google_maps", "maps_search"}:
+        lead["source"] = "google_maps"
+        lead["source_label"] = "Google Maps"
+
+    if lead.get("latitude") and lead.get("longitude") and not lead.get("map_location"):
+        lead["map_location"] = {
+            "lat": lead.get("latitude"),
+            "lng": lead.get("longitude"),
+            "address": lead.get("address"),
+            "google_maps_url": lead.get("google_maps_url") or lead.get("maps_url"),
+        }
 
     lead["lead_type"] = lead.get("lead_type") or classify_lead_type(lead)
 
@@ -577,6 +596,31 @@ async def run_agent(query: str, tenant_company_id: int, user_id: int) -> dict:
     companies, persons = memory.crm_ready_entities()
     companies = companies[:max_leads]
     persons = persons[:max_leads]
+    map_prospects = []
+
+    for item in companies + persons:
+        lat = item.get("latitude")
+        lng = item.get("longitude")
+
+        if lat and lng:
+            map_prospects.append({
+                "id": item.get("google_place_id") or item.get("company_name") or item.get("full_name"),
+                "name": item.get("company_name") or item.get("full_name"),
+                "lead_type": item.get("lead_type"),
+                "source": item.get("source"),
+                "source_label": item.get("source_label") or "Google Maps",
+                "latitude": lat,
+                "longitude": lng,
+                "address": item.get("address"),
+                "city": item.get("city"),
+                "country": item.get("country"),
+                "phone": item.get("phone"),
+                "website": item.get("website"),
+                "google_maps_url": item.get("google_maps_url") or item.get("maps_url"),
+                "rating": item.get("rating"),
+                "evaluation": item.get("evaluation"),
+                "lead_score": item.get("lead_score"),
+            })
 
     return {
         "companies_found": len(companies),
@@ -588,6 +632,7 @@ async def run_agent(query: str, tenant_company_id: int, user_id: int) -> dict:
         "import_stats": import_stats,
         "prospect_companies": companies,
         "prospect_persons": persons,
+        "map_prospects": map_prospects,
         "discovered_urls": len(memory.discovered_urls),
         "crawled_pages": len(memory.crawled_pages),
         "scraping_debug": memory.scraping_debug,

@@ -34,6 +34,67 @@ GEMINI_MODEL = getattr(
 )
 
 
+def clean_crm_message(message: str) -> str:
+    message = (message or "").strip()
+    original = message
+
+    banned_phrases = [
+        "j'ai vu vos publications",
+        "j’ai vu vos publications",
+        "j'ai analysé votre profil",
+        "j’ai analysé votre profil",
+        "j'ai analyse votre profil",
+        "j’ai analyse votre profil",
+        "j'ai consulté votre profil",
+        "j’ai consulté votre profil",
+        "j'ai consulte votre profil",
+        "j’ai consulte votre profil",
+        "votre parcours est inspirant",
+        "vos posts",
+        "vos photos",
+        "j'ai remarqué sur votre profil",
+        "j’ai remarqué sur votre profil",
+        "j'ai remarque sur votre profil",
+        "j’ai remarque sur votre profil",
+    ]
+
+    for phrase in banned_phrases:
+        message = re.sub(re.escape(phrase), "", message, flags=re.IGNORECASE)
+
+    message = re.sub(r"[ \t]+", " ", message)
+    message = re.sub(r"\n{3,}", "\n\n", message).strip()
+
+    unsafe_fragments = [
+        "publication",
+        "post",
+        "photo",
+        "bio",
+        "profil",
+        "parcours est inspirant",
+    ]
+    lower_original = original.lower()
+    lower_clean = message.lower()
+    if any(fragment in lower_original for fragment in unsafe_fragments) or len(message) < 40:
+        message = (
+            "Bonjour,\n\n"
+            "Je me permets de vous contacter afin d'echanger sur vos enjeux professionnels actuels.\n\n"
+            "Seriez-vous disponible pour un court echange cette semaine ?"
+        )
+        lower_clean = message.lower()
+
+    if not lower_clean.rstrip().endswith("?") and "?" not in lower_clean:
+        message = f"{message.rstrip()} Seriez-vous disponible pour un court echange ?"
+
+    if len(message) > 900:
+        truncated = message[:900]
+        if "." in truncated:
+            message = truncated.rsplit(".", 1)[0] + "."
+        else:
+            message = truncated.rstrip()
+
+    return message.strip()
+
+
 def _get_model():
     return get_gemini_model(max_output_tokens=4096)
 
@@ -269,10 +330,8 @@ def _normalize_gemini_data(data: dict) -> dict:
             data["action_type"] = expected_action[channel]
 
     if data.get("qualified") is False:
-        data["best_channel"] = "manual"
-        data["action_type"] = "no_action"
-        data["should_create_task"] = False
-        data["should_generate_message"] = False
+        data.setdefault("best_channel", "manual")
+        data.setdefault("action_type", "no_action")
         data["should_send_now"] = False
 
     if data.get("best_channel") == "phone":
@@ -281,8 +340,8 @@ def _normalize_gemini_data(data: dict) -> dict:
 
         if not data.get("call_script"):
             data["call_script"] = (
-                "Bonjour, je vous appelle suite à l'analyse de votre profil. "
-                "J'aimerais échanger brièvement avec vous pour comprendre vos besoins."
+                "Bonjour, je vous appelle pour echanger brievement sur vos enjeux professionnels actuels "
+                "et voir s'il existe un sujet sur lequel nous pourrions vous accompagner."
             )
 
     if data.get("best_channel") == "email":
@@ -294,8 +353,8 @@ def _normalize_gemini_data(data: dict) -> dict:
         if not data.get("message"):
             data["message"] = (
                 "Bonjour,\n\n"
-                "Je me permets de vous contacter après avoir consulté votre profil. "
-                "Seriez-vous disponible pour un court échange ?\n\n"
+                "Je me permets de vous contacter afin d'echanger sur vos enjeux professionnels actuels. "
+                "Seriez-vous disponible pour un court echange cette semaine ?\n\n"
                 "Cordialement,"
             )
 
@@ -304,8 +363,8 @@ def _normalize_gemini_data(data: dict) -> dict:
 
         if not data.get("message"):
             data["message"] = (
-                "Bonjour, j'ai consulté votre profil et je pense qu'un échange "
-                "pourrait être intéressant. Seriez-vous disponible pour en discuter ?"
+                "Bonjour, je me permets de vous contacter afin d'echanger sur vos enjeux "
+                "professionnels actuels. Seriez-vous disponible cette semaine ?"
             )
 
     if not data.get("task_title"):
@@ -316,6 +375,12 @@ def _normalize_gemini_data(data: dict) -> dict:
             f"Tâche préparée par l'agent IA. Canal recommandé : "
             f"{data.get('best_channel')}. Raison : {data.get('reason')}"
         )
+
+    data["message"] = clean_crm_message(data.get("message", ""))
+    data["should_send_now"] = False
+
+    if data.get("best_channel") in {"linkedin", "facebook", "instagram"}:
+        data["subject"] = ""
 
     return data
 

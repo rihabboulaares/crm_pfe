@@ -1,10 +1,13 @@
 import os
 import re
+import logging
 
 import httpx
 
 from agentProspection.tools.base_tool import BaseTool
 
+
+logger = logging.getLogger("agentProspection.maps")
 
 PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 
@@ -25,12 +28,14 @@ class MapsTool(BaseTool):
         "places.businessStatus",
         "places.googleMapsUri",
         "places.rating",
+        "places.userRatingCount",
     ])
 
     async def run(self, query: str) -> list[dict]:
         api_key = os.getenv("GOOGLE_MAPS_API_KEY")
 
         if not api_key:
+            logger.error("[GOOGLE_MAPS] GOOGLE_MAPS_API_KEY manquante")
             return []
 
         headers = {
@@ -43,8 +48,10 @@ class MapsTool(BaseTool):
             "textQuery": query,
             "languageCode": "fr",
             "regionCode": "TN",
-            "maxResultCount": 10,
+            "maxResultCount": 20,
         }
+
+        logger.info("[GOOGLE_MAPS] Recherche lancee query=%s", query)
 
         try:
             async with httpx.AsyncClient(timeout=30) as client:
@@ -55,12 +62,25 @@ class MapsTool(BaseTool):
                 )
                 response.raise_for_status()
                 data = response.json()
-        except Exception:
+
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "[GOOGLE_MAPS] Erreur API status=%s body=%s",
+                exc.response.status_code,
+                exc.response.text[:1000],
+            )
             return []
+
+        except Exception as exc:
+            logger.exception("[GOOGLE_MAPS] Erreur inattendue: %s", exc)
+            return []
+
+        places = data.get("places", [])
+        logger.info("[GOOGLE_MAPS] Resultats recus=%s query=%s", len(places), query)
 
         results = []
 
-        for place in data.get("places", []):
+        for place in places:
             display_name = place.get("displayName") or {}
             location = place.get("location") or {}
             primary_type_display = place.get("primaryTypeDisplayName") or {}
@@ -69,6 +89,10 @@ class MapsTool(BaseTool):
                 place.get("internationalPhoneNumber")
                 or place.get("nationalPhoneNumber")
             )
+
+            google_maps_url = place.get("googleMapsUri")
+            latitude = location.get("latitude")
+            longitude = location.get("longitude")
 
             results.append({
                 "lead_type": "company",
@@ -80,16 +104,26 @@ class MapsTool(BaseTool):
                 "address": place.get("formattedAddress"),
                 "website": place.get("websiteUri"),
                 "google_place_id": place.get("id"),
-                "google_maps_url": place.get("googleMapsUri"),
-                "latitude": location.get("latitude"),
-                "longitude": location.get("longitude"),
+                "google_maps_url": google_maps_url,
+                "maps_url": google_maps_url,
+                "latitude": latitude,
+                "longitude": longitude,
+                "map_location": {
+                    "lat": latitude,
+                    "lng": longitude,
+                    "address": place.get("formattedAddress"),
+                    "google_maps_url": google_maps_url,
+                },
                 "industry": (
                     primary_type_display.get("text")
                     or place.get("primaryType")
                 ),
                 "business_status": place.get("businessStatus"),
                 "rating": place.get("rating"),
-                "source": "maps",
+                "reviews_count": place.get("userRatingCount"),
+                "source": "google_maps",
+                "source_label": "Google Maps",
+                "source_confidence": 0.95,
             })
 
         return results
@@ -116,7 +150,7 @@ class MapsTool(BaseTool):
         known = [
             "Tunis", "Ariana", "Ben Arous", "La Marsa", "Sousse",
             "Sfax", "Nabeul", "Bizerte", "Monastir", "Mahdia",
-            "Gabes", "Gabès", "Kairouan",
+            "Gabes", "Gabes", "Kairouan", "Hammamet", "Djerba",
         ]
 
         address_l = address.lower()

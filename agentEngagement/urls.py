@@ -7,6 +7,7 @@ from .views import (
     EngagementProspectsView,
     MarkRepliedView,
     AnalyzeSocialProfileView,
+    CheckProspectReplyView,
     LaunchEngagementAgentView,
     PrepareEngagementView,
     ProspectLogsView,
@@ -56,6 +57,11 @@ urlpatterns = [
         "prospects/<int:prospect_id>/mark-replied/",
         MarkRepliedView.as_view(),
         name="engagement-mark-replied",
+    ),
+    path(
+        "prospects/<int:prospect_id>/check-reply/",
+        CheckProspectReplyView.as_view(),
+        name="engagement-check-reply",
     ),
     path(
         "prospects/<int:prospect_id>/create-follow-up-task/",

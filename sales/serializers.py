@@ -98,15 +98,18 @@ class ProspectSerializer(serializers.ModelSerializer):
         model  = Prospect
         fields = [
             "id", "name", "first_name", "last_name", "title", "email", "phone",
-            "city", "country", "description",
+            "city", "country", "address", "latitude", "longitude", "description",
             "origin", "evaluation", "status",
             "assigned_to", "assigned_to_name",
             "company", "prospect_company", "prospect_company_name", "prospect_company_detail",
             "website", "website_url", "source_url", "linkedin_url", "facebook_url",
             "instagram_url", "google_maps_url", "notes",
-            "source", "source_display",
+            "source", "source_display", "lead_origin",
             "engagement_status", "engagement_channel", "engagement_message",
             "engagement_error", "engagement_subject", "last_engagement_at",
+            "last_message_sent", "last_message_sent_at", "last_reply_checked_at",
+            "last_reply_text", "last_reply_at", "reply_summary", "reply_sentiment",
+            "next_recommended_action", "generated_followup_message", "conversation_status",
             "social_profile_summary", "social_profile_description", "social_profile_interests",
             "social_profile_activity_level", "social_profile_tone",
             "social_profile_relevance", "social_profile_hook",
@@ -121,6 +124,16 @@ class ProspectSerializer(serializers.ModelSerializer):
             "engagement_error",
             "engagement_subject",
             "last_engagement_at",
+            "last_message_sent",
+            "last_message_sent_at",
+            "last_reply_checked_at",
+            "last_reply_text",
+            "last_reply_at",
+            "reply_summary",
+            "reply_sentiment",
+            "next_recommended_action",
+            "generated_followup_message",
+            "conversation_status",
             "social_profile_summary",
             "social_profile_description",
             "social_profile_interests",
@@ -143,10 +156,14 @@ class ProspectSerializer(serializers.ModelSerializer):
             "title": {"required": False, "allow_blank": True, "allow_null": True},
             "city": {"required": False, "allow_blank": True, "allow_null": True},
             "country": {"required": False, "allow_blank": True, "allow_null": True},
+            "address": {"required": False, "allow_blank": True, "allow_null": True},
+            "latitude": {"required": False, "allow_null": True},
+            "longitude": {"required": False, "allow_null": True},
             "description": {"required": False, "allow_blank": True, "allow_null": True},
             "origin": {"required": False, "allow_blank": True, "allow_null": True},
             "evaluation": {"required": False, "allow_blank": True, "allow_null": True},
             "source": {"required": False, "allow_blank": True, "allow_null": True},
+            "lead_origin": {"required": False, "allow_blank": True, "allow_null": True},
             "website": {"required": False, "allow_blank": True, "allow_null": True},
             "source_url": {"required": False, "allow_blank": True, "allow_null": True},
             "linkedin_url": {"required": False, "allow_blank": True, "allow_null": True},
@@ -201,11 +218,14 @@ class ProspectSerializer(serializers.ModelSerializer):
 
         for optional_field in [
             "email", "phone", "title", "city", "country", "description", "origin", "evaluation",
-            "source", "website", "source_url", "linkedin_url", "facebook_url",
+            "address", "source", "lead_origin", "website", "source_url", "linkedin_url", "facebook_url",
             "instagram_url", "google_maps_url", "notes",
         ]:
             if attrs.get(optional_field) == "":
                 attrs[optional_field] = None
+
+        if attrs.get("lead_origin") is None:
+            attrs.pop("lead_origin", None)
 
         first_name = (attrs.get("first_name") or "").strip()
         last_name = (attrs.get("last_name") or "").strip()
@@ -250,6 +270,9 @@ class ProspectSerializer(serializers.ModelSerializer):
             validated_data["source"] = (
                 "commercial" if user.role == "COMMERCIAL" else "agent_prospection"
             )
+
+        if not validated_data.get("lead_origin"):
+            validated_data["lead_origin"] = "manual"
 
         return Prospect.objects.create(
             **validated_data,

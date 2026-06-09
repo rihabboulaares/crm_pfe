@@ -270,7 +270,7 @@ def classify_lead_type(lead: dict) -> str:
 
     full_text = f"{company_name} {title}"
 
-    if lead.get("google_place_id") or source in {"maps", "google_maps"}:
+    if lead.get("google_place_id") or source in {"maps", "google_maps", "maps_search"}:
         return "company"
 
     if lead.get("linkedin_url") and "/in/" in str(lead.get("linkedin_url")).lower():
@@ -298,7 +298,7 @@ def is_relevant_to_query(lead: dict, query: str, intent: dict) -> bool:
         lead["rejected_reason"] = "noise_result"
         return False
 
-    if lead.get("google_place_id") and normalize(lead.get("source")) in {"maps", "google_maps"}:
+    if lead.get("google_place_id") and normalize(lead.get("source")) in {"maps", "google_maps", "maps_search"}:
         return True
 
     lead_text = " ".join([

@@ -24,7 +24,18 @@ class CurrentUserMiddleware:
 
     def __call__(self, request):
         # On stocke l'user APRÈS l'authentification JWT (il sera hydraté)
-        _thread_locals.user = getattr(request, "user", None)
+        user = getattr(request, "user", None)
+        if not getattr(user, "is_authenticated", False):
+            try:
+                from rest_framework_simplejwt.authentication import JWTAuthentication
+
+                authenticated = JWTAuthentication().authenticate(request)
+                if authenticated:
+                    user = authenticated[0]
+            except Exception:
+                pass
+
+        _thread_locals.user = user
         try:
             response = self.get_response(request)
         finally:

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from math import ceil
 
 from django.conf import settings
 from django.db.models import Count, Q
@@ -18,6 +19,7 @@ from sales.engagement_tasks import (
 )
 
 from .models import EngagementCampaign, EngagementLog
+from .reply_checker import check_prospect_reply
 from .runner import enrich_prospect_with_social_analysis, launch_engagement_agent, prepare_engagement
 from .sender import EngagementSender
 from .social.session_manager import (
@@ -34,6 +36,9 @@ ENGAGEMENT_STATUSES = [
     "message_ready",
     "sending",
     "message_sent",
+    "reply_detected",
+    "followup_generated",
+    "opportunity_ready",
     "message_failed",
     "replied",
     "follow_up_required",
@@ -70,6 +75,7 @@ def get_prospect_or_404(user, prospect_id):
 def serialize_prospect(prospect, request):
     data = ProspectSerializer(prospect, context={"request": request}).data
     data["engagement_status"] = normalize_status(prospect.engagement_status)
+    data["lead_origin"] = getattr(prospect, "lead_origin", "manual")
     data["engagement_message"] = prospect.generated_message or ""
     data["engagement_channel"] = prospect.last_engagement_channel
     data["company_name"] = prospect.prospect_company.name if prospect.prospect_company else ""
@@ -83,6 +89,17 @@ def serialize_prospect(prospect, request):
     data["social_profile_topics"] = prospect.social_profile_topics or []
     data["social_profile_analysis"] = prospect.social_profile_analysis or {}
     data["social_profile_last_analyzed_at"] = prospect.social_profile_last_analyzed_at
+    data["last_message_sent"] = prospect.last_message_sent or ""
+    data["last_message_sent_at"] = prospect.last_message_sent_at
+    data["last_reply_checked_at"] = prospect.last_reply_checked_at
+    data["last_reply_text"] = prospect.last_reply_text or ""
+    data["last_reply_at"] = prospect.last_reply_at
+    data["reply_summary"] = prospect.reply_summary or ""
+    data["reply_sentiment"] = prospect.reply_sentiment or ""
+    data["next_recommended_action"] = prospect.next_recommended_action or ""
+    data["generated_followup_message"] = prospect.generated_followup_message or ""
+    data["conversation_status"] = prospect.conversation_status or "not_contacted"
+    data["has_opportunity"] = prospect.opportunities.exists()
     return data
 
 
@@ -147,6 +164,9 @@ class EngagementDashboardView(APIView):
             counts[normalize_status(row["engagement_status"])] = (
                 counts.get(normalize_status(row["engagement_status"]), 0) + row["total"]
             )
+        manual_prospects = qs.filter(lead_origin="manual").count()
+        agent_prospects = qs.exclude(lead_origin="manual").count()
+        opportunities_ready = counts.get("opportunity_ready", 0)
         return Response(
             {
                 "new": counts.get("new", 0),
@@ -155,9 +175,14 @@ class EngagementDashboardView(APIView):
                 "message_ready": counts.get("pending_validation", 0) + counts.get("message_ready", 0),
                 "to_validate": counts.get("pending_validation", 0) + counts.get("message_ready", 0),
                 "message_sent": counts.get("message_sent", 0),
-                "replied": counts.get("replied", 0),
+                "replied": counts.get("replied", 0)
+                + counts.get("reply_detected", 0)
+                + counts.get("opportunity_ready", 0),
                 "errors": counts.get("message_failed", 0),
-                "follow_up_required": counts.get("follow_up_required", 0),
+                "follow_up_required": counts.get("follow_up_required", 0) + counts.get("followup_generated", 0),
+                "manual_prospects": manual_prospects,
+                "agent_prospects": agent_prospects,
+                "opportunities_ready": opportunities_ready,
                 "by_status": counts,
             }
         )
@@ -178,8 +203,12 @@ class EngagementProspectsView(APIView):
                 "message_ready": ["pending_validation", "message_ready"],
                 "message_failed": ["message_failed", "failed"],
                 "message_sent": ["message_sent", "contacted", "waiting_reply"],
+                "reply_detected": ["reply_detected"],
+                "followup_generated": ["followup_generated"],
+                "opportunity_ready": ["opportunity_ready"],
+                "replied": ["replied", "reply_detected", "opportunity_ready"],
                 "preparing": ["preparing", "analyzing", "qualified"],
-                "follow_up_required": ["follow_up_required", "task_created"],
+                "follow_up_required": ["follow_up_required", "followup_generated", "task_created"],
             }.get(status_filter, [status_filter])
             qs = qs.filter(engagement_status__in=legacy_statuses)
         if channel and channel != "all":
@@ -193,8 +222,35 @@ class EngagementProspectsView(APIView):
                 | Q(prospect_company__name__icontains=search)
             )
 
-        data = [serialize_prospect(prospect, request) for prospect in qs.order_by("-created_at")[:200]]
-        return Response({"results": data, "count": qs.count()})
+        try:
+            page = max(int(request.query_params.get("page", 1)), 1)
+        except (TypeError, ValueError):
+            page = 1
+
+        try:
+            page_size = int(request.query_params.get("page_size", 10))
+        except (TypeError, ValueError):
+            page_size = 10
+        page_size = min(max(page_size, 1), 100)
+
+        total = qs.count()
+        pages = max(ceil(total / page_size), 1)
+        if page > pages:
+            page = pages
+
+        start = (page - 1) * page_size
+        end = start + page_size
+        data = [serialize_prospect(prospect, request) for prospect in qs.order_by("-created_at")[start:end]]
+        return Response(
+            {
+                "results": data,
+                "count": total,
+                "total": total,
+                "pages": pages,
+                "page": page,
+                "page_size": page_size,
+            }
+        )
 
 
 class PrepareEngagementView(APIView):
@@ -478,13 +534,26 @@ class SendPreparedEngagementView(APIView):
 
         result = EngagementSender().send_prepared(prospect, request.user, send=send)
         if result.get("success") and result.get("sent"):
-            prospect.engagement_status = "message_sent"
+            prospect.engagement_status = "waiting_reply"
             prospect.engagement_error = None
-            prospect.last_engagement_at = timezone.now()
-            prospect.save(update_fields=["engagement_status", "engagement_error", "last_engagement_at"])
-            log = create_log(prospect, request.user, "message_sent", "message_sent", channel, message, sent_at=timezone.now())
+            sent_at = timezone.now()
+            prospect.last_engagement_at = sent_at
+            prospect.last_message_sent = message
+            prospect.last_message_sent_at = sent_at
+            prospect.conversation_status = "waiting_reply"
+            prospect.save(
+                update_fields=[
+                    "engagement_status",
+                    "engagement_error",
+                    "last_engagement_at",
+                    "last_message_sent",
+                    "last_message_sent_at",
+                    "conversation_status",
+                ]
+            )
+            log = create_log(prospect, request.user, "message_sent", "message_sent", channel, message, sent_at=sent_at)
             complete_channel_task_and_follow_up(prospect, channel, user=request.user, engagement_log=log)
-            return Response({"success": True, "status": "message_sent", "sent": True, "prospect": serialize_prospect(prospect, request)})
+            return Response({"success": True, "status": "waiting_reply", "sent": True, "prospect": serialize_prospect(prospect, request)})
 
         if result.get("test_mode"):
             prospect.engagement_status = "pending_validation"
@@ -562,6 +631,97 @@ class MarkRepliedView(APIView):
         create_log(prospect, request.user, "replied", "replied", prospect.last_engagement_channel, prospect.generated_message)
         notify(request.user, f"Reponse recue de {prospect.first_name} {prospect.last_name}", "Le prospect a ete marque comme repondu.", "success", prospect)
         return Response({"success": True, "status": "replied", "prospect": serialize_prospect(prospect, request)})
+
+
+class CheckProspectReplyView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, prospect_id):
+        try:
+            prospect = get_prospect_or_404(request.user, prospect_id)
+        except Prospect.DoesNotExist:
+            return Response({"success": False, "error": "Prospect introuvable"}, status=404)
+
+        result = check_prospect_reply(prospect, user=request.user)
+
+        if result.get("requires_login"):
+            prospect.last_reply_checked_at = timezone.now()
+            prospect.engagement_error = result.get("message")
+            prospect.save(update_fields=["last_reply_checked_at", "engagement_error"])
+            return Response({**result, "prospect": serialize_prospect(prospect, request)})
+
+        if not result.get("success"):
+            prospect.last_reply_checked_at = timezone.now()
+            prospect.engagement_error = result.get("message") or result.get("error")
+            prospect.save(update_fields=["last_reply_checked_at", "engagement_error"])
+            return Response({**result, "prospect": serialize_prospect(prospect, request)})
+
+        now = timezone.now()
+        prospect.last_reply_checked_at = now
+        prospect.generated_followup_message = result.get("generated_reply") or ""
+        prospect.next_recommended_action = result.get("recommended_action") or ""
+        prospect.conversation_status = result.get("conversation_status") or (
+            "reply_detected" if result.get("has_reply") else "followup_generated"
+        )
+
+        update_fields = [
+            "last_reply_checked_at",
+            "generated_followup_message",
+            "next_recommended_action",
+            "conversation_status",
+        ]
+
+        if result.get("has_reply"):
+            prospect.last_reply_text = result.get("reply_text") or ""
+            prospect.last_reply_at = now
+            prospect.reply_summary = result.get("reply_summary") or ""
+            prospect.reply_sentiment = result.get("sentiment") or ""
+            prospect.engagement_status = (
+                "opportunity_ready"
+                if result.get("recommended_action") == "create_opportunity"
+                else "replied"
+            )
+            prospect.engagement_error = None
+            update_fields.extend(
+                [
+                    "last_reply_text",
+                    "last_reply_at",
+                    "reply_summary",
+                    "reply_sentiment",
+                    "engagement_status",
+                    "engagement_error",
+                ]
+            )
+            create_log(
+                prospect,
+                request.user,
+                "replied",
+                prospect.engagement_status,
+                prospect.last_engagement_channel,
+                result.get("reply_text"),
+            )
+        else:
+            prospect.engagement_status = "follow_up_required"
+            update_fields.append("engagement_status")
+            create_log(
+                prospect,
+                request.user,
+                "follow_up_created",
+                "follow_up_required",
+                prospect.last_engagement_channel,
+                result.get("generated_reply"),
+            )
+
+        prospect.save(update_fields=update_fields)
+
+        return Response(
+            {
+                **result,
+                "status": prospect.engagement_status,
+                "prospect_status": prospect.conversation_status,
+                "prospect": serialize_prospect(prospect, request),
+            }
+        )
 
 
 class CreateFollowUpTaskView(APIView):

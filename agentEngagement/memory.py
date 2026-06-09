@@ -13,6 +13,7 @@ BLOCKING_STATUSES = {
     "follow_up_required",
     "closed",
     "rejected",
+    "not_qualified",
     "task_created",
     "contacted",
     "waiting_reply",
