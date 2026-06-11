@@ -25,6 +25,21 @@ from .views import (
     SuperAdminTaskListView,
     SuperAdminTaskActivityListView,
     SuperAdminTaskCommentListView,
+    SuperAdminDashboardGrowthView,
+    SuperAdminCRMFunnelView,
+    SuperAdminGeoStatsView,
+    SuperAdminUsersPerformanceView,
+    SuperAdminCompanyStatsView,
+    SuperAdminProspectStatsView,
+    SuperAdminOpportunityStatsView,
+    SuperAdminTaskStatsView,
+    SuperAdminContactStatsView,
+    SuperAdminTeamStatsView,
+    SuperAdminInvitationStatsView,
+    SuperAdminAIAgentRunListView,
+    SuperAdminAIAgentStatsView,
+    SuperAdminAuditLogListView,
+    SuperAdminSystemHealthView,
 )
 from .views import (
     AcquisitionSourceView,
@@ -39,6 +54,21 @@ urlpatterns = [
 
     # ── Stats ─────────────────────────────────────────────────
     path("stats/",                          SuperAdminStatsView.as_view(),              name="sa-stats"),
+    path("dashboard-growth/",               SuperAdminDashboardGrowthView.as_view(),    name="sa-dashboard-growth"),
+    path("crm-funnel/",                     SuperAdminCRMFunnelView.as_view(),          name="sa-crm-funnel"),
+    path("geo-stats/",                      SuperAdminGeoStatsView.as_view(),           name="sa-geo-stats"),
+    path("users-performance/",              SuperAdminUsersPerformanceView.as_view(),   name="sa-users-performance"),
+    path("companies/stats/",                SuperAdminCompanyStatsView.as_view(),       name="sa-companies-stats"),
+    path("prospects/stats/",                SuperAdminProspectStatsView.as_view(),      name="sa-prospects-stats"),
+    path("opportunities/stats/",            SuperAdminOpportunityStatsView.as_view(),   name="sa-opportunities-stats"),
+    path("tasks/stats/",                    SuperAdminTaskStatsView.as_view(),          name="sa-tasks-stats"),
+    path("contacts/stats/",                 SuperAdminContactStatsView.as_view(),       name="sa-contacts-stats"),
+    path("teams/stats/",                    SuperAdminTeamStatsView.as_view(),          name="sa-teams-stats"),
+    path("invitations/stats/",              SuperAdminInvitationStatsView.as_view(),    name="sa-invitations-stats"),
+    path("ai-agents/",                      SuperAdminAIAgentRunListView.as_view(),     name="sa-ai-agents"),
+    path("ai-agents/stats/",                SuperAdminAIAgentStatsView.as_view(),       name="sa-ai-agent-stats"),
+    path("audit-logs/",                     SuperAdminAuditLogListView.as_view(),       name="sa-audit-logs"),
+    path("system-health/",                  SuperAdminSystemHealthView.as_view(),       name="sa-system-health"),
 
     # ── Plans ─────────────────────────────────────────────────
     path("plans/",                          SuperAdminPlanListCreateView.as_view(),     name="sa-plans"),

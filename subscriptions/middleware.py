@@ -1,10 +1,9 @@
-# subscriptions/middleware.py
 import logging
+
 from django.http import JsonResponse
 
 logger = logging.getLogger(__name__)
 
-# Routes autorisées pour TOUT le monde (même abonnement expiré)
 PUBLIC_ROUTES = [
     "/api/users/login/",
     "/api/users/refresh/",
@@ -13,7 +12,6 @@ PUBLIC_ROUTES = [
     "/admin/",
 ]
 
-# Routes autorisées pour l'ADMIN même si abonnement expiré
 ADMIN_ALLOWED_ROUTES = [
     "/api/users/me/",
     "/api/users/logout/",
@@ -24,25 +22,69 @@ ADMIN_ALLOWED_ROUTES = [
     "/api/subscriptions/webhook/",
 ]
 
+FEATURE_ROUTES = {
+    "crm_agent": [
+        "/api/agent-crm/",
+        "/api/crm-agent/",
+        "/api/agent/chat/",
+        "/api/agent/reset/",
+        "/api/agent/status/",
+        "/api/agent/file/",
+    ],
+    "prospection_agent": [
+        "/api/agent/prospect/",
+        "/api/prospection/",
+    ],
+    "engagement_agent": [
+        "/api/engagement/",
+        "/api/agentEngagement/",
+    ],
+    "exports": [
+        "/api/export/",
+        "/api/reports/export/",
+    ],
+}
+
 
 def _matches(path, routes):
     return any(path.startswith(r) for r in routes)
 
 
-class SubscriptionMiddleware:
-    """
-    Bloque toutes les routes API si abonnement expiré/inactif.
+def _get_required_feature(path):
+    for feature, routes in FEATURE_ROUTES.items():
+        if _matches(path, routes):
+            return feature
+    return None
 
-    ┌─────────────────┬──────────────────────────────────┬──────────────────────┐
-    │ Situation        │ ADMIN                            │ Manager/Commercial   │
-    ├─────────────────┼──────────────────────────────────┼──────────────────────┤
-    │ Abonnement OK   │ Tout autorisé                    │ Tout autorisé        │
-    │ Expiré/inactif  │ /me/ + /subscriptions/* seulement│ login/refresh seul   │
-    │ Pas d'abonnement│ Idem expiré                      │ login/refresh seul   │
-    │ Superadmin      │ Toujours autorisé                │ —                    │
-    │ Webhook Stripe  │ Toujours autorisé                │ Toujours autorisé    │
-    └─────────────────┴──────────────────────────────────┴──────────────────────┘
-    """
+
+def _feature_message(feature):
+    messages = {
+        "prospection_agent": "L'agent de prospection est disponible à partir de l'abonnement Pro.",
+        "engagement_agent": "L'agent d'engagement est disponible uniquement avec l'abonnement Enterprise.",
+        "exports": "Les exports PDF/Excel sont disponibles à partir de l'abonnement Pro.",
+        "crm_agent": "L'agent CRM nécessite un abonnement actif.",
+    }
+    return messages.get(
+        feature, "Cette fonctionnalité n'est pas disponible dans votre abonnement actuel."
+    )
+
+
+def _is_company_admin(user):
+    return str(getattr(user, "role", "")).upper() == "ADMIN"
+
+
+def _blocked(error_code, message, redirect="/subscriptions", **extra):
+    payload = {
+        "error": error_code,
+        "message": message,
+        "redirect": redirect,
+    }
+    payload.update(extra)
+    return JsonResponse(payload, status=403)
+
+
+class SubscriptionMiddleware:
+    """Block expired subscriptions globally and enforce plan-scoped feature routes."""
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -50,60 +92,55 @@ class SubscriptionMiddleware:
     def __call__(self, request):
         path = request.path
 
-        # 1. Webhook Stripe → jamais bloquer
         if path.startswith("/api/subscriptions/webhook/"):
             return self.get_response(request)
 
-        # 2. Routes publiques → toujours passer
         if _matches(path, PUBLIC_ROUTES):
             return self.get_response(request)
 
-        # 3. Hors API → passer (React, admin Django, etc.)
         if not path.startswith("/api/"):
             return self.get_response(request)
 
-        # 4. Non authentifié → laisser DRF gérer (401)
         user = getattr(request, "user", None)
         if not user or not user.is_authenticated:
             return self.get_response(request)
 
-        # 5. Superadmin Django → toujours autorisé
         if user.is_staff or user.is_superuser:
             return self.get_response(request)
 
-        # 6. Récupérer la company
         company = getattr(user, "company", None)
         if not company:
             return self.get_response(request)
 
-        # 7. Récupérer l'abonnement
         try:
             subscription = company.subscription
         except Exception:
             subscription = None
 
-        # 8. Pas d'abonnement
         if subscription is None:
-            if user.role == "ADMIN" and _matches(path, ADMIN_ALLOWED_ROUTES):
+            if _is_company_admin(user) and _matches(path, ADMIN_ALLOWED_ROUTES):
                 return self.get_response(request)
-            return _blocked("no_subscription",
-                "Aucun abonnement actif. Contactez votre administrateur.")
+            return _blocked(
+                "no_subscription",
+                "Aucun abonnement actif. Contactez votre administrateur.",
+            )
 
-        # 9. Abonnement OK → tout autorisé
         if not subscription.is_blocked():
+            required_feature = _get_required_feature(path)
+            if required_feature and not subscription.can_use(required_feature):
+                return _blocked(
+                    "feature_not_allowed",
+                    _feature_message(required_feature),
+                    redirect="/subscriptions/upgrade",
+                    required_feature=required_feature,
+                    current_plan=subscription.plan.name if subscription.plan else None,
+                )
             return self.get_response(request)
 
-        # 10. Abonnement expiré/inactif
-        if user.role == "ADMIN" and _matches(path, ADMIN_ALLOWED_ROUTES):
+        if _is_company_admin(user) and _matches(path, ADMIN_ALLOWED_ROUTES):
             return self.get_response(request)
 
-        # Membres → bloqués
-        return _blocked("subscription_expired",
-            "Votre abonnement a expiré. Contactez votre administrateur.")
-
-
-def _blocked(error_code, message):
-    return JsonResponse(
-        {"error": error_code, "message": message, "redirect": "/subscriptions"},
-        status=403,
-    )
+        return _blocked(
+            "subscription_expired",
+            "Votre abonnement a expiré. Contactez votre administrateur.",
+        )

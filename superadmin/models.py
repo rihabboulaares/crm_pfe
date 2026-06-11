@@ -114,3 +114,105 @@ class UserActivity(models.Model):
 
     def __str__(self):
         return f"{self.user.username} — {self.module}"
+class SuperAdminAuditLog(models.Model):
+    ACTION_CHOICES = [
+        ("create", "Create"),
+        ("update", "Update"),
+        ("delete", "Delete"),
+        ("login", "Login"),
+        ("logout", "Logout"),
+        ("launch_agent", "Launch agent"),
+        ("send_message", "Send message"),
+        ("subscription_change", "Subscription change"),
+        ("toggle_user", "Toggle user"),
+        ("toggle_company", "Toggle company"),
+    ]
+
+    actor = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="superadmin_audit_logs")
+    company = models.ForeignKey(Company, on_delete=models.SET_NULL, null=True, blank=True, related_name="superadmin_audit_logs")
+    action = models.CharField(max_length=40, choices=ACTION_CHOICES)
+    module = models.CharField(max_length=80)
+    object_id = models.CharField(max_length=120, null=True, blank=True)
+    object_repr = models.CharField(max_length=255, null=True, blank=True)
+    description = models.TextField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["company", "created_at"]),
+            models.Index(fields=["actor", "created_at"]),
+            models.Index(fields=["module", "created_at"]),
+            models.Index(fields=["action", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.module}.{self.action}"
+
+
+class AIAgentRun(models.Model):
+    AGENT_TYPE_CHOICES = [("prospection", "Prospection"), ("engagement", "Engagement")]
+    STATUS_CHOICES = [("running", "Running"), ("success", "Success"), ("failed", "Failed"), ("partial", "Partial")]
+
+    company = models.ForeignKey(Company, on_delete=models.SET_NULL, null=True, blank=True, related_name="ai_agent_runs")
+    launched_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="ai_agent_runs")
+    agent_type = models.CharField(max_length=30, choices=AGENT_TYPE_CHOICES)
+    query = models.TextField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="running")
+    prospects_found = models.PositiveIntegerField(default=0)
+    prospects_imported = models.PositiveIntegerField(default=0)
+    messages_generated = models.PositiveIntegerField(default=0)
+    messages_sent = models.PositiveIntegerField(default=0)
+    replies_detected = models.PositiveIntegerField(default=0)
+    source_google_maps = models.PositiveIntegerField(default=0)
+    source_linkedin = models.PositiveIntegerField(default=0)
+    source_facebook = models.PositiveIntegerField(default=0)
+    source_instagram = models.PositiveIntegerField(default=0)
+    source_website = models.PositiveIntegerField(default=0)
+    duration_seconds = models.FloatField(default=0)
+    error_message = models.TextField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    started_at = models.DateTimeField(default=timezone.now)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+        indexes = [
+            models.Index(fields=["company", "started_at"]),
+            models.Index(fields=["agent_type", "started_at"]),
+            models.Index(fields=["status", "started_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.agent_type} - {self.status}"
+
+
+class SystemHealthLog(models.Model):
+    SERVICE_CHOICES = [
+        ("backend", "Backend"),
+        ("database", "Database"),
+        ("redis", "Redis"),
+        ("gemini", "Gemini"),
+        ("playwright", "Playwright"),
+        ("linkedin", "LinkedIn"),
+        ("facebook", "Facebook"),
+        ("instagram", "Instagram"),
+    ]
+    STATUS_CHOICES = [("online", "Online"), ("offline", "Offline"), ("slow", "Slow"), ("warning", "Warning")]
+
+    service = models.CharField(max_length=40, choices=SERVICE_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    response_time_ms = models.FloatField(null=True, blank=True)
+    message = models.TextField(null=True, blank=True)
+    checked_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-checked_at"]
+        indexes = [
+            models.Index(fields=["service", "checked_at"]),
+            models.Index(fields=["status", "checked_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.service}: {self.status}"

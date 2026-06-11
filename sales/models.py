@@ -50,6 +50,20 @@ class ProspectCompany(models.Model):
     city = models.CharField(max_length=100, blank=True, null=True)
     country = models.CharField(max_length=100, blank=True, null=True)
     company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_prospect_companies",
+    )
+    assigned_to = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="prospect_companies",
+    )
 
     website = models.URLField(blank=True, null=True)
     facebook_url = models.URLField(blank=True, null=True)

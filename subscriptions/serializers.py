@@ -1,7 +1,6 @@
-# subscriptions/serializers.py
 from rest_framework import serializers
-from .models import SubscriptionPlan, CompanySubscription
-from django.utils import timezone
+
+from .models import CompanySubscription, SubscriptionPlan
 
 
 class SubscriptionPlanSerializer(serializers.ModelSerializer):
@@ -11,31 +10,50 @@ class SubscriptionPlanSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "price",
+            "duration_days",
             "max_users",
             "max_teams",
             "max_prospects",
             "description",
             "premium_features",
-            # ⚠️ "is_trial" RETIRÉ — ce champ n'existe pas sur SubscriptionPlan
+            "stripe_price_id",
         ]
 
 
 class CompanySubscriptionSerializer(serializers.ModelSerializer):
     plan = SubscriptionPlanSerializer(read_only=True)
-    trial_expired = serializers.SerializerMethodField()
+    expired = serializers.BooleanField(read_only=True)
+    days_until_expiry = serializers.SerializerMethodField()
+    is_blocked = serializers.SerializerMethodField()
+    allowed_features = serializers.SerializerMethodField()
+    plan_key = serializers.SerializerMethodField()
+    trial_expired = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = CompanySubscription
         fields = [
             "plan",
+            "plan_key",
             "is_active",
+            "is_trial",
             "start_date",
             "end_date",
+            "trial_end_date",
             "trial_expired",
+            "expired",
+            "days_until_expiry",
+            "is_blocked",
+            "allowed_features",
         ]
 
-    def get_trial_expired(self, obj):
-        # is_trial est sur CompanySubscription, pas sur SubscriptionPlan
-        if obj.is_trial and obj.end_date:
-            return obj.end_date < timezone.now().date()
-        return False
+    def get_days_until_expiry(self, obj):
+        return obj.days_until_expiry()
+
+    def get_is_blocked(self, obj):
+        return obj.is_blocked()
+
+    def get_allowed_features(self, obj):
+        return obj.get_allowed_features()
+
+    def get_plan_key(self, obj):
+        return obj.get_plan_key()

@@ -1,4 +1,5 @@
 from datetime import timedelta
+import logging
 from math import ceil
 
 from django.conf import settings
@@ -19,6 +20,12 @@ from sales.engagement_tasks import (
 )
 
 from .models import EngagementCampaign, EngagementLog
+from .permissions import (
+    get_engagement_queryset_for_user,
+    get_team_users_for_manager,
+    is_company_engagement_admin,
+    is_global_engagement_admin,
+)
 from .reply_checker import check_prospect_reply
 from .runner import enrich_prospect_with_social_analysis, launch_engagement_agent, prepare_engagement
 from .sender import EngagementSender
@@ -27,6 +34,8 @@ from .social.session_manager import (
     open_social_login_window,
     reset_social_session,
 )
+
+logger = logging.getLogger(__name__)
 
 
 ENGAGEMENT_STATUSES = [
@@ -63,13 +72,20 @@ def normalize_status(status_value):
 
 
 def prospect_queryset(user):
-    return Prospect.objects.select_related("prospect_company", "assigned_to").filter(
-        company=user.company
+    return get_engagement_queryset_for_user(user)
+
+
+def unauthorized_prospect_response(request, prospect_id):
+    logger.warning(
+        "Unauthorized engagement access user=%s prospect=%s",
+        getattr(request.user, "id", None),
+        prospect_id,
     )
+    return Response({"detail": "Vous n'avez pas acces a ce prospect."}, status=403)
 
 
-def get_prospect_or_404(user, prospect_id):
-    return prospect_queryset(user).get(pk=prospect_id)
+def get_allowed_prospect(user, prospect_id):
+    return prospect_queryset(user).filter(pk=prospect_id).first()
 
 
 def serialize_prospect(prospect, request):
@@ -257,10 +273,9 @@ class PrepareEngagementView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, prospect_id):
-        try:
-            prospect = get_prospect_or_404(request.user, prospect_id)
-        except Prospect.DoesNotExist:
-            return Response({"success": False, "error": "Prospect introuvable"}, status=404)
+        prospect = get_allowed_prospect(request.user, prospect_id)
+        if not prospect:
+            return unauthorized_prospect_response(request, prospect_id)
 
         prospect.engagement_status = "preparing"
         prospect.engagement_error = None
@@ -432,10 +447,9 @@ class ProspectMessageView(APIView):
     permission_classes = [IsAuthenticated]
 
     def patch(self, request, prospect_id):
-        try:
-            prospect = get_prospect_or_404(request.user, prospect_id)
-        except Prospect.DoesNotExist:
-            return Response({"success": False, "error": "Prospect introuvable"}, status=404)
+        prospect = get_allowed_prospect(request.user, prospect_id)
+        if not prospect:
+            return unauthorized_prospect_response(request, prospect_id)
 
         message = (request.data.get("message") or "").strip()
         channel, channel_error = validate_channel_for_prospect(prospect, request.data.get("channel"))
@@ -476,10 +490,9 @@ class RejectPreparedEngagementView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, prospect_id):
-        try:
-            prospect = get_prospect_or_404(request.user, prospect_id)
-        except Prospect.DoesNotExist:
-            return Response({"success": False, "error": "Prospect introuvable"}, status=404)
+        prospect = get_allowed_prospect(request.user, prospect_id)
+        if not prospect:
+            return unauthorized_prospect_response(request, prospect_id)
 
         reason = request.data.get("reason") or "Message refuse par le commercial."
         prospect.engagement_status = "rejected"
@@ -510,10 +523,9 @@ class SendPreparedEngagementView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, prospect_id):
-        try:
-            prospect = get_prospect_or_404(request.user, prospect_id)
-        except Prospect.DoesNotExist:
-            return Response({"success": False, "error": "Prospect introuvable"}, status=404)
+        prospect = get_allowed_prospect(request.user, prospect_id)
+        if not prospect:
+            return unauthorized_prospect_response(request, prospect_id)
 
         message = (request.data.get("message") or prospect.generated_message or "").strip()
         channel, channel_error = validate_channel_for_prospect(
@@ -581,10 +593,9 @@ class ProspectLogsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, prospect_id):
-        try:
-            prospect = get_prospect_or_404(request.user, prospect_id)
-        except Prospect.DoesNotExist:
-            return Response({"success": False, "error": "Prospect introuvable"}, status=404)
+        prospect = get_allowed_prospect(request.user, prospect_id)
+        if not prospect:
+            return unauthorized_prospect_response(request, prospect_id)
 
         logs = prospect.engagement_logs.filter(company=request.user.company).values(
             "id", "action", "channel", "message", "status", "error", "sent_at", "created_at"
@@ -596,10 +607,9 @@ class AnalyzeSocialProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, prospect_id):
-        try:
-            prospect = get_prospect_or_404(request.user, prospect_id)
-        except Prospect.DoesNotExist:
-            return Response({"success": False, "error": "Prospect introuvable"}, status=404)
+        prospect = get_allowed_prospect(request.user, prospect_id)
+        if not prospect:
+            return unauthorized_prospect_response(request, prospect_id)
 
         channel = request.data.get("channel") or prospect.last_engagement_channel
         result = enrich_prospect_with_social_analysis(prospect, channel=channel, force=True)
@@ -620,10 +630,9 @@ class MarkRepliedView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, prospect_id):
-        try:
-            prospect = get_prospect_or_404(request.user, prospect_id)
-        except Prospect.DoesNotExist:
-            return Response({"success": False, "error": "Prospect introuvable"}, status=404)
+        prospect = get_allowed_prospect(request.user, prospect_id)
+        if not prospect:
+            return unauthorized_prospect_response(request, prospect_id)
 
         prospect.engagement_status = "replied"
         prospect.last_engagement_at = timezone.now()
@@ -637,10 +646,9 @@ class CheckProspectReplyView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, prospect_id):
-        try:
-            prospect = get_prospect_or_404(request.user, prospect_id)
-        except Prospect.DoesNotExist:
-            return Response({"success": False, "error": "Prospect introuvable"}, status=404)
+        prospect = get_allowed_prospect(request.user, prospect_id)
+        if not prospect:
+            return unauthorized_prospect_response(request, prospect_id)
 
         result = check_prospect_reply(prospect, user=request.user)
 
@@ -728,10 +736,9 @@ class CreateFollowUpTaskView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, prospect_id):
-        try:
-            prospect = get_prospect_or_404(request.user, prospect_id)
-        except Prospect.DoesNotExist:
-            return Response({"success": False, "error": "Prospect introuvable"}, status=404)
+        prospect = get_allowed_prospect(request.user, prospect_id)
+        if not prospect:
+            return unauthorized_prospect_response(request, prospect_id)
 
         due_date = timezone.now() + timedelta(days=int(request.data.get("due_days", 3)))
         task = upsert_prospect_task(
@@ -753,8 +760,32 @@ class CreateFollowUpTaskView(APIView):
 class EngagementCampaignsView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def get_campaign_queryset(self, user):
+        campaigns = EngagementCampaign.objects.all()
+
+        if is_global_engagement_admin(user):
+            return campaigns
+
+        if not getattr(user, "company_id", None):
+            return campaigns.none()
+
+        campaigns = campaigns.filter(company=user.company)
+        if is_company_engagement_admin(user):
+            return campaigns
+
+        allowed_prospects = prospect_queryset(user)
+        if getattr(user, "role", "") == "MANAGER":
+            team_users = get_team_users_for_manager(user)
+            return campaigns.filter(Q(created_by=user) | Q(created_by__in=team_users) | Q(prospects__in=allowed_prospects)).distinct()
+
+        if getattr(user, "role", "") == "COMMERCIAL":
+            return campaigns.filter(Q(created_by=user) | Q(prospects__in=allowed_prospects)).distinct()
+
+        return campaigns.none()
+
     def get(self, request):
-        campaigns = EngagementCampaign.objects.filter(company=request.user.company).prefetch_related("prospects")
+        campaigns = self.get_campaign_queryset(request.user).prefetch_related("prospects")
+        allowed_prospects = prospect_queryset(request.user)
         return Response(
             {
                 "results": [
@@ -764,8 +795,8 @@ class EngagementCampaignsView(APIView):
                         "description": campaign.description,
                         "status": campaign.status,
                         "steps": campaign.steps,
-                        "prospect_ids": list(campaign.prospects.values_list("id", flat=True)),
-                        "prospects_count": campaign.prospects.count(),
+                        "prospect_ids": list(campaign.prospects.filter(id__in=allowed_prospects).values_list("id", flat=True)),
+                        "prospects_count": campaign.prospects.filter(id__in=allowed_prospects).count(),
                         "created_at": campaign.created_at,
                     }
                     for campaign in campaigns

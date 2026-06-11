@@ -530,9 +530,9 @@ def send_prepared_engagement(prospect, user) -> dict:
 
 
 def launch_engagement_agent(company, user, limit=25, scrape=True, auto_send=False):
-    from sales.models import Prospect
+    from .permissions import get_engagement_queryset_for_user
 
-    qs = Prospect.objects.filter(company=company).filter(
+    qs = get_engagement_queryset_for_user(user).filter(
         Q(engagement_status__isnull=True)
         | Q(engagement_status="")
         | Q(engagement_status="new")

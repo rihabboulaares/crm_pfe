@@ -26,6 +26,12 @@ NOT_INTERESTED_EMAIL_DELAY_DAYS = 7
 INTERESTED_MEETING_DELAY_DAYS = 1
 
 
+def _follow_up_assignee(task, prospect, user):
+    if prospect and prospect.assigned_to:
+        return prospect.assigned_to
+    return task.assigned_to or user
+
+
 # ══════════════════════════════════════════════════════
 # POINT D'ENTRÉE PRINCIPAL
 # ══════════════════════════════════════════════════════
@@ -216,7 +222,7 @@ def _handle_not_interested(task, activity, user, company, prospect):
         prospect=prospect,
         contact=activity.contact or task.contact,
         opportunity=task.opportunity,
-        assigned_to=user,
+        assigned_to=_follow_up_assignee(task, prospect, user),
         created_by=user,
         company=company,
     )
@@ -280,7 +286,7 @@ def _handle_interested(task, activity, user, company, prospect):
         prospect=prospect,
         contact=activity.contact or task.contact,
         opportunity=task.opportunity,
-        assigned_to=user,
+        assigned_to=_follow_up_assignee(task, prospect, user),
         created_by=user,
         company=company,
     )
@@ -336,7 +342,7 @@ def _handle_callback(task, activity, user, company, prospect):
         prospect=prospect,
         contact=activity.contact or task.contact,
         opportunity=task.opportunity,
-        assigned_to=user,
+        assigned_to=_follow_up_assignee(task, prospect, user),
         created_by=user,
         company=company,
     )

@@ -9,12 +9,24 @@ from .models import (
     TaskComment,
 )
 from users.models import User
+from .visibility import get_visible_users
 
 from .models import (
     PerformanceScore, ManagerFeedback,
     PerformanceGoal, CommercialBadge,
 )
 from .models import Pipeline, PipelineStage, OpportunityPipeline, StageHistory, PipelineAlert
+
+
+def _pipeline_task_queryset(serializer, obj):
+    from .models import Task
+
+    tasks = Task.objects.filter(opportunity=obj.opportunity, company=obj.company)
+    request = serializer.context.get("request")
+    user = getattr(request, "user", None)
+    if user and not (getattr(user, "is_staff", False) or getattr(user, "role", "") == "ADMIN"):
+        tasks = tasks.filter(assigned_to__in=get_visible_users(user))
+    return tasks
 
 # -----------------------
 # Account Serializer
@@ -42,7 +54,7 @@ class ProspectCompanySerializer(serializers.ModelSerializer):
     class Meta:
         model  = ProspectCompany
         fields = "__all__"
-        read_only_fields = ["company", "created_at", "source_display"]
+        read_only_fields = ["company", "created_by", "created_at", "source_display"]
 
     def get_source_display(self, obj):
         return {
@@ -847,11 +859,7 @@ class OpportunityPipelineSerializer(serializers.ModelSerializer):
 
     def get_tasks_summary(self, obj):
         """✅ FIX: timezone était manquant — maintenant importé en haut du fichier."""
-        from .models import Task
-        tasks = Task.objects.filter(
-            opportunity=obj.opportunity,
-            company=obj.company,
-        )
+        tasks = _pipeline_task_queryset(self, obj)
         total   = tasks.count()
         done    = tasks.filter(status="done").count()
         overdue = tasks.filter(
@@ -908,8 +916,7 @@ class OpportunityPipelineListSerializer(serializers.ModelSerializer):
 
     def get_tasks_summary(self, obj):
         """✅ FIX: timezone importé globalement."""
-        from .models import Task
-        tasks = Task.objects.filter(opportunity=obj.opportunity, company=obj.company)
+        tasks = _pipeline_task_queryset(self, obj)
         total = tasks.count()
         done  = tasks.filter(status="done").count()
         return {
@@ -986,8 +993,7 @@ class OpportunityPipelineDetailSerializer(serializers.ModelSerializer):
 
     def get_tasks_summary(self, obj):
         """✅ FIX: timezone importé globalement."""
-        from .models import Task
-        tasks   = Task.objects.filter(opportunity=obj.opportunity, company=obj.company)
+        tasks   = _pipeline_task_queryset(self, obj)
         total   = tasks.count()
         done    = tasks.filter(status="done").count()
         overdue = tasks.filter(
@@ -1017,11 +1023,7 @@ class OpportunityPipelineDetailSerializer(serializers.ModelSerializer):
                 "completion_pct": 100,
             }
 
-        from .models import Task
-        stage_tasks = Task.objects.filter(
-            opportunity=obj.opportunity,
-            company=obj.company,
-        ).exclude(status="cancelled")
+        stage_tasks = _pipeline_task_queryset(self, obj).exclude(status="cancelled")
 
         total    = stage_tasks.count()
         done     = stage_tasks.filter(status="done").count()

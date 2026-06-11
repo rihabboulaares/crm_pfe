@@ -78,6 +78,7 @@ def upsert_prospect_task(
             prospect=prospect,
             company=prospect.company,
             task_type=task_type,
+            assigned_to=assignee,
             status__in=TASK_STATUS_OPEN,
         )
         .order_by("due_date", "created_at")

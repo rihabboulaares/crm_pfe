@@ -23,6 +23,9 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
+from subscriptions.utils import check_limits
+from agentEngagement.permissions import get_engagement_queryset_for_user, get_task_queryset_for_user, get_team_users_for_manager
+from .visibility import filter_by_visible_users, get_visible_users, user_can_access_user
 
 from .models import (
     Account, Prospect, ProspectCompany,
@@ -69,6 +72,20 @@ def _get_manager_team_ids(manager):
             company=manager.company,
         ).values_list("id", flat=True).distinct()
     )
+
+
+def _is_company_admin(user):
+    return bool(getattr(user, "is_staff", False) or getattr(user, "role", "") == "ADMIN")
+
+
+def _filter_assigned_to_param(qs, user, raw_value, field="assigned_to_id"):
+    if not raw_value:
+        return qs
+    vals = [v.strip() for v in str(raw_value).split(",") if v.strip()]
+    visible_ids = set(str(pk) for pk in get_visible_users(user).values_list("id", flat=True))
+    if any(v not in visible_ids for v in vals):
+        return qs.none()
+    return qs.filter(**{f"{field}__in": vals}) if len(vals) > 1 else qs.filter(**{field: vals[0]})
 
 
 def _get_or_create_account_from_prospect_company(prospect_company, crm_company):
@@ -335,7 +352,12 @@ class AccountViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Account.objects.filter(company=self.request.user.company)
+        user = self.request.user
+        qs = Account.objects.filter(company=user.company)
+        if not _is_company_admin(user):
+            visible_users = get_visible_users(user)
+            qs = qs.filter(Q(created_by__in=visible_users) | Q(contacts__assigned_to__in=visible_users)).distinct()
+        return qs
 
     def perform_create(self, serializer):
         serializer.save(
@@ -354,7 +376,11 @@ class ProspectCompanyViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        qs = ProspectCompany.objects.filter(company=self.request.user.company)
+        user = self.request.user
+        qs = ProspectCompany.objects.filter(company=user.company)
+        if not _is_company_admin(user):
+            visible_users = get_visible_users(user)
+            qs = qs.filter(Q(assigned_to__in=visible_users) | Q(prospects__assigned_to__in=visible_users)).distinct()
 
         search    = self.request.query_params.get("search")
         industry  = self.request.query_params.get("industry")
@@ -391,7 +417,10 @@ class ProspectCompanyViewSet(viewsets.ModelViewSet):
         source = serializer.validated_data.get("source")
         if not source:
             source = "commercial" if user.role == "COMMERCIAL" else "agent_prospection"
-        serializer.save(company=user.company, source=source)
+        assigned = serializer.validated_data.get("assigned_to")
+        if assigned and not user_can_access_user(user, assigned):
+            raise PermissionDenied("Vous ne pouvez assigner qu'a un utilisateur visible.")
+        serializer.save(company=user.company, source=source, created_by=user, assigned_to=assigned or user)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -405,11 +434,7 @@ class ProspectViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs   = Prospect.objects.filter(
-            company=user.company
-        ).select_related("assigned_to", "prospect_company")
-        if user.role == "COMMERCIAL":
-            qs = qs.filter(assigned_to=user)
+        qs = get_engagement_queryset_for_user(user).select_related("assigned_to", "prospect_company")
 
         p_status         = self.request.query_params.get("status")
         assigned_to      = self.request.query_params.get("assigned_to")
@@ -423,8 +448,7 @@ class ProspectViewSet(viewsets.ModelViewSet):
             vals = [v.strip() for v in p_status.split(",") if v.strip()]
             qs = qs.filter(status__in=vals) if len(vals) > 1 else qs.filter(status=vals[0])
         if assigned_to:
-            vals = [v.strip() for v in assigned_to.split(",") if v.strip()]
-            qs = qs.filter(assigned_to_id__in=vals) if len(vals) > 1 else qs.filter(assigned_to_id=vals[0])
+            qs = _filter_assigned_to_param(qs, user, assigned_to)
         if origin:
             vals = [v.strip() for v in origin.split(",") if v.strip()]
             qs = qs.filter(origin__in=vals) if len(vals) > 1 else qs.filter(origin=vals[0])
@@ -454,15 +478,13 @@ class ProspectViewSet(viewsets.ModelViewSet):
                 raise PermissionDenied("Ce commercial n'appartient pas à votre société.")
         elif user.role == "MANAGER":
             if assigned:
-                team_ids = list(User.objects.filter(
-                    teams__in=user.teams.all(), company=user.company, role="COMMERCIAL",
-                ).values_list("id", flat=True))
-                if assigned.id not in team_ids:
+                if not user_can_access_user(user, assigned) or assigned.role != "COMMERCIAL":
                     raise PermissionDenied("Vous ne pouvez assigner qu'aux commerciaux de votre équipe.")
 
     def perform_create(self, serializer):
         user     = self.request.user
         assigned = serializer.validated_data.get("assigned_to")
+        check_limits(user.company, "add_prospect")
         self._validate_assignment(user, assigned)
         if user.role == "COMMERCIAL":
             serializer.validated_data["assigned_to"] = user
@@ -487,9 +509,8 @@ class ProspectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="tasks")
     def tasks(self, request, pk=None):
         prospect = self.get_object()
-        qs = Task.objects.filter(
+        qs = get_task_queryset_for_user(request.user).filter(
             prospect=prospect,
-            company=request.user.company,
         ).select_related("assigned_to", "created_by").prefetch_related(
             "activities__performed_by",
         ).order_by("-created_at")
@@ -515,15 +536,15 @@ class OpportunityViewSet(viewsets.ModelViewSet):
             "pipeline_data__current_stage",
             "pipeline_data__pipeline",
         )
-        if user.role == "COMMERCIAL":
-            qs = qs.filter(assigned_to=user)
+        if not _is_company_admin(user):
+            qs = filter_by_visible_users(qs, user)
 
         stage       = self.request.query_params.get("stage")
         assigned_to = self.request.query_params.get("assigned_to")
         search      = self.request.query_params.get("search")
 
         if stage:       qs = qs.filter(stage=stage)
-        if assigned_to: qs = qs.filter(assigned_to_id=assigned_to)
+        if assigned_to: qs = _filter_assigned_to_param(qs, user, assigned_to)
         if search:      qs = qs.filter(Q(name__icontains=search))
 
         return qs.order_by("-created_at")
@@ -540,10 +561,7 @@ class OpportunityViewSet(viewsets.ModelViewSet):
             if assigned.company != user.company:
                 raise PermissionDenied("Ce commercial n'appartient pas à votre société.")
             if user.role == "MANAGER":
-                team_ids = list(User.objects.filter(
-                    teams__in=user.teams.all(), company=user.company, role="COMMERCIAL",
-                ).values_list("id", flat=True))
-                if assigned.id not in team_ids:
+                if not user_can_access_user(user, assigned) or assigned.role != "COMMERCIAL":
                     raise PermissionDenied("Vous ne pouvez assigner qu'aux commerciaux de votre équipe.")
             serializer.save(company=user.company)
         else:
@@ -556,10 +574,7 @@ class OpportunityViewSet(viewsets.ModelViewSet):
         if user.role == "COMMERCIAL":
             serializer.validated_data.pop("assigned_to", None)
         elif user.role == "MANAGER" and assigned:
-            team_ids = list(User.objects.filter(
-                teams__in=user.teams.all(), company=user.company, role="COMMERCIAL",
-            ).values_list("id", flat=True))
-            if assigned.id not in team_ids:
+            if not user_can_access_user(user, assigned) or assigned.role != "COMMERCIAL":
                 raise PermissionDenied("Vous ne pouvez assigner qu'aux commerciaux de votre équipe.")
 
         # ✅ FIX : capturer old_stage depuis serializer.instance (évite la 2ème requête DB)
@@ -671,16 +686,15 @@ class ContactViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         qs   = Contact.objects.filter(company=user.company).select_related("account", "assigned_to")
-        if user.role == "COMMERCIAL":
-            qs = qs.filter(assigned_to=user)
+        if not _is_company_admin(user):
+            qs = filter_by_visible_users(qs, user)
 
         assigned_to = self.request.query_params.get("assigned_to")
         search      = self.request.query_params.get("search")
         account     = self.request.query_params.get("account")
 
         if assigned_to:
-            vals = [v.strip() for v in assigned_to.split(",") if v.strip()]
-            qs = qs.filter(assigned_to_id__in=vals) if len(vals) > 1 else qs.filter(assigned_to_id=vals[0])
+            qs = _filter_assigned_to_param(qs, user, assigned_to)
         if account:
             qs = qs.filter(account_id=account)
         if search:
@@ -699,6 +713,8 @@ class ContactViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("Un contact ne peut être assigné qu'à un commercial.")
         if user.role == "COMMERCIAL":
             serializer.validated_data["assigned_to"] = user
+        elif assigned and not user_can_access_user(user, assigned):
+            raise PermissionDenied("Vous ne pouvez assigner qu'a un utilisateur visible.")
         serializer.save(company=user.company)
 
 
@@ -713,9 +729,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user    = self.request.user
-        base_qs = Task.objects.filter(
-            company=user.company
-        ).select_related(
+        qs = get_task_queryset_for_user(user).select_related(
             "assigned_to", "created_by", "parent_task",
             "prospect", "contact", "opportunity",
         ).prefetch_related(
@@ -725,15 +739,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         )
         prospect_id = self.request.query_params.get("prospect")
         if prospect_id:
-             base_qs = base_qs.filter(prospect_id=prospect_id)
-
-        if user.role == "ADMIN" or user.is_staff:
-            qs = base_qs
-        elif user.role == "MANAGER":
-            team_ids = User.objects.filter(teams__in=user.teams.all()).values_list("id", flat=True)
-            qs = base_qs.filter(Q(assigned_to=user) | Q(assigned_to__in=team_ids))
-        else:
-            qs = base_qs.filter(assigned_to=user)
+             qs = qs.filter(prospect_id=prospect_id)
 
         task_status = self.request.query_params.get("status")
         priority    = self.request.query_params.get("priority")
@@ -745,7 +751,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 
         if task_status: qs = qs.filter(status=task_status)
         if priority:    qs = qs.filter(priority=priority)
-        if assigned_to: qs = qs.filter(assigned_to_id=assigned_to)
+        if assigned_to: qs = _filter_assigned_to_param(qs, user, assigned_to)
         if task_type:   qs = qs.filter(task_type=task_type)
         if opportunity: qs = qs.filter(opportunity_id=opportunity)
         if due_date:    qs = qs.filter(due_date__date=due_date)
@@ -769,11 +775,16 @@ class TaskViewSet(viewsets.ModelViewSet):
         if prospect:
             if prospect.company != user.company:
                 raise PermissionDenied("Ce prospect n'appartient pas a votre societe.")
+            if not get_engagement_queryset_for_user(user).filter(pk=prospect.pk).exists():
+                raise PermissionDenied("Ce prospect n'est pas dans votre perimetre.")
             serializer.validated_data["prospect_company"] = prospect.prospect_company
 
     # Si toujours pas d'assigné, utiliser l'utilisateur courant
         if not serializer.validated_data.get("assigned_to"):
             serializer.validated_data["assigned_to"] = user
+        assigned = serializer.validated_data.get("assigned_to")
+        if not _is_company_admin(user) and assigned and not user_can_access_user(user, assigned):
+            raise PermissionDenied("Vous ne pouvez assigner qu'a un utilisateur visible.")
 
         if user.role == "ADMIN" or user.is_staff:
             if assigned and assigned.company != user.company:
@@ -781,7 +792,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             serializer.save(company=user.company, created_by=user)
         elif user.role == "MANAGER":
             if assigned:
-                team_ids = list(User.objects.filter(teams__in=user.teams.all()).values_list("id", flat=True))
+                team_ids = list(get_team_users_for_manager(user).values_list("id", flat=True))
                 if assigned.id != user.id and assigned.id not in team_ids:
                     raise PermissionDenied("Vous ne pouvez assigner qu'aux membres de votre équipe.")
             serializer.save(company=user.company, created_by=user)
@@ -958,8 +969,11 @@ class TaskActivityViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
  
     def get_queryset(self):
+        user = self.request.user
+        visible_users = get_visible_users(user)
         qs = TaskActivity.objects.filter(
-            task__company=self.request.user.company
+            Q(task__company=user.company, task__assigned_to__in=visible_users)
+            | Q(task__isnull=True, prospect__company=user.company, prospect__assigned_to__in=visible_users)
         ).select_related("performed_by", "prospect", "contact", "task")
     
         task_id = self.request.query_params.get("task_id")
@@ -979,8 +993,8 @@ class TaskActivityViewSet(viewsets.ModelViewSet):
  
         if task and task.company != user.company:
             raise PermissionDenied("Vous ne pouvez pas ajouter une activité à cette tâche.")
-        if user.role == "COMMERCIAL" and task and task.assigned_to != user:
-            raise PermissionDenied("Vous ne pouvez ajouter des activités qu'à vos propres tâches.")
+        if task and not user_can_access_user(user, task.assigned_to):
+            raise PermissionDenied("Vous ne pouvez ajouter des activites qu'a vos taches visibles.")
  
         # ── Créer l'activité ──────────────────────────
         activity = serializer.save(performed_by=user)
@@ -1049,13 +1063,13 @@ class TaskActivityViewSet(viewsets.ModelViewSet):
  
         if prospect_id:
             try:
-                prospect = Prospect.objects.get(id=prospect_id, company=request.user.company)
+                prospect = get_engagement_queryset_for_user(request.user).get(id=prospect_id)
             except Prospect.DoesNotExist:
                 return Response({"error": "Prospect introuvable."}, status=404)
  
         if task_id:
             try:
-                task = Task.objects.get(id=task_id, company=request.user.company)
+                task = get_task_queryset_for_user(request.user).get(id=task_id)
             except Task.DoesNotExist:
                 return Response({"error": "Tâche introuvable."}, status=404)
  
@@ -1078,8 +1092,10 @@ class TaskCommentViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        user = self.request.user
         qs = TaskComment.objects.filter(
-            task__company=self.request.user.company
+            task__company=user.company,
+            task__assigned_to__in=get_visible_users(user),
         ).select_related("author", "task", "parent_comment")
 
         task_id = self.request.query_params.get("task_id")
@@ -1093,6 +1109,8 @@ class TaskCommentViewSet(viewsets.ModelViewSet):
         task = serializer.validated_data.get("task")
         if task and task.company != user.company:
             raise PermissionDenied("Vous ne pouvez pas commenter cette tâche.")
+        if task and not user_can_access_user(user, task.assigned_to):
+            raise PermissionDenied("Vous ne pouvez commenter que vos taches visibles.")
         serializer.save(author=user)
 
     def perform_update(self, serializer):
@@ -1197,9 +1215,8 @@ class CommercialHistoryView(APIView):
         if caller.role not in ("ADMIN", "MANAGER") and not caller.is_staff:
             raise PermissionDenied("Accès réservé aux managers et admins.")
         if caller.role == "MANAGER" and not caller.is_staff:
-            team_ids   = _get_manager_team_ids(caller)
             commercial = get_object_or_404(User, id=user_id, company=caller.company)
-            if commercial.id not in team_ids:
+            if not user_can_access_user(caller, commercial):
                 raise PermissionDenied("Ce commercial n'est pas dans votre équipe.")
         else:
             commercial = get_object_or_404(User, id=user_id, company=caller.company)
@@ -1217,30 +1234,30 @@ class AlertsView(APIView):
         now      = timezone.now()
         company  = caller.company
         in_24h   = now + timezone.timedelta(hours=24)
-        team_ids = _get_manager_team_ids(caller)
+        visible_ids = list(get_visible_users(caller).values_list("id", flat=True))
 
         overdue_qs = Task.objects.filter(
             company=company, status__in=["todo", "in_progress"], due_date__lt=now,
         ).select_related("assigned_to")
-        if team_ids is not None:
-            overdue_qs = overdue_qs.filter(assigned_to_id__in=team_ids)
+        if not _is_company_admin(caller):
+            overdue_qs = overdue_qs.filter(assigned_to_id__in=visible_ids)
 
         upcoming_qs = Task.objects.filter(
             company=company, status__in=["todo", "in_progress"],
             due_date__gte=now, due_date__lte=in_24h,
         ).select_related("assigned_to")
-        if team_ids is not None:
-            upcoming_qs = upcoming_qs.filter(assigned_to_id__in=team_ids)
+        if not _is_company_admin(caller):
+            upcoming_qs = upcoming_qs.filter(assigned_to_id__in=visible_ids)
 
         inactive = detect_inactive_users(company, days_threshold=3)
-        if team_ids is not None:
-            inactive = [u for u in inactive if u["user_id"] in team_ids]
+        if not _is_company_admin(caller):
+            inactive = [u for u in inactive if u["user_id"] in visible_ids]
 
         low_qs = PerformanceScore.objects.filter(
             company=company, year=now.year, month=now.month, score__lt=70,
         ).select_related("commercial")
-        if team_ids is not None:
-            low_qs = low_qs.filter(commercial_id__in=team_ids)
+        if not _is_company_admin(caller):
+            low_qs = low_qs.filter(commercial_id__in=visible_ids)
 
         overdue_list   = [{"task_id": t.id, "title": t.title, "due_date": t.due_date, "commercial": t.assigned_to.username if t.assigned_to else None, "priority": t.priority} for t in overdue_qs]
         upcoming_list  = [{"task_id": t.id, "title": t.title, "due_date": t.due_date, "commercial": t.assigned_to.username if t.assigned_to else None} for t in upcoming_qs]
@@ -1498,13 +1515,17 @@ class PipelineViewSet(viewsets.ModelViewSet):
             op_qs = OpportunityPipeline.objects.filter(
                 pipeline=pipeline, current_stage=stage, company=user.company,
             ).select_related("opportunity__assigned_to")
-            if user.role == "COMMERCIAL":
-                op_qs = op_qs.filter(opportunity__assigned_to=user)
+            if not _is_company_admin(user):
+                op_qs = op_qs.filter(opportunity__assigned_to__in=get_visible_users(user))
 
             ops_data = []
             for op in op_qs:
                 opp       = op.opportunity
-                all_tasks = Task.objects.filter(opportunity=opp, company=user.company).exclude(status="cancelled")
+                all_tasks = Task.objects.filter(
+                    opportunity=opp,
+                    company=user.company,
+                    assigned_to__in=get_visible_users(user),
+                ).exclude(status="cancelled")
                 total     = all_tasks.count()
                 done      = all_tasks.filter(status="done").count()
                 overdue   = all_tasks.filter(status__in=["todo", "in_progress"], due_date__lt=timezone.now()).count()
@@ -1551,8 +1572,8 @@ class PipelineViewSet(viewsets.ModelViewSet):
         op_qs    = OpportunityPipeline.objects.filter(
             pipeline=pipeline, company=user.company,
         ).select_related("current_stage", "opportunity")
-        if user.role == "COMMERCIAL":
-            op_qs = op_qs.filter(opportunity__assigned_to=user)
+        if not _is_company_admin(user):
+            op_qs = op_qs.filter(opportunity__assigned_to__in=get_visible_users(user))
 
         total       = op_qs.count()
         total_value = op_qs.aggregate(v=Sum("opportunity__amount"))["v"] or 0
@@ -1645,15 +1666,15 @@ class OpportunityPipelineViewSet(viewsets.ModelViewSet):
         qs   = OpportunityPipeline.objects.filter(
             company=user.company
         ).select_related("opportunity__assigned_to", "pipeline", "current_stage")
-        if user.role == "COMMERCIAL":
-            qs = qs.filter(opportunity__assigned_to=user)
+        if not _is_company_admin(user):
+            qs = qs.filter(opportunity__assigned_to__in=get_visible_users(user))
         for param, field in [("pipeline_id", "pipeline_id"), ("stage_id", "current_stage_id"), ("status", "status")]:
             val = self.request.query_params.get(param)
             if val:
                 qs = qs.filter(**{field: val})
         assigned = self.request.query_params.get("assigned_to")
         if assigned:
-            qs = qs.filter(opportunity__assigned_to_id=assigned)
+            qs = _filter_assigned_to_param(qs, user, assigned, field="opportunity__assigned_to_id")
         return qs.order_by("-updated_at")
 
     def perform_create(self, serializer):
@@ -1670,6 +1691,9 @@ class OpportunityPipelineViewSet(viewsets.ModelViewSet):
         if not current_stage and pipeline:
             current_stage = pipeline.stages.order_by("order").first()
             serializer.validated_data["current_stage"] = current_stage
+
+        if opportunity and not user_can_access_user(user, opportunity.assigned_to):
+            raise PermissionDenied("Cette opportunite n'est pas dans votre perimetre.")
 
         op_pipeline = serializer.save(company=user.company, stage_entered_at=timezone.now())
         op_pipeline.refresh_computed_fields()
@@ -1700,7 +1724,7 @@ class OpportunityPipelineViewSet(viewsets.ModelViewSet):
         user        = request.user
         opp         = op_pipeline.opportunity
 
-        can_move = opp.assigned_to == user or user.role in ("ADMIN", "MANAGER") or user.is_staff
+        can_move = _is_company_admin(user) or user_can_access_user(user, opp.assigned_to)
         if not can_move:
             raise PermissionDenied("Vous ne pouvez pas déplacer cette opportunité.")
 
@@ -1720,7 +1744,7 @@ class OpportunityPipelineViewSet(viewsets.ModelViewSet):
 
         # ── Vérification tâches bloquantes ───────────────────
         blocking_list = list(
-            Task.objects.filter(opportunity=opp, company=user.company)
+            Task.objects.filter(opportunity=opp, company=user.company, assigned_to__in=get_visible_users(user))
             .exclude(status__in=["done", "cancelled"])
             .values("id", "title", "status", "priority")
         )
@@ -1829,15 +1853,15 @@ class OpportunityPipelineViewSet(viewsets.ModelViewSet):
                 id=task_id,
                 opportunity=op_pipeline.opportunity,
                 company=op_pipeline.company,
+                assigned_to__in=get_visible_users(user),
             )
         except Task.DoesNotExist:
             return Response({"error": "Tâche introuvable."}, status=404)
 
         user     = request.user
         can_edit = (
-            task.assigned_to == user
-            or user.role in ("ADMIN", "MANAGER")
-            or user.is_staff
+            _is_company_admin(user)
+            or user_can_access_user(user, task.assigned_to)
         )
         if not can_edit:
             raise PermissionDenied("Vous ne pouvez pas modifier cette tâche.")
@@ -1869,6 +1893,7 @@ class OpportunityPipelineViewSet(viewsets.ModelViewSet):
         all_tasks = Task.objects.filter(
             opportunity=op_pipeline.opportunity,
             company=op_pipeline.company,
+            assigned_to__in=get_visible_users(user),
         ).exclude(status="cancelled")
         total    = all_tasks.count()
         done_cnt = all_tasks.filter(status="done").count()
@@ -1904,6 +1929,7 @@ class OpportunityPipelineViewSet(viewsets.ModelViewSet):
         tasks_qs    = Task.objects.filter(
             opportunity=op_pipeline.opportunity,
             company=op_pipeline.company,
+            assigned_to__in=get_visible_users(request.user),
         ).select_related("assigned_to", "created_by").order_by("status", "-created_at")
 
         return Response(TaskSerializer(tasks_qs, many=True, context={"request": request}).data)
@@ -1955,8 +1981,12 @@ class PipelineAlertViewSet(viewsets.ReadOnlyModelViewSet):
         qs   = PipelineAlert.objects.filter(company=user.company).select_related(
             "opportunity_pipeline__opportunity", "assigned_to",
         )
-        if user.role == "COMMERCIAL":
-            qs = qs.filter(assigned_to=user)
+        if not _is_company_admin(user):
+            visible_users = get_visible_users(user)
+            qs = qs.filter(
+                Q(assigned_to__in=visible_users)
+                | Q(opportunity_pipeline__opportunity__assigned_to__in=visible_users)
+            ).distinct()
         for param, field in [("is_read", "is_read"), ("is_resolved", "is_resolved"), ("severity", "severity")]:
             val = self.request.query_params.get(param)
             if val is not None:
@@ -1982,16 +2012,24 @@ class PipelineAlertViewSet(viewsets.ReadOnlyModelViewSet):
     def mark_all_read(self, request):
         user = request.user
         qs   = PipelineAlert.objects.filter(company=user.company, is_read=False)
-        if user.role == "COMMERCIAL":
-            qs = qs.filter(assigned_to=user)
+        if not _is_company_admin(user):
+            visible_users = get_visible_users(user)
+            qs = qs.filter(
+                Q(assigned_to__in=visible_users)
+                | Q(opportunity_pipeline__opportunity__assigned_to__in=visible_users)
+            ).distinct()
         return Response({"marked_read": qs.update(is_read=True)})
 
     @action(detail=False, methods=["get"], url_path="summary")
     def summary(self, request):
         user = request.user
         qs   = PipelineAlert.objects.filter(company=user.company, is_resolved=False)
-        if user.role == "COMMERCIAL":
-            qs = qs.filter(assigned_to=user)
+        if not _is_company_admin(user):
+            visible_users = get_visible_users(user)
+            qs = qs.filter(
+                Q(assigned_to__in=visible_users)
+                | Q(opportunity_pipeline__opportunity__assigned_to__in=visible_users)
+            ).distinct()
         return Response({
             "total_unread":     qs.filter(is_read=False).count(),
             "total_unresolved": qs.count(),

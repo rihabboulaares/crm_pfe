@@ -4,16 +4,27 @@ from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
 from rest_framework import status, filters
 from rest_framework.pagination import PageNumberPagination
-from django.db.models import Sum, Count, Q
+from django.db.models import Sum, Count, Q, Avg, Max
 from django.utils import timezone
 from datetime import timedelta
+from time import perf_counter
+import os
 
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
-from django.db.models import Count, Avg, Q
+from django.db.models.functions import TruncMonth, TruncDate
+from django.core.cache import cache
 
 
-from .models import UserAcquisitionSource, AppRating, UserFeedback, UserActivity
+from .models import (
+    UserAcquisitionSource,
+    AppRating,
+    UserFeedback,
+    UserActivity,
+    SuperAdminAuditLog,
+    AIAgentRun,
+    SystemHealthLog,
+)
 from .serializers import (
     AcquisitionSourceSerializer, AppRatingSerializer,
     UserFeedbackSerializer, UserActivitySerializer,
@@ -45,6 +56,9 @@ from .serializers import (
     SuperAdminTaskActivitySerializer,
     SuperAdminTaskCommentSerializer,
     SuperAdminStatsSerializer,
+    AIAgentRunSerializer,
+    SuperAdminAuditLogSerializer,
+    SystemHealthLogSerializer,
 )
 
 
@@ -53,6 +67,19 @@ class SuperAdminPagination(PageNumberPagination):
     page_size = 15
     page_size_query_param = "page_size"
     max_page_size = 100
+
+
+def create_audit_log(actor=None, company=None, action="update", module="", object_id=None, object_repr=None, description=None, metadata=None):
+    return SuperAdminAuditLog.objects.create(
+        actor=actor if getattr(actor, "is_authenticated", False) else None,
+        company=company,
+        action=action,
+        module=module or "superadmin",
+        object_id=str(object_id) if object_id is not None else None,
+        object_repr=str(object_repr)[:255] if object_repr else None,
+        description=description,
+        metadata=metadata or {},
+    )
 
 
 # =====================================================
@@ -76,6 +103,8 @@ class SuperAdminStatsView(APIView):
         companies_by_plan = {}
         for row in subs.filter(is_active=True).values("plan__name").annotate(count=Count("id")):
             companies_by_plan[row["plan__name"] or "sans plan"] = row["count"]
+        ai_runs = AIAgentRun.objects.all()
+        avg_rating = AppRating.objects.aggregate(v=Avg("rating"))["v"] or 0
 
         data = {
             "total_companies":          Company.objects.count(),
@@ -91,6 +120,17 @@ class SuperAdminStatsView(APIView):
             "total_opportunities":      Opportunity.objects.count(),
             "total_tasks":              Task.objects.count(),
             "total_teams":              Team.objects.count(),
+            "total_activities":         TaskActivity.objects.count() + UserActivity.objects.count(),
+            "total_feedbacks":          UserFeedback.objects.count(),
+            "avg_rating":               round(float(avg_rating), 2),
+            "ai_total_runs":            ai_runs.count(),
+            "ai_success_runs":          ai_runs.filter(status="success").count(),
+            "ai_failed_runs":           ai_runs.filter(status="failed").count(),
+            "ai_prospects_found":       ai_runs.aggregate(v=Sum("prospects_found"))["v"] or 0,
+            "ai_prospects_imported":    ai_runs.aggregate(v=Sum("prospects_imported"))["v"] or 0,
+            "ai_messages_generated":    ai_runs.aggregate(v=Sum("messages_generated"))["v"] or 0,
+            "ai_messages_sent":         ai_runs.aggregate(v=Sum("messages_sent"))["v"] or 0,
+            "ai_replies_detected":      ai_runs.aggregate(v=Sum("replies_detected"))["v"] or 0,
         }
 
         return Response(SuperAdminStatsSerializer(data).data)
@@ -109,7 +149,8 @@ class SuperAdminPlanListCreateView(APIView):
     def post(self, request):
         serializer = SuperAdminPlanSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            plan = serializer.save()
+            create_audit_log(request.user, None, "create", "plans", plan.id, plan.name, "Plan cree", serializer.data)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=400)
 
@@ -136,6 +177,7 @@ class SuperAdminPlanDetailView(APIView):
         s = SuperAdminPlanSerializer(plan, data=request.data, partial=True)
         if s.is_valid():
             s.save()
+            create_audit_log(request.user, None, "update", "plans", plan.id, plan.name, "Plan modifie", request.data)
             return Response(s.data)
         return Response(s.errors, status=400)
 
@@ -146,6 +188,7 @@ class SuperAdminPlanDetailView(APIView):
         active = CompanySubscription.objects.filter(plan=plan, is_active=True).count()
         if active > 0:
             return Response({"error": f"Plan utilisé par {active} entreprise(s) active(s)"}, status=400)
+        create_audit_log(request.user, None, "delete", "plans", plan.id, plan.name, "Plan supprime")
         plan.delete()
         return Response({"message": "Plan supprimé"}, status=204)
 
@@ -237,6 +280,7 @@ class SuperAdminAssignPlanView(APIView):
                 "cancelled_at": None,
             },
         )
+        create_audit_log(request.user, company, "subscription_change", "companies", company.id, company.name, f"Plan {plan.name} assigne", {"plan_id": plan.id, "duration_days": duration_days})
         return Response({
             "message": f"Plan '{plan.name}' assigné à '{company.name}'",
             "subscription": SuperAdminSubscriptionSerializer(sub).data,
@@ -257,6 +301,7 @@ class SuperAdminToggleCompanyView(APIView):
         sub.is_active = not sub.is_active
         sub.cancelled_at = None if sub.is_active else timezone.now().date()
         sub.save(update_fields=["is_active", "cancelled_at"])
+        create_audit_log(request.user, company, "toggle_company", "companies", company.id, company.name, "Abonnement bascule", {"is_active": sub.is_active})
         return Response({"message": f"Abonnement {'activé' if sub.is_active else 'désactivé'}", "is_active": sub.is_active})
 
 
@@ -319,6 +364,7 @@ class SuperAdminToggleUserView(APIView):
             return Response({"error": "Impossible de désactiver un Super Admin."}, status=403)
         user.is_active = not user.is_active
         user.save(update_fields=["is_active"])
+        create_audit_log(request.user, user.company, "toggle_user", "users", user.id, user.email, "Utilisateur bascule", {"is_active": user.is_active})
         return Response({"message": f"Compte {'activé' if user.is_active else 'désactivé'}", "is_active": user.is_active})
 
 
@@ -812,5 +858,390 @@ class AdminFeedbackView(APIView):
         if admin_response:
             feedback.admin_response = admin_response
         feedback.save()
+        create_audit_log(request.user, getattr(feedback.user, "company", None), "update", "feedbacks", feedback.id, feedback.user.email, "Feedback modifie", request.data)
 
         return Response(UserFeedbackSerializer(feedback).data)
+
+
+def _pct(part, total):
+    return round((part / total) * 100, 2) if total else 0
+
+
+def _sum(qs, field):
+    return qs.aggregate(v=Sum(field))["v"] or 0
+
+
+def _bool_param(value):
+    return str(value).lower() in ("1", "true", "yes")
+
+
+CITY_COORDS = {
+    "tunis": (36.8065, 10.1815),
+    "sfax": (34.7406, 10.7603),
+    "sousse": (35.8256, 10.6369),
+    "nabeul": (36.4513, 10.7357),
+    "monastir": (35.7643, 10.8113),
+    "ariana": (36.8665, 10.1647),
+    "ben arous": (36.7531, 10.2189),
+    "bizerte": (37.2744, 9.8739),
+    "gabes": (33.8815, 10.0982),
+    "kairouan": (35.6781, 10.0963),
+}
+
+
+class SuperAdminDashboardGrowthView(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        today = timezone.now().date().replace(day=1)
+        rows = []
+        for i in range(11, -1, -1):
+            month = (today - timedelta(days=i * 31)).replace(day=1)
+            next_month = (month + timedelta(days=32)).replace(day=1)
+            month_filter = {"created_at__date__gte": month, "created_at__date__lt": next_month}
+            revenue = CompanySubscription.objects.filter(
+                start_date__gte=month,
+                start_date__lt=next_month,
+                is_active=True,
+                is_trial=False,
+            ).aggregate(v=Sum("plan__price"))["v"] or 0
+            rows.append({
+                "month": month.strftime("%b %Y"),
+                "companies": Company.objects.filter(**month_filter).count(),
+                "users": UserAcquisitionSource.objects.filter(**month_filter).count(),
+                "prospects": Prospect.objects.filter(**month_filter).count(),
+                "opportunities": Opportunity.objects.filter(**month_filter).count(),
+                "revenue": float(revenue),
+            })
+        return Response(rows)
+
+
+class SuperAdminCRMFunnelView(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        prospects = Prospect.objects.count()
+        contacted = Prospect.objects.filter(status="contacted").count()
+        qualified = Prospect.objects.filter(status="qualified").count()
+        opportunities = Opportunity.objects.count()
+        won = Opportunity.objects.filter(stage="won").count()
+        return Response({
+            "prospects": prospects,
+            "contacted": contacted,
+            "qualified": qualified,
+            "opportunities": opportunities,
+            "won": won,
+            "conversion_prospect_to_opportunity": _pct(opportunities, prospects),
+            "conversion_opportunity_to_won": _pct(won, opportunities),
+        })
+
+
+class SuperAdminGeoStatsView(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        rows = {}
+        for company in Company.objects.all():
+            country = company.country or "Unknown"
+            city = company.city or "Unknown"
+            key = (country, city)
+            rows.setdefault(key, {"country": country, "city": city, "companies_count": 0, "users_count": 0, "prospects_count": 0, "opportunities_count": 0})
+            rows[key]["companies_count"] += 1
+        for row in User.objects.values("country", "city").annotate(count=Count("id")):
+            key = (row["country"] or "Unknown", row["city"] or "Unknown")
+            rows.setdefault(key, {"country": key[0], "city": key[1], "companies_count": 0, "users_count": 0, "prospects_count": 0, "opportunities_count": 0})
+            rows[key]["users_count"] += row["count"]
+        for model, field in [(Prospect, "prospects_count"), (Opportunity, "opportunities_count")]:
+            for row in model.objects.values("company__country", "company__city").annotate(count=Count("id")):
+                key = (row["company__country"] or "Unknown", row["company__city"] or "Unknown")
+                rows.setdefault(key, {"country": key[0], "city": key[1], "companies_count": 0, "users_count": 0, "prospects_count": 0, "opportunities_count": 0})
+                rows[key][field] += row["count"]
+        data = []
+        for item in rows.values():
+            lat, lng = CITY_COORDS.get((item["city"] or "").lower(), (None, None))
+            data.append({**item, "lat": lat, "lng": lng})
+        return Response(sorted(data, key=lambda x: (x["companies_count"], x["users_count"]), reverse=True))
+
+
+class SuperAdminUsersPerformanceView(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        data = []
+        users = User.objects.select_related("company").exclude(Q(is_superuser=True) | Q(role="SUPERADMIN"))
+        for user in users:
+            prospects_count = Prospect.objects.filter(assigned_to=user).count()
+            opportunities_count = Opportunity.objects.filter(assigned_to=user).count()
+            won_count = Opportunity.objects.filter(assigned_to=user, stage="won").count()
+            data.append({
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "role": user.role,
+                "company_name": user.company.name if user.company else None,
+                "prospects_count": prospects_count,
+                "opportunities_count": opportunities_count,
+                "tasks_count": Task.objects.filter(assigned_to=user).count(),
+                "activities_count": TaskActivity.objects.filter(performed_by=user).count(),
+                "conversion_rate": _pct(won_count, opportunities_count),
+                "last_activity_at": UserActivity.objects.filter(user=user).aggregate(v=Max("created_at"))["v"],
+            })
+        return Response(data)
+
+
+class SuperAdminCompanyStatsView(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        return Response({
+            "total_companies": Company.objects.count(),
+            "active_companies": Company.objects.filter(subscription__is_active=True).count(),
+            "inactive_companies": Company.objects.filter(Q(subscription__is_active=False) | Q(subscription__isnull=True)).count(),
+            "trial_companies": Company.objects.filter(subscription__is_trial=True, subscription__is_active=True).count(),
+            "total_users": User.objects.exclude(Q(is_superuser=True) | Q(role="SUPERADMIN")).count(),
+            "total_prospects": Prospect.objects.count(),
+            "total_opportunities": Opportunity.objects.count(),
+            "total_tasks": Task.objects.count(),
+        })
+
+
+class SuperAdminProspectStatsView(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        qs = Prospect.objects.all()
+        by_origin = list(qs.values("origin").annotate(count=Count("id")).order_by("-count"))
+        by_company = list(qs.values("company__name").annotate(count=Count("id")).order_by("-count")[:10])
+        return Response({
+            "total": qs.count(),
+            "new": qs.filter(status="new").count(),
+            "contacted": qs.filter(status="contacted").count(),
+            "qualified": qs.filter(status="qualified").count(),
+            "won": qs.filter(status="won").count(),
+            "lost": qs.filter(status="lost").count(),
+            "hot": qs.filter(evaluation="hot").count(),
+            "warm": qs.filter(evaluation="warm").count(),
+            "cold": qs.filter(evaluation="cold").count(),
+            "assigned": qs.filter(assigned_to__isnull=False).count(),
+            "unassigned": qs.filter(assigned_to__isnull=True).count(),
+            "by_origin": by_origin,
+            "by_company": by_company,
+        })
+
+
+class SuperAdminOpportunityStatsView(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        qs = Opportunity.objects.all()
+        total = qs.count()
+        won = qs.filter(stage="won")
+        return Response({
+            "total": total,
+            "total_amount": float(qs.aggregate(v=Sum("amount"))["v"] or 0),
+            "won_amount": float(won.aggregate(v=Sum("amount"))["v"] or 0),
+            "lost_amount": float(qs.filter(stage="lost").aggregate(v=Sum("amount"))["v"] or 0),
+            "new": qs.filter(stage="new").count(),
+            "qualified": qs.filter(stage="qualified").count(),
+            "proposal": qs.filter(stage="proposal").count(),
+            "negotiation": qs.filter(stage="negotiation").count(),
+            "won": won.count(),
+            "lost": qs.filter(stage="lost").count(),
+            "conversion_rate": _pct(won.count(), total),
+            "by_company": list(qs.values("company__name").annotate(count=Count("id"), amount=Sum("amount")).order_by("-amount")[:10]),
+            "top_users": list(qs.values("assigned_to__username").annotate(count=Count("id"), amount=Sum("amount")).order_by("-amount")[:10]),
+        })
+
+
+class SuperAdminTaskStatsView(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        qs = Task.objects.all()
+        now = timezone.now()
+        return Response({
+            "total": qs.count(),
+            "todo": qs.filter(status="todo").count(),
+            "in_progress": qs.filter(status="in_progress").count(),
+            "done": qs.filter(Q(status="done") | Q(status="completed")).count(),
+            "cancelled": qs.filter(status="cancelled").count(),
+            "high": qs.filter(priority="high").count(),
+            "medium": qs.filter(priority="medium").count(),
+            "low": qs.filter(priority="low").count(),
+            "quota": qs.filter(task_type="quota").count(),
+            "overdue": qs.filter(due_date__lt=now).exclude(status__in=["done", "completed", "cancelled"]).count(),
+            "ai_created": qs.filter(Q(source__icontains="agent") | Q(created_by__isnull=True)).count(),
+            "human_created": qs.filter(created_by__isnull=False).exclude(source__icontains="agent").count(),
+        })
+
+
+class SuperAdminContactStatsView(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        qs = Contact.objects.all()
+        return Response({
+            "total_contacts": qs.count(),
+            "with_account": qs.filter(account__isnull=False).count(),
+            "without_account": qs.filter(account__isnull=True).count(),
+            "with_phone": qs.exclude(Q(phone__isnull=True) | Q(phone="")).count(),
+            "with_email": qs.exclude(Q(email__isnull=True) | Q(email="")).count(),
+            "with_title": qs.exclude(Q(title__isnull=True) | Q(title="")).count(),
+        })
+
+
+class SuperAdminTeamStatsView(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        qs = Team.objects.all()
+        total_members = sum(team.members.count() for team in qs)
+        total_teams = qs.count()
+        return Response({
+            "total_teams": total_teams,
+            "total_members": total_members,
+            "avg_members": round(total_members / total_teams, 2) if total_teams else 0,
+            "with_company": qs.filter(company__isnull=False).count(),
+            "without_company": qs.filter(company__isnull=True).count(),
+        })
+
+
+class SuperAdminInvitationStatsView(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        qs = Invitation.objects.all()
+        total = qs.count()
+        accepted = qs.filter(accepted=True).count()
+        return Response({
+            "total": total,
+            "accepted": accepted,
+            "pending": qs.filter(accepted=False).count(),
+            "admins": qs.filter(role="ADMIN").count(),
+            "managers": qs.filter(role="MANAGER").count(),
+            "commercials": qs.filter(role="COMMERCIAL").count(),
+            "acceptance_rate": _pct(accepted, total),
+        })
+
+
+class SuperAdminAIAgentRunListView(ListAPIView):
+    permission_classes = [IsSuperAdmin]
+    serializer_class = AIAgentRunSerializer
+    pagination_class = SuperAdminPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["query", "company__name", "launched_by__username", "error_message"]
+    ordering = ["-started_at"]
+
+    def get_queryset(self):
+        qs = AIAgentRun.objects.select_related("company", "launched_by")
+        for param in ("agent_type", "status"):
+            if value := self.request.query_params.get(param):
+                qs = qs.filter(**{param: value})
+        if company_id := self.request.query_params.get("company_id"):
+            qs = qs.filter(company_id=company_id)
+        if date_from := self.request.query_params.get("date_from"):
+            qs = qs.filter(started_at__date__gte=date_from)
+        if date_to := self.request.query_params.get("date_to"):
+            qs = qs.filter(started_at__date__lte=date_to)
+        return qs
+
+
+class SuperAdminAIAgentStatsView(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        qs = AIAgentRun.objects.all()
+        total = qs.count()
+        daily = list(
+            qs.annotate(day=TruncDate("started_at"))
+            .values("day")
+            .annotate(count=Count("id"))
+            .order_by("-day")[:30]
+        )
+        daily.reverse()
+        return Response({
+            "total_runs": total,
+            "success_runs": qs.filter(status="success").count(),
+            "failed_runs": qs.filter(status="failed").count(),
+            "partial_runs": qs.filter(status="partial").count(),
+            "prospects_found": _sum(qs, "prospects_found"),
+            "prospects_imported": _sum(qs, "prospects_imported"),
+            "messages_generated": _sum(qs, "messages_generated"),
+            "messages_sent": _sum(qs, "messages_sent"),
+            "replies_detected": _sum(qs, "replies_detected"),
+            "avg_duration_seconds": round(qs.aggregate(v=Avg("duration_seconds"))["v"] or 0, 2),
+            "by_agent": list(qs.values("agent_type").annotate(count=Count("id")).order_by("-count")),
+            "by_source": [
+                {"source": "Google Maps", "count": _sum(qs, "source_google_maps")},
+                {"source": "LinkedIn", "count": _sum(qs, "source_linkedin")},
+                {"source": "Facebook", "count": _sum(qs, "source_facebook")},
+                {"source": "Instagram", "count": _sum(qs, "source_instagram")},
+                {"source": "Website", "count": _sum(qs, "source_website")},
+            ],
+            "daily_activity": [{"date": row["day"], "count": row["count"]} for row in daily],
+        })
+
+
+class SuperAdminAuditLogListView(ListAPIView):
+    permission_classes = [IsSuperAdmin]
+    serializer_class = SuperAdminAuditLogSerializer
+    pagination_class = SuperAdminPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["module", "action", "object_repr", "description", "actor__email", "company__name"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        qs = SuperAdminAuditLog.objects.select_related("actor", "company")
+        for param in ("action", "module", "company_id", "actor_id"):
+            if value := self.request.query_params.get(param):
+                qs = qs.filter(**{param: value})
+        return qs
+
+
+class SuperAdminSystemHealthView(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def _log(self, service, status_value, message="", response_time_ms=None):
+        return SystemHealthLog.objects.create(
+            service=service,
+            status=status_value,
+            message=message,
+            response_time_ms=response_time_ms,
+        )
+
+    def get(self, request):
+        checks = []
+        checks.append(self._log("backend", "online", "Django API is responding", 0))
+
+        start = perf_counter()
+        try:
+            Company.objects.count()
+            checks.append(self._log("database", "online", "Database query succeeded", round((perf_counter() - start) * 1000, 2)))
+        except Exception as exc:
+            checks.append(self._log("database", "offline", str(exc), round((perf_counter() - start) * 1000, 2)))
+
+        start = perf_counter()
+        try:
+            cache.set("superadmin_health", "ok", 5)
+            ok = cache.get("superadmin_health") == "ok"
+            checks.append(self._log("redis", "online" if ok else "warning", "Cache backend responded" if ok else "Cache backend did not echo value", round((perf_counter() - start) * 1000, 2)))
+        except Exception as exc:
+            checks.append(self._log("redis", "warning", str(exc), round((perf_counter() - start) * 1000, 2)))
+
+        checks.append(self._log("gemini", "online" if (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")) else "warning", "API key configured" if (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")) else "No Gemini/Google API key configured"))
+
+        try:
+            __import__("playwright")
+            checks.append(self._log("playwright", "online", "Playwright package import succeeded"))
+        except Exception:
+            checks.append(self._log("playwright", "warning", "Playwright package not importable in this runtime"))
+
+        for service in ("linkedin", "facebook", "instagram"):
+            checks.append(self._log(service, "warning", "Session check not configured"))
+
+        latest = []
+        for service in SystemHealthLog.SERVICE_CHOICES:
+            log = SystemHealthLog.objects.filter(service=service[0]).order_by("-checked_at").first()
+            if log:
+                latest.append(log)
+        return Response(SystemHealthLogSerializer(latest, many=True).data)

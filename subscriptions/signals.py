@@ -1,24 +1,19 @@
-# subscriptions/signals.py
+import logging
+
+from django.apps import apps
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
-from django.apps import apps
-import logging
 
 logger = logging.getLogger(__name__)
 
 
 @receiver(post_migrate)
 def create_default_plans(sender, **kwargs):
-    """Crée les plans par défaut après chaque migration"""
+    """Create or update the default subscription plans after migrations."""
     if sender.name != "subscriptions":
         return
 
     SubscriptionPlan = apps.get_model("subscriptions", "SubscriptionPlan")
-
-    if SubscriptionPlan.objects.exists():
-        return
-
-    logger.info("Création des plans d'abonnement par défaut...")
 
     plans = [
         {
@@ -28,7 +23,14 @@ def create_default_plans(sender, **kwargs):
             "max_teams": 1,
             "max_prospects": 50,
             "description": "Plan Starter pour petites équipes",
-            "premium_features": {"reports": False, "priority_support": False},
+            "premium_features": {
+                "crm_agent": True,
+                "prospection_agent": False,
+                "engagement_agent": False,
+                "exports": False,
+                "reports": False,
+                "priority_support": False,
+            },
             "duration_days": 30,
         },
         {
@@ -38,7 +40,14 @@ def create_default_plans(sender, **kwargs):
             "max_teams": 5,
             "max_prospects": 500,
             "description": "Plan Pro pour PME",
-            "premium_features": {"reports": True, "priority_support": False},
+            "premium_features": {
+                "crm_agent": True,
+                "prospection_agent": True,
+                "engagement_agent": False,
+                "exports": True,
+                "reports": True,
+                "priority_support": False,
+            },
             "duration_days": 30,
         },
         {
@@ -48,18 +57,43 @@ def create_default_plans(sender, **kwargs):
             "max_teams": None,
             "max_prospects": None,
             "description": "Plan Enterprise illimité",
-            "premium_features": {"reports": True, "priority_support": True},
+            "premium_features": {
+                "crm_agent": True,
+                "prospection_agent": True,
+                "engagement_agent": True,
+                "exports": True,
+                "reports": True,
+                "priority_support": True,
+            },
             "duration_days": 30,
         },
     ]
 
     created_count = 0
+    updated_count = 0
     for plan_data in plans:
-        _, created = SubscriptionPlan.objects.get_or_create(
+        plan, created = SubscriptionPlan.objects.get_or_create(
             name=plan_data["name"], defaults=plan_data
         )
         if created:
             created_count += 1
-            logger.info(f"  Plan créé : {plan_data['name']}")
+            logger.info("Plan créé : %s", plan_data["name"])
+            continue
 
-    logger.info(f"Plans créés : {created_count}")
+        for field, value in plan_data.items():
+            if field != "name":
+                setattr(plan, field, value)
+        plan.save(
+            update_fields=[
+                "price",
+                "max_users",
+                "max_teams",
+                "max_prospects",
+                "description",
+                "premium_features",
+                "duration_days",
+            ]
+        )
+        updated_count += 1
+
+    logger.info("Plans par défaut synchronisés : %s créés, %s mis à jour", created_count, updated_count)

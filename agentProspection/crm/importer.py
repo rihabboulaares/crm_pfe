@@ -4,6 +4,7 @@ from difflib import SequenceMatcher
 from urllib.parse import urlparse
 
 from sales.models import ProspectCompany, Prospect
+from subscriptions.utils import check_limits
 from users.models import Company, User
 
 
@@ -556,6 +557,7 @@ def import_leads_to_crm(
 ) -> dict:
     crm_company = Company.objects.get(id=tenant_company_id)
     user = User.objects.get(id=user_id)
+    check_limits(crm_company, "add_prospect")
 
     stats = {
         "companies_created": 0,
@@ -569,6 +571,7 @@ def import_leads_to_crm(
     company_objects = {}
 
     for item in companies:
+        check_limits(crm_company, "add_prospect")
         prospect = save_result_to_crm(item, user_id, tenant_company_id)
         if not prospect:
             stats["companies_skipped"] += 1
@@ -592,6 +595,7 @@ def import_leads_to_crm(
             stats["persons_skipped"] += 1
 
     for item in persons:
+        check_limits(crm_company, "add_prospect")
         prospect = save_result_to_crm(item, user_id, tenant_company_id)
         if not prospect:
             stats["persons_skipped"] += 1
