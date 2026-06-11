@@ -51,3 +51,12 @@ redis>=5.0.0
 
 # Pydantic
 pydantic>=2.0.0
+psycopg2-binary
+djangorestframework-simplejwt
+stripe
+django-filter
+langchain-mcp-adapters
+Pillow
+
+gunicorn
+whitenoise
