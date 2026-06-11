@@ -191,6 +191,34 @@ const formatPrice = (price) => {
 };
 
 // ── Composant principal ───────────────────────────────────────
+const formatLimit = (value) => (value === null || value === undefined ? "Illimité" : value);
+
+const usagePercent = (currentValue, maxValue) => {
+  if (maxValue === null || maxValue === undefined || Number(maxValue) === 0) return 0;
+  return Math.min(100, Math.round((Number(currentValue || 0) / Number(maxValue)) * 100));
+};
+
+const featureLabels = {
+  crm_agent: "Agent CRM",
+  prospection_agent: "Agent de prospection",
+  engagement_agent: "Agent d'engagement",
+  exports: "Exports PDF/Excel",
+};
+
+const comparisonRows = [
+  ["Dashboard", "Oui", "Oui", "Oui"],
+  ["Prospects", "Oui", "Oui", "Oui"],
+  ["Opportunités", "Oui", "Oui", "Oui"],
+  ["Tâches", "Oui", "Oui", "Oui"],
+  ["Agent CRM", "Oui", "Oui", "Oui"],
+  ["Agent de prospection", "Non", "Oui", "Oui"],
+  ["Agent d'engagement", "Non", "Non", "Oui"],
+  ["Exports PDF/Excel", "Non", "Oui", "Oui"],
+  ["Utilisateurs", "3", "10", "Illimité"],
+  ["Équipes", "1", "5", "Illimité"],
+  ["Prospects max", "50", "500", "Illimité"],
+];
+
 const SubscriptionForm = () => {
   const location = useLocation();
 
@@ -617,6 +645,81 @@ const SubscriptionForm = () => {
                           Votre abonnement a expiré. Renouvelez ou choisissez un nouveau plan.
                         </Alert>
                       )}
+
+                      <Box sx={{ mt: 2 }}>
+                        <MDTypography variant="subtitle2" fontWeight="bold" gutterBottom>
+                          Fonctionnalités incluses
+                        </MDTypography>
+                        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                          {(current.allowed_features || []).length > 0 ? (
+                            current.allowed_features.map((feature) => (
+                              <Chip
+                                key={feature}
+                                size="small"
+                                color="success"
+                                variant="outlined"
+                                label={featureLabels[feature] || feature}
+                              />
+                            ))
+                          ) : (
+                            <Chip
+                              size="small"
+                              color="default"
+                              label="Aucune fonctionnalité active"
+                            />
+                          )}
+                        </Stack>
+                      </Box>
+
+                      <Grid container spacing={2} sx={{ mt: 1 }}>
+                        {[
+                          {
+                            label: "Utilisateurs",
+                            currentValue: current.users_count,
+                            maxValue: current.max_users,
+                          },
+                          {
+                            label: "Équipes",
+                            currentValue: current.teams_count,
+                            maxValue: current.max_teams,
+                          },
+                          {
+                            label: "Prospects",
+                            currentValue: current.prospects_count,
+                            maxValue: current.max_prospects,
+                          },
+                        ].map(({ label, currentValue, maxValue }) => (
+                          <Grid item xs={12} md={4} key={label}>
+                            <Box
+                              sx={{
+                                p: 1.5,
+                                border: "1px solid rgba(211,47,47,0.1)",
+                                borderRadius: 2,
+                                bgcolor: "rgba(211,47,47,0.02)",
+                              }}
+                            >
+                              <Stack direction="row" justifyContent="space-between" mb={1}>
+                                <MDTypography variant="caption" fontWeight="bold">
+                                  {label}
+                                </MDTypography>
+                                <MDTypography variant="caption" color="text">
+                                  {currentValue || 0} / {formatLimit(maxValue)}
+                                </MDTypography>
+                              </Stack>
+                              <LinearProgress
+                                variant={
+                                  maxValue === null || maxValue === undefined
+                                    ? "indeterminate"
+                                    : "determinate"
+                                }
+                                value={usagePercent(currentValue, maxValue)}
+                                color="error"
+                                sx={{ height: 8, borderRadius: 4 }}
+                              />
+                            </Box>
+                          </Grid>
+                        ))}
+                      </Grid>
                     </Grid>
 
                     <Grid item xs={12} md={4}>
@@ -868,6 +971,26 @@ const SubscriptionForm = () => {
                 </Grid>
               </ListItem>
               <Divider />
+              {comparisonRows.map(([name, ...values]) => (
+                <ListItem key={`new-${name}`}>
+                  <Grid container spacing={2}>
+                    <Grid item xs={3}>
+                      <MDTypography variant="body2">{name}</MDTypography>
+                    </Grid>
+                    {values.map((v, i) => (
+                      <Grid item xs={3} key={i}>
+                        <MDTypography
+                          variant="body2"
+                          color={v === "Non" ? "text" : v === "Oui" ? "success" : "dark"}
+                          fontWeight={v === "Oui" ? "bold" : "regular"}
+                        >
+                          {v}
+                        </MDTypography>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </ListItem>
+              ))}
               {[
                 ["Prix mensuel", "20 DT", "50 DT", "100 DT"],
                 ["Utilisateurs max", "3", "10", "Illimité"],

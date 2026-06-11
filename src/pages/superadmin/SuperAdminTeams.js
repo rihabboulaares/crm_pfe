@@ -425,6 +425,7 @@ export default function SuperAdminTeams() {
   const [selectedTeam, setSelectedTeam] = useState(null);
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [backendStats, setBackendStats] = useState(null);
 
   const fetchTeams = async () => {
     setLoading(true);
@@ -450,6 +451,12 @@ export default function SuperAdminTeams() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, search, companyFilter]);
 
+  useEffect(() => {
+    apiGet("/api/superadmin/teams/stats/")
+      .then((res) => setBackendStats(res.data))
+      .catch((e) => console.error("Erreur stats équipes:", e));
+  }, []);
+
   const showNotification = (text, type = "success") => {
     setMessage({ text, type });
     setTimeout(() => setMessage({ text: "", type: "success" }), 5000);
@@ -473,6 +480,16 @@ export default function SuperAdminTeams() {
     }),
     [teams]
   );
+  const displayStats = backendStats
+    ? {
+        ...stats,
+        total: backendStats.total_teams,
+        totalMembers: backendStats.total_members,
+        avgMembers: backendStats.avg_members,
+        withCompany: backendStats.with_company,
+        withoutCompany: backendStats.without_company,
+      }
+    : stats;
 
   // Liste unique des entreprises pour le filtre
   const companies = useMemo(() => {
@@ -550,13 +567,13 @@ export default function SuperAdminTeams() {
         <Grid item xs={12} sm={6} md={3}>
           <StatsCardItem
             title="Total équipes"
-            value={stats.total}
+            value={displayStats.total}
             icon={<Group />}
             color={THEME.primary}
           >
             <Chip
               size="small"
-              label={`${stats.withCompany} Avec entreprise`}
+              label={`${displayStats.withCompany} Avec entreprise`}
               sx={{
                 bgcolor: alpha(THEME.blue, 0.1),
                 color: THEME.blue,
@@ -570,13 +587,13 @@ export default function SuperAdminTeams() {
         <Grid item xs={12} sm={6} md={3}>
           <StatsCardItem
             title="Membres"
-            value={stats.totalMembers}
+            value={displayStats.totalMembers}
             icon={<People />}
             color={THEME.success}
           >
             <Chip
               size="small"
-              label={`Moy. ${stats.avgMembers} par équipe`}
+              label={`Moy. ${displayStats.avgMembers} par équipe`}
               sx={{
                 bgcolor: alpha(THEME.success, 0.1),
                 color: THEME.success,
@@ -590,7 +607,7 @@ export default function SuperAdminTeams() {
         <Grid item xs={12} sm={6} md={3}>
           <StatsCardItem
             title="Sans entreprise"
-            value={stats.withoutCompany}
+            value={displayStats.withoutCompany}
             icon={<BusinessIcon />}
             color={THEME.warning}
           />

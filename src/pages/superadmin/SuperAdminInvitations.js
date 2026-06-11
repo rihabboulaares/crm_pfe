@@ -463,6 +463,7 @@ export default function SuperAdminInvitations() {
   const [selectedInvitation, setSelectedInvitation] = useState(null);
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [backendStats, setBackendStats] = useState(null);
 
   const fetchInvitations = async () => {
     setLoading(true);
@@ -490,6 +491,12 @@ export default function SuperAdminInvitations() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, search, statusFilter, roleFilter]);
 
+  useEffect(() => {
+    apiGet("/api/superadmin/invitations/stats/")
+      .then((res) => setBackendStats(res.data))
+      .catch((e) => console.error("Erreur stats invitations:", e));
+  }, []);
+
   const showNotification = (text, type = "success") => {
     setMessage({ text, type });
     setTimeout(() => setMessage({ text: "", type: "success" }), 5000);
@@ -512,6 +519,7 @@ export default function SuperAdminInvitations() {
     }),
     [invitations]
   );
+  const displayStats = backendStats ? { ...stats, ...backendStats } : stats;
 
   const activeFiltersCount = (statusFilter ? 1 : 0) + (roleFilter ? 1 : 0);
 
@@ -586,7 +594,7 @@ export default function SuperAdminInvitations() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Total invitations"
-            value={stats.total}
+            value={displayStats.total}
             icon={<Mail />}
             color={THEME.primary}
           />
@@ -594,13 +602,13 @@ export default function SuperAdminInvitations() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Acceptées"
-            value={stats.accepted}
+            value={displayStats.accepted}
             icon={<CheckCircle />}
             color={THEME.success}
           >
             <Chip
               size="small"
-              label={`${Math.round((stats.accepted / stats.total) * 100 || 0)}%`}
+              label={`${Math.round((displayStats.accepted / displayStats.total) * 100 || 0)}%`}
               sx={{
                 bgcolor: alpha(THEME.success, 0.1),
                 color: THEME.success,
@@ -612,7 +620,7 @@ export default function SuperAdminInvitations() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="En attente"
-            value={stats.pending}
+            value={displayStats.pending}
             icon={<ScheduleIcon />}
             color={THEME.amber}
           />
@@ -620,7 +628,7 @@ export default function SuperAdminInvitations() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Admins"
-            value={stats.admins}
+            value={displayStats.admins}
             icon={<AdminIcon />}
             color={THEME.blue}
           />
@@ -628,7 +636,7 @@ export default function SuperAdminInvitations() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Managers"
-            value={stats.managers}
+            value={displayStats.managers}
             icon={<ManagerIcon />}
             color={THEME.purple}
           />

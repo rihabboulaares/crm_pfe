@@ -1,55 +1,65 @@
-/* eslint-disable prettier/prettier */
-// src/pages/superadmin/SuperAdminStats.js
+/* eslint-disable prettier/prettier, react/prop-types */
+/* eslint-disable react/prop-types */
 import React, { useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import axios from "axios";
-import { Box, Card, Typography, Stack, Avatar, Grid, CircularProgress } from "@mui/material";
-import { BarChart as BarIcon } from "@mui/icons-material";
 import {
-  AreaChart,
+  Alert,
+  Avatar,
+  Box,
+  Card,
+  CircularProgress,
+  Grid,
+  LinearProgress,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Typography,
+} from "@mui/material";
+import { BarChart as BarIcon, Map, People, TrendingUp } from "@mui/icons-material";
+import { alpha } from "@mui/material/styles";
+import {
   Area,
-  BarChart,
+  AreaChart,
   Bar,
-  PieChart,
-  Pie,
+  BarChart,
+  CartesianGrid,
   Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
 } from "recharts";
-import { alpha } from "@mui/material/styles";
+import {
+  apiGet,
+  formatCurrency,
+  formatDateTime,
+  formatNumber,
+  safeArray,
+  SA_ENDPOINTS,
+  T,
+} from "./saUtils";
 import SuperAdminLayout from "./SuperAdminLayout";
 
-const T = {
-  red: "#dc2626",
-  blue: "#2563eb",
-  green: "#059669",
-  amber: "#d97706",
-  purple: "#7c3aed",
-  n100: "#f3f4f6",
-  n200: "#e5e7eb",
-  n500: "#6b7280",
-  n800: "#1f2937",
-};
+const colors = [T.red, T.blue, T.green, T.amber, T.purple];
 
-const api = (url) =>
-  axios.get(`http://127.0.0.1:8000${url}`, {
-    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-  });
-
-const ChartCard = ({ title, children, height }) => (
-  <Card sx={{ borderRadius: 3, p: 3, bgcolor: "white", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
-    <Typography variant="h6" sx={{ fontWeight: 600, mb: 2.5, color: T.n800 }}>
-      {title}
-    </Typography>
-    <ResponsiveContainer width="100%" height={height}>
-      {children}
-    </ResponsiveContainer>
-  </Card>
-);
+function ChartCard({ title, children, height = 280 }) {
+  return (
+    <Card sx={{ borderRadius: 2, p: 2.5, height: "100%", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
+      <Typography variant="h6" sx={{ fontWeight: 800, color: T.n800, mb: 2 }}>
+        {title}
+      </Typography>
+      <ResponsiveContainer width="100%" height={height}>
+        {children}
+      </ResponsiveContainer>
+    </Card>
+  );
+}
 
 ChartCard.propTypes = {
   title: PropTypes.string.isRequired,
@@ -58,281 +68,253 @@ ChartCard.propTypes = {
 };
 
 ChartCard.defaultProps = {
-  height: 260,
+  height: 280,
+};
+
+function KpiCard({ label, value, color }) {
+  return (
+    <Card sx={{ borderRadius: 2, p: 2.5, boxShadow: "0 1px 4px rgba(0,0,0,0.08)", borderTop: `3px solid ${color}` }}>
+      <Typography variant="caption" sx={{ color: T.n500, textTransform: "uppercase", fontWeight: 800 }}>
+        {label}
+      </Typography>
+      <Typography variant="h4" sx={{ color: T.n800, fontWeight: 800, mt: 0.5 }}>
+        {value}
+      </Typography>
+    </Card>
+  );
+}
+
+KpiCard.propTypes = {
+  label: PropTypes.string.isRequired,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+  color: PropTypes.string.isRequired,
 };
 
 export default function SuperAdminStats() {
-  const [stats, setStats] = useState(null);
+  const [data, setData] = useState({
+    stats: null,
+    growth: [],
+    funnel: null,
+    geo: [],
+    users: [],
+  });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    api("/api/superadmin/stats/")
-      .then((r) => setStats(r.data))
-      .catch(console.error)
+    Promise.all([
+      apiGet(SA_ENDPOINTS.stats),
+      apiGet(SA_ENDPOINTS.dashboardGrowth),
+      apiGet(SA_ENDPOINTS.crmFunnel),
+      apiGet(SA_ENDPOINTS.geoStats),
+      apiGet(SA_ENDPOINTS.usersPerformance),
+    ])
+      .then(([stats, growth, funnel, geo, users]) => {
+        setData({
+          stats: stats.data,
+          growth: safeArray(growth.data),
+          funnel: funnel.data,
+          geo: safeArray(geo.data),
+          users: safeArray(users.data).slice(0, 10),
+        });
+      })
+      .catch((err) => {
+        console.error(err);
+        setError("Impossible de charger les statistiques globales.");
+      })
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading)
-    return (
-      <SuperAdminLayout>
-        <Box
-          sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: "60vh" }}
-        >
-          <CircularProgress sx={{ color: T.red }} size={48} />
-        </Box>
-      </SuperAdminLayout>
-    );
-
-  // Données pour les graphiques
-  const subscriptionData = [
-    { name: "Actifs", value: stats?.active_subscriptions || 0, color: T.green },
-    { name: "Essai", value: stats?.trial_subscriptions || 0, color: T.amber },
-    { name: "Expirés", value: stats?.expired_subscriptions || 0, color: T.red },
-  ];
-
-  const planData = Object.entries(stats?.companies_by_plan || {}).map(([name, value]) => ({
-    name: name.charAt(0).toUpperCase() + name.slice(1),
-    Entreprises: value,
-    color: name === "enterprise" ? T.purple : name === "pro" ? T.blue : T.green,
-  }));
-
-  const kpiData = [
-    { name: "Entreprises", value: stats?.total_companies, color: T.blue },
-    { name: "Utilisateurs", value: stats?.total_users, color: T.purple },
-    { name: "Revenus (TND)", value: stats?.total_revenue_monthly, color: T.amber },
-    { name: "Nouveaux", value: stats?.new_companies_this_month, color: T.green },
-  ];
-
-  // Données simulées pour area chart (évolution — en prod tu ferais des vraies API)
-  const areaData = [
-    {
-      mois: "Oct",
-      entreprises: Math.max(0, (stats?.total_companies || 0) - 8),
-      revenus: Math.max(0, (stats?.total_revenue_monthly || 0) - 300),
-    },
-    {
-      mois: "Nov",
-      entreprises: Math.max(0, (stats?.total_companies || 0) - 5),
-      revenus: Math.max(0, (stats?.total_revenue_monthly || 0) - 180),
-    },
-    {
-      mois: "Déc",
-      entreprises: Math.max(0, (stats?.total_companies || 0) - 3),
-      revenus: Math.max(0, (stats?.total_revenue_monthly || 0) - 90),
-    },
-    {
-      mois: "Jan",
-      entreprises: Math.max(0, (stats?.total_companies || 0) - 1),
-      revenus: Math.max(0, (stats?.total_revenue_monthly || 0) - 30),
-    },
-    {
-      mois: "Fév",
-      entreprises: stats?.total_companies || 0,
-      revenus: stats?.total_revenue_monthly || 0,
-    },
-  ];
+  const stats = data.stats || {};
+  const planData = Object.entries(stats.companies_by_plan || {}).map(([name, value]) => ({ name, value }));
+  const funnelData = data.funnel
+    ? [
+        { name: "Prospects", value: data.funnel.prospects },
+        { name: "Contactés", value: data.funnel.contacted },
+        { name: "Qualifiés", value: data.funnel.qualified },
+        { name: "Opportunités", value: data.funnel.opportunities },
+        { name: "Gagnés", value: data.funnel.won },
+      ]
+    : [];
 
   return (
     <SuperAdminLayout>
-      {/* Header */}
-      <Stack direction="row" alignItems="center" justifyContent="space-between" mb={3}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 700, color: T.n800 }}>
-            Statistiques avancées
+          <Typography variant="h5" sx={{ fontWeight: 800, color: T.n800 }}>
+            Statistiques globales
           </Typography>
           <Typography variant="body2" sx={{ color: T.n500 }}>
-            Vue analytique complète de la plateforme
+            Données consolidées depuis les endpoints SuperAdmin dédiés.
           </Typography>
         </Box>
-        <Avatar sx={{ bgcolor: alpha(T.amber, 0.1), width: 48, height: 48 }}>
-          <BarIcon sx={{ color: T.amber }} />
+        <Avatar sx={{ bgcolor: alpha(T.red, 0.1), color: T.red, width: 48, height: 48 }}>
+          <BarIcon />
         </Avatar>
       </Stack>
 
-      {/* KPI Cards */}
-      <Grid container spacing={2.5} mb={4}>
-        {kpiData.map(({ name, value, color }) => (
-          <Grid item xs={6} md={3} key={name}>
-            <Card
-              sx={{
-                borderRadius: 3,
-                p: 2.5,
-                bgcolor: "white",
-                boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
-                borderTop: `3px solid ${color}`,
-              }}
-            >
-              <Typography
-                variant="caption"
-                sx={{
-                  color: T.n500,
-                  textTransform: "uppercase",
-                  letterSpacing: 1,
-                  fontWeight: 500,
-                }}
-              >
-                {name}
-              </Typography>
-              <Typography variant="h4" sx={{ fontWeight: 800, color: T.n800, mt: 0.5 }}>
-                {value ?? "—"}
-              </Typography>
-            </Card>
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {loading ? (
+        <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+          <CircularProgress sx={{ color: T.red }} />
+        </Box>
+      ) : (
+        <>
+          <Grid container spacing={2.5} mb={3}>
+            <Grid item xs={12} sm={6} md={3}>
+              <KpiCard label="Entreprises" value={formatNumber(stats.total_companies)} color={T.blue} />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <KpiCard label="Utilisateurs" value={formatNumber(stats.total_users)} color={T.purple} />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <KpiCard label="Revenus mensuels" value={formatCurrency(stats.total_revenue_monthly)} color={T.green} />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <KpiCard label="Runs IA" value={formatNumber(stats.ai_total_runs)} color={T.red} />
+            </Grid>
           </Grid>
-        ))}
-      </Grid>
 
-      {/* Graphiques ligne 1 */}
-      <Grid container spacing={3} mb={3}>
-        {/* Area — évolution */}
-        <Grid item xs={12} md={7}>
-          <ChartCard title="Évolution (5 derniers mois)">
-            <AreaChart data={areaData}>
-              <defs>
-                <linearGradient id="gEnt" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={T.blue} stopOpacity={0.15} />
-                  <stop offset="95%" stopColor={T.blue} stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={T.green} stopOpacity={0.15} />
-                  <stop offset="95%" stopColor={T.green} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke={T.n200} />
-              <XAxis dataKey="mois" tick={{ fontSize: 12, fill: T.n500 }} />
-              <YAxis tick={{ fontSize: 12, fill: T.n500 }} />
-              <Tooltip />
-              <Legend />
-              <Area
-                type="monotone"
-                dataKey="entreprises"
-                name="Entreprises"
-                stroke={T.blue}
-                fill="url(#gEnt)"
-                strokeWidth={2}
-                dot={{ r: 4 }}
-              />
-              <Area
-                type="monotone"
-                dataKey="revenus"
-                name="Revenus (TND)"
-                stroke={T.green}
-                fill="url(#gRev)"
-                strokeWidth={2}
-                dot={{ r: 4 }}
-              />
-            </AreaChart>
-          </ChartCard>
-        </Grid>
+          <Grid container spacing={3} mb={3}>
+            <Grid item xs={12} lg={8}>
+              <ChartCard title="Croissance mensuelle réelle">
+                <AreaChart data={data.growth}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={T.n200} />
+                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: T.n500 }} />
+                  <YAxis tick={{ fontSize: 12, fill: T.n500 }} />
+                  <Tooltip />
+                  <Area type="monotone" dataKey="companies" name="Entreprises" stroke={T.red} fill={alpha(T.red, 0.12)} strokeWidth={2} />
+                  <Area type="monotone" dataKey="prospects" name="Prospects" stroke={T.blue} fill={alpha(T.blue, 0.1)} strokeWidth={2} />
+                  <Area type="monotone" dataKey="opportunities" name="Opportunités" stroke={T.green} fill={alpha(T.green, 0.1)} strokeWidth={2} />
+                </AreaChart>
+              </ChartCard>
+            </Grid>
+            <Grid item xs={12} lg={4}>
+              <ChartCard title="Entreprises par plan">
+                <PieChart>
+                  <Pie data={planData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={95} label>
+                    {planData.map((entry, index) => (
+                      <Cell key={entry.name} fill={colors[index % colors.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ChartCard>
+            </Grid>
+          </Grid>
 
-        {/* Pie — statut abonnements */}
-        <Grid item xs={12} md={5}>
-          <ChartCard title="Statut des abonnements">
-            <PieChart>
-              <Pie
-                data={subscriptionData}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={95}
-                dataKey="value"
-                label={({ name, value }) => `${name}: ${value}`}
-                labelLine={false}
-              >
-                {subscriptionData.map((entry) => (
-                  <Cell key={entry.name} fill={entry.color} />
+          <Grid container spacing={3} mb={3}>
+            <Grid item xs={12} md={7}>
+              <ChartCard title="Funnel CRM">
+                <BarChart data={funnelData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={T.n200} />
+                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: T.n500 }} />
+                  <YAxis tick={{ fontSize: 12, fill: T.n500 }} allowDecimals={false} />
+                  <Tooltip />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                    {funnelData.map((entry, index) => (
+                      <Cell key={entry.name} fill={colors[index % colors.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ChartCard>
+            </Grid>
+            <Grid item xs={12} md={5}>
+              <Card sx={{ borderRadius: 2, p: 2.5, height: "100%", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
+                <Stack direction="row" alignItems="center" spacing={1} mb={2}>
+                  <TrendingUp sx={{ color: T.red }} />
+                  <Typography variant="h6" sx={{ fontWeight: 800, color: T.n800 }}>
+                    Conversions
+                  </Typography>
+                </Stack>
+                {[
+                  ["Prospect vers opportunité", data.funnel?.conversion_prospect_to_opportunity || 0],
+                  ["Opportunité gagnée", data.funnel?.conversion_opportunity_to_won || 0],
+                  ["Abonnements actifs", stats.active_subscriptions || 0],
+                  ["Essais", stats.trial_subscriptions || 0],
+                ].map(([label, value], index) => (
+                  <Box key={label} mb={2}>
+                    <Stack direction="row" justifyContent="space-between" mb={0.5}>
+                      <Typography variant="body2" sx={{ color: T.n500 }}>{label}</Typography>
+                      <Typography variant="body2" sx={{ color: T.n800, fontWeight: 800 }}>{value}{index < 2 ? "%" : ""}</Typography>
+                    </Stack>
+                    <LinearProgress variant="determinate" value={Math.min(Number(value), 100)} sx={{ height: 8, borderRadius: 4, bgcolor: alpha(colors[index], 0.12), "& .MuiLinearProgress-bar": { bgcolor: colors[index] } }} />
+                  </Box>
                 ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ChartCard>
-        </Grid>
-      </Grid>
+              </Card>
+            </Grid>
+          </Grid>
 
-      {/* Graphiques ligne 2 */}
-      <Grid container spacing={3}>
-        {/* Bar — par plan */}
-        <Grid item xs={12} md={6}>
-          <ChartCard title="Entreprises par plan">
-            <BarChart data={planData} barSize={50}>
-              <CartesianGrid strokeDasharray="3 3" stroke={T.n200} />
-              <XAxis dataKey="name" tick={{ fontSize: 13, fill: T.n500 }} />
-              <YAxis tick={{ fontSize: 13, fill: T.n500 }} allowDecimals={false} />
-              <Tooltip />
-              <Bar dataKey="Entreprises" radius={[6, 6, 0, 0]}>
-                {planData.map((entry) => (
-                  <Cell key={entry.name} fill={entry.color} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ChartCard>
-        </Grid>
-
-        {/* Résumé financier */}
-        <Grid item xs={12} md={6}>
-          <Card
-            sx={{
-              borderRadius: 3,
-              p: 3,
-              bgcolor: "white",
-              boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
-              height: "100%",
-            }}
-          >
-            <Typography variant="h6" sx={{ fontWeight: 600, mb: 2.5, color: T.n800 }}>
-              Résumé financier
-            </Typography>
-            <Stack spacing={2}>
-              {[
-                {
-                  label: "Revenus mensuels",
-                  value: `${stats?.total_revenue_monthly || 0} TND`,
-                  color: T.green,
-                },
-                {
-                  label: "Abonnements actifs (payants)",
-                  value: stats?.active_subscriptions || 0,
-                  color: T.blue,
-                },
-                {
-                  label: "En période d'essai",
-                  value: stats?.trial_subscriptions || 0,
-                  color: T.amber,
-                },
-                {
-                  label: "Abonnements expirés",
-                  value: stats?.expired_subscriptions || 0,
-                  color: T.red,
-                },
-                {
-                  label: "Taux de conversion (essai→payant)",
-                  value: stats?.trial_subscriptions
-                    ? `${Math.round(
-                        (stats.active_subscriptions /
-                          (stats.active_subscriptions + stats.trial_subscriptions)) *
-                          100
-                      )}%`
-                    : "—",
-                  color: T.purple,
-                },
-              ].map(({ label, value, color }) => (
-                <Box
-                  key={label}
-                  sx={{ p: 2, bgcolor: T.n100, borderRadius: 2, borderLeft: `3px solid ${color}` }}
-                >
-                  <Stack direction="row" justifyContent="space-between" alignItems="center">
-                    <Typography variant="body2" sx={{ color: T.n500 }}>
-                      {label}
-                    </Typography>
-                    <Typography variant="h6" sx={{ fontWeight: 700, color }}>
-                      {value}
-                    </Typography>
-                  </Stack>
-                </Box>
-              ))}
-            </Stack>
-          </Card>
-        </Grid>
-      </Grid>
+          <Grid container spacing={3}>
+            <Grid item xs={12} md={5}>
+              <Card sx={{ borderRadius: 2, p: 2.5, height: "100%", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
+                <Stack direction="row" alignItems="center" spacing={1} mb={2}>
+                  <Map sx={{ color: T.red }} />
+                  <Typography variant="h6" sx={{ fontWeight: 800, color: T.n800 }}>
+                    Géographie
+                  </Typography>
+                </Stack>
+                <Stack spacing={1.4}>
+                  {data.geo.slice(0, 8).map((row, index) => (
+                    <Box key={`${row.country}-${row.city}`}>
+                      <Stack direction="row" justifyContent="space-between">
+                        <Typography variant="body2" sx={{ color: T.n800 }}>
+                          {row.city}, {row.country}
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: T.n500 }}>
+                          {formatNumber(row.companies_count)} ent. / {formatNumber(row.users_count)} users
+                        </Typography>
+                      </Stack>
+                      <LinearProgress variant="determinate" value={Math.min(row.companies_count * 10, 100)} sx={{ height: 6, borderRadius: 3, bgcolor: alpha(colors[index % colors.length], 0.1), "& .MuiLinearProgress-bar": { bgcolor: colors[index % colors.length] } }} />
+                    </Box>
+                  ))}
+                  {!data.geo.length && <Typography variant="body2" sx={{ color: T.n500 }}>Aucune donnée géographique.</Typography>}
+                </Stack>
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={7}>
+              <Card sx={{ borderRadius: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ p: 2.5, pb: 0 }}>
+                  <People sx={{ color: T.red }} />
+                  <Typography variant="h6" sx={{ fontWeight: 800, color: T.n800 }}>
+                    Performance utilisateurs
+                  </Typography>
+                </Stack>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        {["Utilisateur", "Entreprise", "Prospects", "Opportunités", "Conversion", "Dernière activité"].map((h) => (
+                          <TableCell key={h} sx={{ fontWeight: 800 }}>{h}</TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {data.users.map((user) => (
+                        <TableRow key={user.id} hover>
+                          <TableCell>{user.username}</TableCell>
+                          <TableCell>{user.company_name || "-"}</TableCell>
+                          <TableCell>{formatNumber(user.prospects_count)}</TableCell>
+                          <TableCell>{formatNumber(user.opportunities_count)}</TableCell>
+                          <TableCell>{user.conversion_rate}%</TableCell>
+                          <TableCell>{formatDateTime(user.last_activity_at)}</TableCell>
+                        </TableRow>
+                      ))}
+                      {!data.users.length && (
+                        <TableRow>
+                          <TableCell colSpan={6} align="center" sx={{ py: 4, color: T.n500 }}>
+                            Aucune performance utilisateur disponible.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Card>
+            </Grid>
+          </Grid>
+        </>
+      )}
     </SuperAdminLayout>
   );
 }

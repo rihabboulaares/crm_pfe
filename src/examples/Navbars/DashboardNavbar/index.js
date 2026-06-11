@@ -4,6 +4,7 @@
 import { useState, useEffect } from "react";
 import { useLocation, Link } from "react-router-dom";
 import PropTypes from "prop-types";
+import axios from "axios";
 
 import AppBar from "@mui/material/AppBar";
 import Toolbar from "@mui/material/Toolbar";
@@ -12,6 +13,8 @@ import Icon from "@mui/material/Icon";
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
 
 import MDBox from "components/MDBox";
 import MDInput from "components/MDInput";
@@ -50,6 +53,8 @@ function DashboardNavbar({ absolute, light, isMini }) {
   const displayName =
     storedUser?.username || storedUser?.first_name || storedUser?.email || storedUser?.company || "CRM";
   const displayRole = storedUser?.role || storedUser?.company_name || "Workspace";
+  const isAdmin = String(storedUser?.role || "").toUpperCase() === "ADMIN";
+  const [subscription, setSubscription] = useState(null);
 
   useEffect(() => {
     if (fixedNavbar) {
@@ -69,6 +74,18 @@ function DashboardNavbar({ absolute, light, isMini }) {
 
   const handleMiniSidenav = () => setMiniSidenav(dispatch, !miniSidenav);
   const handleConfiguratorOpen = () => setOpenConfigurator(dispatch, !openConfigurator);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    axios
+      .get("http://127.0.0.1:8000/api/subscriptions/current/", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      .then((response) => setSubscription(response.data))
+      .catch(() => setSubscription(null));
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -183,6 +200,29 @@ function DashboardNavbar({ absolute, light, isMini }) {
           </MDBox>
         )}
       </Toolbar>
+      {subscription &&
+        ((subscription.days_until_expiry <= 7 && !subscription.expired && !subscription.is_blocked) ||
+          subscription.expired ||
+          subscription.is_blocked) && (
+          <Box sx={{ px: 2, pb: 1 }}>
+            <Alert
+              severity={subscription.expired || subscription.is_blocked ? "error" : "warning"}
+              action={
+                isAdmin ? (
+                  <Button component={Link} to="/subscriptions" color="inherit" size="small">
+                    Renouveler
+                  </Button>
+                ) : null
+              }
+            >
+              {subscription.expired || subscription.is_blocked
+                ? isAdmin
+                  ? "Votre abonnement est expiré."
+                  : "Votre abonnement est expiré. Contactez votre administrateur."
+                : `Votre abonnement expire dans ${subscription.days_until_expiry} jours.`}
+            </Alert>
+          </Box>
+        )}
     </AppBar>
   );
 }

@@ -65,6 +65,8 @@ export default function App() {
     "/invite-member",
   ];
   const isAuthRoute = authRoutes.includes(pathname) || pathname.startsWith("/accept-invite/");
+  const isSuperAdminRoute =
+    pathname === "/superadmin-dashboard" || pathname.startsWith("/superadmin/");
 
   // RTL cache pour le support Right-to-Left
   useMemo(() => {
@@ -149,7 +151,7 @@ export default function App() {
 
   // ✅ Popups marketing — rendues uniquement quand l'utilisateur est connecté (layout dashboard)
   const marketingPopups =
-    layout === "dashboard" && !isAuthRoute ? (
+    layout === "dashboard" && !isAuthRoute && !isSuperAdminRoute ? (
       <>
         <AcquisitionSourcePopup />
         <AppRatingPopup />
@@ -160,7 +162,7 @@ export default function App() {
     <CacheProvider value={rtlCache}>
       <ThemeProvider theme={darkMode ? themeDarkRTL : themeRTL}>
         <CssBaseline />
-        {layout === "dashboard" && !isAuthRoute && (
+        {layout === "dashboard" && !isAuthRoute && !isSuperAdminRoute && (
           <>
             <Sidenav
               color={sidenavColor}
@@ -184,7 +186,7 @@ export default function App() {
   ) : (
     <ThemeProvider theme={darkMode ? themeDark : theme}>
       <CssBaseline />
-      {layout === "dashboard" && !isAuthRoute && (
+      {layout === "dashboard" && !isAuthRoute && !isSuperAdminRoute && (
         <>
           <Sidenav
             color={sidenavColor}

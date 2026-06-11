@@ -637,6 +637,7 @@ export default function SuperAdminCompanies() {
   const [totalPages, setTotalPages] = useState(1);
   const [message, setMessage] = useState({ text: "", type: "success" });
   const [showFilters, setShowFilters] = useState(false);
+  const [backendStats, setBackendStats] = useState(null);
 
   // Dialog détail
   const [detailOpen, setDetailOpen] = useState(false);
@@ -679,6 +680,9 @@ export default function SuperAdminCompanies() {
     api("/api/superadmin/plans/")
       .then((r) => setPlans(r.data))
       .catch(console.error);
+    api("/api/superadmin/companies/stats/")
+      .then((r) => setBackendStats(r.data))
+      .catch((e) => console.error("Erreur stats entreprises:", e));
   }, []);
 
   const showNotification = (text, type = "success") => {
@@ -744,6 +748,16 @@ export default function SuperAdminCompanies() {
     }),
     [companies]
   );
+  const displayStats = backendStats
+    ? {
+        ...stats,
+        total: backendStats.total_companies,
+        active: backendStats.active_companies,
+        inactive: backendStats.inactive_companies,
+        trial: backendStats.trial_companies,
+        totalUsers: backendStats.total_users,
+      }
+    : stats;
 
   const activeFiltersCount = (planFilter ? 1 : 0) + (statusFilter ? 1 : 0);
 
@@ -818,7 +832,7 @@ export default function SuperAdminCompanies() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Total entreprises"
-            value={stats.total}
+            value={displayStats.total}
             icon={<BusinessIcon />}
             color={THEME.primary}
           />
@@ -826,13 +840,13 @@ export default function SuperAdminCompanies() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Actives"
-            value={stats.active}
+            value={displayStats.active}
             icon={<CheckCircle />}
             color={THEME.success}
           >
             <Chip
               size="small"
-              label={`${Math.round((stats.active / stats.total) * 100 || 0)}%`}
+              label={`${Math.round((displayStats.active / displayStats.total) * 100 || 0)}%`}
               sx={{
                 bgcolor: alpha(THEME.success, 0.1),
                 color: THEME.success,
@@ -844,7 +858,7 @@ export default function SuperAdminCompanies() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Inactives"
-            value={stats.inactive}
+            value={displayStats.inactive}
             icon={<Cancel />}
             color={THEME.error}
           />
@@ -852,7 +866,7 @@ export default function SuperAdminCompanies() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Utilisateurs"
-            value={stats.totalUsers}
+            value={displayStats.totalUsers}
             icon={<People />}
             color={THEME.info}
           />
@@ -860,7 +874,7 @@ export default function SuperAdminCompanies() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Essai"
-            value={stats.trial}
+            value={displayStats.trial}
             icon={<CalendarIcon />}
             color={THEME.amber}
           />

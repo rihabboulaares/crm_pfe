@@ -542,6 +542,7 @@ export default function SuperAdminProspects() {
   const [selectedProspect, setSelectedProspect] = useState(null);
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [backendStats, setBackendStats] = useState(null);
 
   const fetchProspects = async () => {
     setLoading(true);
@@ -568,6 +569,12 @@ export default function SuperAdminProspects() {
     fetchProspects();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, search, statusFilter, evaluationFilter, originFilter]);
+
+  useEffect(() => {
+    apiGet("/api/superadmin/prospects/stats/")
+      .then((res) => setBackendStats(res.data))
+      .catch((e) => console.error("Erreur stats prospects:", e));
+  }, []);
 
   const showNotification = (text, type = "success") => {
     setMessage({ text, type });
@@ -596,6 +603,7 @@ export default function SuperAdminProspects() {
     }),
     [prospects]
   );
+  const displayStats = backendStats ? { ...stats, ...backendStats } : stats;
 
   const activeFiltersCount =
     (statusFilter ? 1 : 0) + (evaluationFilter ? 1 : 0) + (originFilter ? 1 : 0);
@@ -671,13 +679,13 @@ export default function SuperAdminProspects() {
         <Grid item xs={12} sm={6} md={3}>
           <StatsCardItem
             title="Total prospects"
-            value={stats.total}
+            value={displayStats.total}
             icon={<PersonAdd />}
             color={THEME.primary}
           >
             <Chip
               size="small"
-              label={`${stats.new} Nouveaux`}
+              label={`${displayStats.new} Nouveaux`}
               sx={{
                 bgcolor: alpha(THEME.info, 0.1),
                 color: THEME.info,
@@ -687,7 +695,7 @@ export default function SuperAdminProspects() {
             />
             <Chip
               size="small"
-              label={`${stats.qualified} Qualifiés`}
+              label={`${displayStats.qualified} Qualifiés`}
               sx={{
                 bgcolor: alpha(THEME.success, 0.1),
                 color: THEME.success,
@@ -701,13 +709,13 @@ export default function SuperAdminProspects() {
         <Grid item xs={12} sm={6} md={3}>
           <StatsCardItem
             title="Évaluation"
-            value={stats.hot}
+            value={displayStats.hot}
             icon={<TrendingUpIcon />}
             color={THEME.error}
           >
             <Chip
               size="small"
-              label={`${stats.warm} Tièdes`}
+              label={`${displayStats.warm} Tièdes`}
               sx={{
                 bgcolor: alpha(THEME.warning, 0.1),
                 color: THEME.warning,
@@ -717,7 +725,7 @@ export default function SuperAdminProspects() {
             />
             <Chip
               size="small"
-              label={`${stats.cold} Froids`}
+              label={`${displayStats.cold} Froids`}
               sx={{
                 bgcolor: alpha(THEME.info, 0.1),
                 color: THEME.info,
@@ -731,13 +739,13 @@ export default function SuperAdminProspects() {
         <Grid item xs={12} sm={6} md={3}>
           <StatsCardItem
             title="Conversion"
-            value={stats.total ? `${Math.round((stats.won / stats.total) * 100)}%` : "0%"}
+            value={displayStats.total ? `${Math.round((displayStats.won / displayStats.total) * 100)}%` : "0%"}
             icon={<StarIcon />}
             color={THEME.success}
           >
             <Chip
               size="small"
-              label={`${stats.won} Gagnés`}
+              label={`${displayStats.won} Gagnés`}
               sx={{
                 bgcolor: alpha(THEME.success, 0.1),
                 color: THEME.success,
@@ -747,7 +755,7 @@ export default function SuperAdminProspects() {
             />
             <Chip
               size="small"
-              label={`${stats.lost} Perdus`}
+              label={`${displayStats.lost} Perdus`}
               sx={{
                 bgcolor: alpha(THEME.error, 0.1),
                 color: THEME.error,
@@ -761,13 +769,13 @@ export default function SuperAdminProspects() {
         <Grid item xs={12} sm={6} md={3}>
           <StatsCardItem
             title="Assignation"
-            value={stats.assigned}
+            value={displayStats.assigned}
             icon={<PersonIcon />}
             color={THEME.purple}
           >
             <Chip
               size="small"
-              label={`${stats.unassigned} Non assignés`}
+              label={`${displayStats.unassigned} Non assignés`}
               sx={{
                 bgcolor: alpha(THEME.warning, 0.1),
                 color: THEME.warning,

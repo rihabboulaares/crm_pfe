@@ -457,6 +457,7 @@ export default function SuperAdminContacts() {
   const [selectedContact, setSelectedContact] = useState(null);
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [backendStats, setBackendStats] = useState(null);
 
   const fetchContacts = async () => {
     setLoading(true);
@@ -481,6 +482,12 @@ export default function SuperAdminContacts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, search]);
 
+  useEffect(() => {
+    apiGet("/api/superadmin/contacts/stats/")
+      .then((res) => setBackendStats(res.data))
+      .catch((e) => console.error("Erreur stats contacts:", e));
+  }, []);
+
   const showNotification = (text, type = "success") => {
     setMessage({ text, type });
     setTimeout(() => setMessage({ text: "", type: "success" }), 5000);
@@ -503,6 +510,17 @@ export default function SuperAdminContacts() {
     }),
     [contacts]
   );
+  const displayStats = backendStats
+    ? {
+        ...stats,
+        total: backendStats.total_contacts,
+        withAccount: backendStats.with_account,
+        withoutAccount: backendStats.without_account,
+        withPhone: backendStats.with_phone,
+        withEmail: backendStats.with_email,
+        withTitle: backendStats.with_title,
+      }
+    : stats;
 
   return (
     <SuperAdminLayout>
@@ -575,7 +593,7 @@ export default function SuperAdminContacts() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Total contacts"
-            value={stats.total}
+            value={displayStats.total}
             icon={<Contacts />}
             color={THEME.primary}
           />
@@ -583,13 +601,13 @@ export default function SuperAdminContacts() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Avec compte"
-            value={stats.withAccount}
+            value={displayStats.withAccount}
             icon={<AccountIcon />}
             color={THEME.blue}
           >
             <Chip
               size="small"
-              label={`${Math.round((stats.withAccount / stats.total) * 100 || 0)}%`}
+              label={`${Math.round((displayStats.withAccount / displayStats.total) * 100 || 0)}%`}
               sx={{
                 bgcolor: alpha(THEME.blue, 0.1),
                 color: THEME.blue,
@@ -601,7 +619,7 @@ export default function SuperAdminContacts() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Sans compte"
-            value={stats.withoutAccount}
+            value={displayStats.withoutAccount}
             icon={<AccountIcon />}
             color={THEME.warning}
           />
@@ -609,7 +627,7 @@ export default function SuperAdminContacts() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Avec téléphone"
-            value={stats.withPhone}
+            value={displayStats.withPhone}
             icon={<PhoneIcon />}
             color={THEME.success}
           />
@@ -617,7 +635,7 @@ export default function SuperAdminContacts() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Avec poste"
-            value={stats.withTitle}
+            value={displayStats.withTitle}
             icon={<WorkIcon />}
             color={THEME.purple}
           />

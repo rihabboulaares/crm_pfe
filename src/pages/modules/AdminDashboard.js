@@ -62,9 +62,6 @@ import {
   CalendarToday,
   FlashOn,
   Public,
-  ZoomIn,
-  ZoomOut,
-  Navigation,
 } from "@mui/icons-material";
 import { alpha } from "@mui/material/styles";
 import {
@@ -417,96 +414,237 @@ ActivityTimeline.propTypes = {
 };
 ActivityTimeline.defaultProps = { tasks: [], prospects: [], opportunities: [] };
 
-// ─── COMPOSANT : CARTE GÉOGRAPHIQUE INTERACTIVE ────────────────────────────
-function GeoProspects({ prospects = [] }) {
-  const [selectedRegion, setSelectedRegion] = useState(null);
-  const [zoom, setZoom] = useState(1);
+// ─── GOOGLE MAPS HELPERS ─────────────────────────────────────────────
+const getGoogleMapsApiKey = () => {
+  // Create React App lit uniquement les variables qui commencent par REACT_APP_
+  return process.env.REACT_APP_GOOGLE_MAPS_API_KEY || "";
+};
 
-  // Regrouper les prospects par pays/région
-  const regionData = prospects.reduce((acc, p) => {
-    let region = p.country || p.city || p.source || "Autre";
+let googleMapsLoaderPromise = null;
+const loadGoogleMapsScript = (apiKey) => {
+  if (typeof window === "undefined") return Promise.reject(new Error("window indisponible"));
+  if (window.google?.maps) return Promise.resolve(window.google.maps);
+  if (!apiKey) return Promise.reject(new Error("GOOGLE_MAPS_API_KEY manquante"));
+  if (googleMapsLoaderPromise) return googleMapsLoaderPromise;
 
-    const countryMap = {
-      France: "France",
-      "États-Unis": "USA",
-      USA: "USA",
-      "United States": "USA",
-      "Royaume-Uni": "UK",
-      UK: "UK",
-      Allemagne: "Germany",
-      Germany: "Germany",
-      Espagne: "Spain",
-      Spain: "Spain",
-      Italie: "Italy",
-      Italy: "Italy",
-      Canada: "Canada",
-      Belgique: "Belgium",
-      Belgium: "Belgium",
-      Suisse: "Switzerland",
-      Switzerland: "Switzerland",
-    };
-
-    region = countryMap[region] || region;
-
-    if (!acc[region]) {
-      acc[region] = {
-        name: region,
-        count: 0,
-        prospects: [],
-        amount: 0,
-        color: getRegionColor(region),
-      };
+  googleMapsLoaderPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-google-maps="crm-dashboard"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.google.maps));
+      existing.addEventListener("error", () => reject(new Error("Chargement Google Maps impossible")));
+      return;
     }
-    acc[region].count++;
-    acc[region].prospects.push(p);
-    acc[region].amount += parseFloat(p.amount || 0);
+
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,marker`;
+    script.async = true;
+    script.defer = true;
+    script.dataset.googleMaps = "crm-dashboard";
+    script.onload = () => resolve(window.google.maps);
+    script.onerror = () => reject(new Error("Chargement Google Maps impossible"));
+    document.head.appendChild(script);
+  });
+
+  return googleMapsLoaderPromise;
+};
+
+const TUNISIA_CITY_COORDS = {
+  tunis: { lat: 36.8065, lng: 10.1815 },
+  ariana: { lat: 36.8665, lng: 10.1647 },
+  ben_arous: { lat: 36.7468, lng: 10.2319 },
+  manouba: { lat: 36.8080, lng: 10.0972 },
+  nabeul: { lat: 36.4561, lng: 10.7376 },
+  hammamet: { lat: 36.4000, lng: 10.6167 },
+  sousse: { lat: 35.8256, lng: 10.63699 },
+  monastir: { lat: 35.7643, lng: 10.8113 },
+  mahdia: { lat: 35.5047, lng: 11.0622 },
+  sfax: { lat: 34.7406, lng: 10.7603 },
+  gabes: { lat: 33.8815, lng: 10.0982 },
+  medenine: { lat: 33.3549, lng: 10.5055 },
+  djerba: { lat: 33.8076, lng: 10.8451 },
+  tataouine: { lat: 32.9297, lng: 10.4518 },
+  kairouan: { lat: 35.6781, lng: 10.0963 },
+  kasserine: { lat: 35.1676, lng: 8.8365 },
+  sidi_bouzid: { lat: 35.0382, lng: 9.4849 },
+  gafsa: { lat: 34.4250, lng: 8.7842 },
+  tozeur: { lat: 33.9197, lng: 8.1335 },
+  kebili: { lat: 33.7050, lng: 8.9650 },
+  beja: { lat: 36.7256, lng: 9.1817 },
+  jendouba: { lat: 36.5011, lng: 8.7802 },
+  kef: { lat: 36.1742, lng: 8.7049 },
+  siliana: { lat: 36.0833, lng: 9.3667 },
+  bizerte: { lat: 37.2744, lng: 9.8739 },
+  zaghouan: { lat: 36.4029, lng: 10.1429 },
+};
+
+const normalizeLocationKey = (value = "") =>
+  String(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
+
+const getProspectName = (p) =>
+  p.name ||
+  p.full_name ||
+  `${p.first_name || ""} ${p.last_name || ""}`.trim() ||
+  p.company_name ||
+  p.email ||
+  `Prospect #${p.id || ""}`;
+
+const parseCoordinate = (value) => {
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const getProspectCoordinates = (p) => {
+  const lat = parseCoordinate(p.latitude ?? p.lat ?? p.location_latitude);
+  const lng = parseCoordinate(p.longitude ?? p.lng ?? p.location_longitude);
+  if (lat !== null && lng !== null) return { lat, lng, source: "exact" };
+
+  const cityKey = normalizeLocationKey(p.city || p.ville || p.region || p.country || "");
+  if (cityKey && TUNISIA_CITY_COORDS[cityKey]) {
+    return { ...TUNISIA_CITY_COORDS[cityKey], source: "city" };
+  }
+
+  return null;
+};
+
+// ─── COMPOSANT : CARTE GÉOGRAPHIQUE GOOGLE MAPS ────────────────────────────
+function GeoProspects({ prospects = [] }) {
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markersRef = useRef([]);
+  const infoWindowRef = useRef(null);
+  const [mapsReady, setMapsReady] = useState(false);
+  const [mapError, setMapError] = useState("");
+  const [selectedCity, setSelectedCity] = useState("all");
+
+  const apiKey = getGoogleMapsApiKey();
+
+  const geoProspects = prospects
+    .map((p) => ({ ...p, coordinates: getProspectCoordinates(p) }))
+    .filter((p) => p.coordinates);
+
+  const missingLocation = prospects.length - geoProspects.length;
+
+  const cityStats = geoProspects.reduce((acc, p) => {
+    const city = p.city || p.ville || p.region || p.country || "Localisation détectée";
+    if (!acc[city]) {
+      acc[city] = { city, count: 0, prospects: [], color: C.red };
+    }
+    acc[city].count += 1;
+    acc[city].prospects.push(p);
     return acc;
   }, {});
 
-  const regions = Object.values(regionData).sort((a, b) => b.count - a.count);
-  const totalProspects = prospects.length;
-  const totalAmount = prospects.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+  const cities = Object.values(cityStats).sort((a, b) => b.count - a.count);
+  const visibleProspects = selectedCity === "all"
+    ? geoProspects
+    : geoProspects.filter((p) => (p.city || p.ville || p.region || p.country || "Localisation détectée") === selectedCity);
 
-  function getRegionColor(region) {
-    const colors = {
-      France: C.blue,
-      USA: C.red,
-      UK: C.purple,
-      Germany: C.green,
-      Spain: C.amber,
-      Italy: C.teal,
-      Canada: C.redDark,
-      Belgium: C.purpleDark,
-      Switzerland: C.redSoft,
-    };
-    return colors[region] || C.n400;
-  }
+  useEffect(() => {
+    if (!prospects.length) return;
+    if (!apiKey) {
+      setMapError("Ajoute REACT_APP_GOOGLE_MAPS_API_KEY dans le fichier .env du frontend pour afficher Google Maps.");
+      return;
+    }
 
-  const getPointCoordinates = (region) => {
-    const coords = {
-      France: { x: 500, y: 280 },
-      USA: { x: 250, y: 230 },
-      UK: { x: 470, y: 250 },
-      Germany: { x: 520, y: 260 },
-      Spain: { x: 475, y: 310 },
-      Italy: { x: 530, y: 300 },
-      Canada: { x: 280, y: 150 },
-      Belgium: { x: 505, y: 265 },
-      Switzerland: { x: 515, y: 285 },
-    };
-    const base = coords[region] || { x: 500, y: 300 };
-    return {
-      x: base.x + (Math.random() - 0.5) * 20,
-      y: base.y + (Math.random() - 0.5) * 20,
-    };
-  };
+    let cancelled = false;
+    loadGoogleMapsScript(apiKey)
+      .then(() => {
+        if (!cancelled) {
+          setMapsReady(true);
+          setMapError("");
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setMapError(err.message || "Google Maps indisponible");
+      });
 
-  const handleZoomIn = () => setZoom((prev) => Math.min(prev + 0.2, 2));
-  const handleZoomOut = () => setZoom((prev) => Math.max(prev - 0.2, 0.5));
-  const handleReset = () => {
-    setZoom(1);
-    setSelectedRegion(null);
-  };
+    return () => {
+      cancelled = true;
+    };
+  }, [apiKey, prospects.length]);
+
+  useEffect(() => {
+    if (!mapsReady || !mapRef.current || !window.google?.maps) return;
+
+    const googleMaps = window.google.maps;
+    const defaultCenter = { lat: 34.0, lng: 9.5 };
+
+    if (!mapInstanceRef.current) {
+      mapInstanceRef.current = new googleMaps.Map(mapRef.current, {
+        center: defaultCenter,
+        zoom: 6,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: true,
+        clickableIcons: false,
+        styles: [
+          { featureType: "poi.business", stylers: [{ visibility: "off" }] },
+          { featureType: "transit", stylers: [{ visibility: "off" }] },
+        ],
+      });
+      infoWindowRef.current = new googleMaps.InfoWindow();
+    }
+
+    markersRef.current.forEach((marker) => marker.setMap(null));
+    markersRef.current = [];
+
+    if (!visibleProspects.length) return;
+
+    const bounds = new googleMaps.LatLngBounds();
+
+    visibleProspects.forEach((p) => {
+      const position = { lat: p.coordinates.lat, lng: p.coordinates.lng };
+      const title = getProspectName(p);
+      const marker = new googleMaps.Marker({
+        position,
+        map: mapInstanceRef.current,
+        title,
+        animation: googleMaps.Animation.DROP,
+        icon: {
+          path: googleMaps.SymbolPath.CIRCLE,
+          fillColor: p.coordinates.source === "exact" ? C.red : C.blue,
+          fillOpacity: 0.95,
+          strokeColor: "#ffffff",
+          strokeWeight: 2,
+          scale: p.coordinates.source === "exact" ? 8 : 7,
+        },
+      });
+
+      marker.addListener("click", () => {
+        const source = p.source || p.origin || p.channel || "Non précisée";
+        const score = p.ai_score ?? p.score ?? p.relevance ?? null;
+        const city = p.city || p.ville || p.region || p.country || "—";
+        const owner = p.assigned_to_detail?.username || p.owner?.username || p.created_by_name || "—";
+
+        infoWindowRef.current.setContent(`
+          <div style="min-width:220px;font-family:Arial,sans-serif">
+            <div style="font-weight:800;font-size:14px;color:#111827;margin-bottom:6px">${title}</div>
+            <div style="font-size:12px;color:#4b5563;margin-bottom:4px"><b>Ville :</b> ${city}</div>
+            <div style="font-size:12px;color:#4b5563;margin-bottom:4px"><b>Source :</b> ${source}</div>
+            <div style="font-size:12px;color:#4b5563;margin-bottom:4px"><b>Commercial :</b> ${owner}</div>
+            ${score !== null ? `<div style="font-size:12px;color:#4b5563;margin-bottom:4px"><b>Score IA :</b> ${Math.round(score)}%</div>` : ""}
+            <div style="font-size:11px;color:${p.coordinates.source === "exact" ? "#16a34a" : "#2563eb"};margin-top:6px">
+              ${p.coordinates.source === "exact" ? "Coordonnées exactes" : "Position estimée depuis la ville"}
+            </div>
+          </div>
+        `);
+        infoWindowRef.current.open({ anchor: marker, map: mapInstanceRef.current });
+      });
+
+      markersRef.current.push(marker);
+      bounds.extend(position);
+    });
+
+    mapInstanceRef.current.fitBounds(bounds);
+    if (visibleProspects.length === 1) {
+      mapInstanceRef.current.setZoom(13);
+    }
+  }, [mapsReady, visibleProspects]);
 
   if (!prospects.length) {
     return (
@@ -514,7 +652,7 @@ function GeoProspects({ prospects = [] }) {
         <Public sx={{ fontSize: 48, color: C.n300, mb: 2 }} />
         <Typography sx={{ fontSize: 13, color: C.n400 }}>Pas de données géographiques</Typography>
         <Typography sx={{ fontSize: 11, color: C.n400, mt: 0.5 }}>
-          Ajoutez le champ &quot;pays&quot; ou &quot;ville&quot; aux prospects
+          Ajoutez ville, pays, latitude ou longitude aux prospects.
         </Typography>
       </Box>
     );
@@ -522,245 +660,121 @@ function GeoProspects({ prospects = [] }) {
 
   return (
     <Box>
-      <Stack direction="row" spacing={1} sx={{ mb: 2, justifyContent: "flex-end" }}>
-        <Tooltip title="Zoom avant">
-          <Box
-            onClick={handleZoomIn}
-            sx={{
-              p: 0.5,
-              borderRadius: 1,
-              cursor: "pointer",
-              bgcolor: alpha(C.n400, 0.1),
-              "&:hover": { bgcolor: alpha(C.n400, 0.2) },
-            }}
+      <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1} mb={1.5}>
+        <Box>
+          <Typography sx={{ fontSize: 12, fontWeight: 800, color: C.n800 }}>
+            Google Maps CRM
+          </Typography>
+          <Typography sx={{ fontSize: 10.5, color: C.n400 }}>
+            {geoProspects.length} prospects localisés · {missingLocation} sans coordonnées
+          </Typography>
+        </Box>
+
+        <FormControl size="small" sx={{ minWidth: 145 }}>
+          <Select
+            value={selectedCity}
+            onChange={(e) => setSelectedCity(e.target.value)}
+            sx={{ borderRadius: 2, fontSize: 12, height: 34 }}
           >
-            <ZoomIn sx={{ fontSize: 20, color: C.n600 }} />
-          </Box>
-        </Tooltip>
-        <Tooltip title="Zoom arrière">
-          <Box
-            onClick={handleZoomOut}
-            sx={{
-              p: 0.5,
-              borderRadius: 1,
-              cursor: "pointer",
-              bgcolor: alpha(C.n400, 0.1),
-              "&:hover": { bgcolor: alpha(C.n400, 0.2) },
-            }}
-          >
-            <ZoomOut sx={{ fontSize: 20, color: C.n600 }} />
-          </Box>
-        </Tooltip>
-        <Tooltip title="Réinitialiser">
-          <Box
-            onClick={handleReset}
-            sx={{
-              p: 0.5,
-              borderRadius: 1,
-              cursor: "pointer",
-              bgcolor: alpha(C.n400, 0.1),
-              "&:hover": { bgcolor: alpha(C.n400, 0.2) },
-            }}
-          >
-            <Navigation sx={{ fontSize: 20, color: C.n600 }} />
-          </Box>
-        </Tooltip>
+            <MenuItem value="all">Toutes les villes</MenuItem>
+            {cities.map((c) => (
+              <MenuItem key={c.city} value={c.city}>
+                {c.city} ({c.count})
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
       </Stack>
 
+      {mapError ? (
+        <Alert severity="warning" sx={{ borderRadius: 2, mb: 1.5, fontSize: 12 }}>
+          {mapError}
+        </Alert>
+      ) : null}
+
       <Box
+        ref={mapRef}
         sx={{
-          position: "relative",
           width: "100%",
-          height: 350,
+          height: 370,
+          borderRadius: 3,
           overflow: "hidden",
-          borderRadius: 2,
-          bgcolor: alpha(C.blue, 0.02),
-          border: `1px solid ${alpha(C.n400, 0.1)}`,
+          border: `1px solid ${alpha(C.n400, 0.15)}`,
+          bgcolor: alpha(C.blue, 0.04),
+          position: "relative",
         }}
       >
-        <svg
-          viewBox="0 0 1000 600"
-          style={{
-            width: "100%",
-            height: "100%",
-            transform: `scale(${zoom})`,
-            transformOrigin: "center",
-            transition: "transform 0.3s ease",
-          }}
-        >
-          <rect width="1000" height="600" fill={alpha(C.blue, 0.05)} />
-
-          {/* Carte du monde simplifiée */}
-          <path
-            d="M200 100 L250 80 L300 100 L350 90 L400 110 L450 100 L500 120 L550 110 L600 130 L650 120 L700 140 L750 130 L800 150 L850 140 L900 160 L850 180 L800 170 L750 190 L700 180 L650 200 L600 190 L550 210 L500 200 L450 220 L400 210 L350 230 L300 220 L250 240 L200 230 L150 250 L100 240 L50 260 L30 280 L50 300 L100 310 L150 300 L200 310 L250 320 L300 310 L350 330 L400 320 L450 340 L500 330 L550 350 L600 340 L650 360 L700 350 L750 370 L800 360 L850 380 L900 370 L950 390 L950 450 L900 440 L850 460 L800 450 L750 470 L700 460 L650 480 L600 470 L550 490 L500 480 L450 500 L400 490 L350 510 L300 500 L250 520 L200 510 L150 530 L100 520 L50 540 L30 500 L50 460 L100 450 L150 430 L200 420 L250 400 L300 390 L350 370 L400 360 L450 340 L500 330 L550 310 L600 300 L650 280 L700 270 L750 250 L800 240 L850 220 L900 210 L950 190 L950 150 L900 140 L850 120 L800 110 L750 90 L700 80 L650 60 L600 50 L550 70 L500 80 L450 60 L400 70 L350 50 L300 60 L250 40 L200 50 L150 70 L100 60 L50 80 L30 100 L50 120 L100 110 L150 90 L200 100Z"
-            fill="none"
-            stroke={alpha(C.n400, 0.3)}
-            strokeWidth="2"
-          />
-
-          {regions.map((region) => {
-            const point = getPointCoordinates(region.name);
-            const size = Math.min(20 + region.count * 2, 40);
-            const opacity = selectedRegion === region.name ? 1 : 0.6;
-
-            return (
-              <g
-                key={region.name}
-                onClick={() =>
-                  setSelectedRegion(selectedRegion === region.name ? null : region.name)
-                }
-                style={{ cursor: "pointer" }}
-              >
-                <circle
-                  cx={point.x}
-                  cy={point.y}
-                  r={size / 2}
-                  fill={region.color}
-                  fillOpacity={opacity}
-                  stroke="white"
-                  strokeWidth="2"
-                />
-                <text
-                  x={point.x}
-                  y={point.y - size / 2 - 5}
-                  textAnchor="middle"
-                  fontSize="10"
-                  fill={region.color}
-                  fontWeight="bold"
-                >
-                  {region.count}
-                </text>
-                {selectedRegion === region.name && (
-                  <circle
-                    cx={point.x}
-                    cy={point.y}
-                    r={size / 2 + 5}
-                    fill="none"
-                    stroke={region.color}
-                    strokeWidth="2"
-                    strokeDasharray="5,5"
-                  />
-                )}
-              </g>
-            );
-          })}
-        </svg>
+        {!mapError && !mapsReady && (
+          <Stack alignItems="center" justifyContent="center" sx={{ height: "100%" }} spacing={1}>
+            <LinearProgress sx={{ width: 170, borderRadius: 5 }} />
+            <Typography sx={{ fontSize: 12, color: C.n400 }}>Chargement Google Maps...</Typography>
+          </Stack>
+        )}
+        {mapError && (
+          <Stack alignItems="center" justifyContent="center" sx={{ height: "100%", p: 3, textAlign: "center" }} spacing={1}>
+            <LocationOn sx={{ fontSize: 42, color: C.amber }} />
+            <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.n700 }}>
+              Google Maps n&apos;est pas encore configuré
+            </Typography>
+            <Typography sx={{ fontSize: 11, color: C.n400 }}>
+              Mets la clé dans <b>.env</b> puis redémarre le frontend.
+            </Typography>
+          </Stack>
+        )}
       </Box>
 
-      <Stack spacing={2} sx={{ mt: 2 }}>
-        <Stack spacing={1}>
-          {regions.slice(0, 6).map((region) => {
-            const percentage = Math.round((region.count / totalProspects) * 100);
-            const isSelected = selectedRegion === region.name;
-
-            return (
-              <Box
-                key={region.name}
-                onClick={() => setSelectedRegion(isSelected ? null : region.name)}
-                sx={{
-                  cursor: "pointer",
-                  p: 1,
-                  borderRadius: 1,
-                  bgcolor: isSelected ? alpha(region.color, 0.1) : "transparent",
-                  transition: "all 0.2s",
-                  "&:hover": { bgcolor: alpha(region.color, 0.05) },
-                }}
-              >
-                <Stack direction="row" alignItems="center" justifyContent="space-between" mb={0.5}>
-                  <Stack direction="row" alignItems="center" spacing={1}>
-                    <Box
-                      sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: region.color }}
-                    />
-                    <Typography sx={{ fontSize: 12, fontWeight: 600, color: C.n700 }}>
-                      {region.name}
-                    </Typography>
-                    <Chip
-                      label={`${region.count} prospects`}
-                      size="small"
-                      sx={{
-                        height: 20,
-                        fontSize: 10,
-                        bgcolor: alpha(region.color, 0.1),
-                        color: region.color,
-                      }}
-                    />
-                  </Stack>
-                  <Typography sx={{ fontSize: 12, fontWeight: 700, color: region.color }}>
-                    {percentage}%
+      <Stack spacing={1.1} sx={{ mt: 1.5 }}>
+        {cities.slice(0, 5).map((city) => {
+          const pct = Math.round((city.count / Math.max(geoProspects.length, 1)) * 100);
+          const active = selectedCity === city.city;
+          return (
+            <Box
+              key={city.city}
+              onClick={() => setSelectedCity(active ? "all" : city.city)}
+              sx={{
+                p: 1,
+                borderRadius: 2,
+                cursor: "pointer",
+                bgcolor: active ? alpha(C.red, 0.08) : alpha(C.n400, 0.04),
+                border: `1px solid ${active ? alpha(C.red, 0.2) : alpha(C.n400, 0.08)}`,
+              }}
+            >
+              <Stack direction="row" alignItems="center" justifyContent="space-between" mb={0.5}>
+                <Stack direction="row" alignItems="center" spacing={0.8}>
+                  <LocationOn sx={{ fontSize: 14, color: active ? C.red : C.n500 }} />
+                  <Typography sx={{ fontSize: 12, fontWeight: 700, color: C.n700 }}>
+                    {city.city}
                   </Typography>
                 </Stack>
-                <Box
-                  sx={{
-                    height: 6,
-                    bgcolor: alpha(region.color, 0.1),
-                    borderRadius: 3,
-                    overflow: "hidden",
-                  }}
-                >
-                  <Box
-                    sx={{
-                      height: "100%",
-                      bgcolor: region.color,
-                      borderRadius: 3,
-                      width: `${percentage}%`,
-                      transition: "width 0.8s cubic-bezier(0.4, 0, 0.2, 1)",
-                    }}
-                  />
-                </Box>
-
-                {isSelected && (
-                  <Stack
-                    direction="row"
-                    spacing={2}
-                    sx={{ mt: 1, pt: 1, borderTop: `1px solid ${alpha(C.n400, 0.1)}` }}
-                  >
-                    <Box>
-                      <Typography sx={{ fontSize: 10, color: C.n400 }}>Valeur totale</Typography>
-                      <Typography sx={{ fontSize: 13, fontWeight: 700, color: region.color }}>
-                        {fmtTND(region.amount)}
-                      </Typography>
-                    </Box>
-                    <Box>
-                      <Typography sx={{ fontSize: 10, color: C.n400 }}>Valeur moyenne</Typography>
-                      <Typography sx={{ fontSize: 13, fontWeight: 700, color: region.color }}>
-                        {fmtTND(region.amount / region.count)}
-                      </Typography>
-                    </Box>
-                    <Box>
-                      <Typography sx={{ fontSize: 10, color: C.n400 }}>Prospects</Typography>
-                      <Typography sx={{ fontSize: 13, fontWeight: 700, color: region.color }}>
-                        {region.count}
-                      </Typography>
-                    </Box>
-                  </Stack>
-                )}
+                <Typography sx={{ fontSize: 11, fontWeight: 800, color: active ? C.red : C.n500 }}>
+                  {city.count} · {pct}%
+                </Typography>
+              </Stack>
+              <Box sx={{ height: 5, borderRadius: 8, bgcolor: alpha(C.n400, 0.12), overflow: "hidden" }}>
+                <Box sx={{ height: "100%", width: `${pct}%`, borderRadius: 8, bgcolor: active ? C.red : C.blue }} />
               </Box>
-            );
-          })}
-        </Stack>
+            </Box>
+          );
+        })}
+      </Stack>
 
+      {missingLocation > 0 && (
         <Paper
           elevation={0}
           sx={{
-            p: 1.5,
-            bgcolor: alpha(C.n400, 0.05),
+            mt: 1.5,
+            p: 1.2,
             borderRadius: 2,
-            border: `1px solid ${alpha(C.n400, 0.1)}`,
+            bgcolor: alpha(C.amber, 0.06),
+            border: `1px solid ${alpha(C.amber, 0.18)}`,
           }}
         >
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Stack direction="row" alignItems="center" spacing={1}>
-              <Public sx={{ fontSize: 16, color: C.n500 }} />
-              <Typography sx={{ fontSize: 11, color: C.n500 }}>
-                {regions.length} régions représentées
-              </Typography>
-            </Stack>
-            <Typography sx={{ fontSize: 11, fontWeight: 600, color: C.n600 }}>
-              {totalProspects} prospects · {fmtTND(totalAmount)}
-            </Typography>
-          </Stack>
+          <Typography sx={{ fontSize: 11, color: C.n600 }}>
+            {missingLocation} prospects ne sont pas affichés sur la carte. Ajoute <b>latitude</b> et <b>longitude</b>,
+            ou au minimum une ville tunisienne connue.
+          </Typography>
         </Paper>
-      </Stack>
+      )}
     </Box>
   );
 }
@@ -861,6 +875,357 @@ function TeamScoreCard({ leaderboard = [] }) {
 }
 TeamScoreCard.propTypes = { leaderboard: PropTypes.array };
 TeamScoreCard.defaultProps = { leaderboard: [] };
+
+
+// ─── COMPOSANT : CENTRE IA CRM ────────────────────────────────────────────
+function AiCenter({ data = {}, prospects = [], opportunities = [], tasks = [] }) {
+  const aiStats = data.ai_stats || data.agents || data.agent_stats || {};
+
+  const isAiProspect = (p) => {
+    const raw = `${p.source || ""} ${p.origin || ""} ${p.created_by_type || ""} ${p.created_by || ""}`.toLowerCase();
+    return raw.includes("ia") || raw.includes("ai") || raw.includes("agent") || raw.includes("prospection");
+  };
+
+  const aiProspects = prospects.filter(isAiProspect);
+  const qualifiedProspects = prospects.filter((p) => {
+    const s = `${p.status || ""} ${p.qualification_status || ""}`.toLowerCase();
+    const score = Number(p.score || p.ai_score || p.relevance || 0);
+    return s.includes("qualified") || s.includes("qualifié") || score >= 70;
+  });
+  const messagesReady = prospects.filter((p) => `${p.engagement_status || p.status || ""}`.toLowerCase().includes("message_ready"));
+  const repliedProspects = prospects.filter((p) => `${p.engagement_status || p.status || ""}`.toLowerCase().includes("replied"));
+
+  const cards = [
+    {
+      label: "Prospects IA",
+      value: aiStats.prospects_found ?? aiStats.prospects_detected ?? aiProspects.length,
+      sub: `${aiStats.prospects_imported ?? aiProspects.length} importés CRM`,
+      color: C.red,
+      icon: <FlashOn />,
+    },
+    {
+      label: "Messages générés",
+      value: aiStats.messages_generated ?? messagesReady.length,
+      sub: `${aiStats.messages_sent ?? 0} envoyés`,
+      color: C.blue,
+      icon: <SendIcon />,
+    },
+    {
+      label: "Réponses détectées",
+      value: aiStats.replies_detected ?? repliedProspects.length,
+      sub: "à traiter par commercial",
+      color: C.green,
+      icon: <Email />,
+    },
+    {
+      label: "Qualification IA",
+      value: `${Math.round(aiStats.qualification_rate ?? (prospects.length ? (qualifiedProspects.length / prospects.length) * 100 : 0))}%`,
+      sub: `${qualifiedProspects.length} prospects qualifiés`,
+      color: C.purple,
+      icon: <EmojiEvents />,
+    },
+  ];
+
+  return (
+    <Card accent={C.red}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2.5}>
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <Box sx={{ width: 8, height: 24, bgcolor: C.red, borderRadius: 2 }} />
+          <Box>
+            <Typography sx={{ fontSize: 14, fontWeight: 800, color: C.n800 }}>
+              Centre IA CRM
+            </Typography>
+            <Typography sx={{ fontSize: 11, color: C.n400 }}>
+              Supervision agent de prospection et agent d&apos;engagement
+            </Typography>
+          </Box>
+        </Stack>
+        <Chip
+          size="small"
+          icon={<FiberManualRecord sx={{ fontSize: "10px !important", color: `${C.green} !important` }} />}
+          label="Actif"
+          sx={{ bgcolor: alpha(C.green, 0.1), color: C.green, fontSize: 11, fontWeight: 700 }}
+        />
+      </Stack>
+      <Grid container spacing={1.5}>
+        {cards.map((c) => (
+          <Grid item xs={12} sm={6} md={3} key={c.label}>
+            <Box
+              sx={{
+                p: 2,
+                borderRadius: 3,
+                bgcolor: alpha(c.color, 0.045),
+                border: `1px solid ${alpha(c.color, 0.16)}`,
+                minHeight: 118,
+              }}
+            >
+              <Stack direction="row" alignItems="flex-start" justifyContent="space-between">
+                <Box>
+                  <Typography sx={{ fontSize: 10, color: C.n400, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7 }}>
+                    {c.label}
+                  </Typography>
+                  <Typography sx={{ fontSize: 28, fontWeight: 900, color: c.color, lineHeight: 1.1, mt: 0.7 }}>
+                    {c.value}
+                  </Typography>
+                  <Typography sx={{ fontSize: 11, color: C.n500, mt: 0.6 }}>{c.sub}</Typography>
+                </Box>
+                <Box sx={{ width: 40, height: 40, borderRadius: 12, bgcolor: alpha(c.color, 0.13), display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {React.cloneElement(c.icon, { sx: { fontSize: 20, color: c.color } })}
+                </Box>
+              </Stack>
+            </Box>
+          </Grid>
+        ))}
+      </Grid>
+    </Card>
+  );
+}
+AiCenter.propTypes = {
+  data: PropTypes.object,
+  prospects: PropTypes.array,
+  opportunities: PropTypes.array,
+  tasks: PropTypes.array,
+};
+AiCenter.defaultProps = { data: {}, prospects: [], opportunities: [], tasks: [] };
+
+// ─── COMPOSANT : SOURCES DES PROSPECTS ────────────────────────────────────
+function SourceDistribution({ prospects = [] }) {
+  const sourceColor = {
+    "google maps": C.green,
+    maps: C.green,
+    linkedin: C.blue,
+    instagram: C.purple,
+    facebook: C.blue,
+    web: C.amber,
+    website: C.amber,
+    manuel: C.n500,
+    manual: C.n500,
+    autre: C.n400,
+  };
+
+  const normalizeSource = (value) => {
+    const v = `${value || "Autre"}`.toLowerCase();
+    if (v.includes("map") || v.includes("google")) return "Google Maps";
+    if (v.includes("linkedin")) return "LinkedIn";
+    if (v.includes("instagram")) return "Instagram";
+    if (v.includes("facebook")) return "Facebook";
+    if (v.includes("web") || v.includes("site")) return "Web";
+    if (v.includes("manual") || v.includes("manuel")) return "Manuel";
+    return "Autre";
+  };
+
+  const data = Object.values(
+    prospects.reduce((acc, p) => {
+      const name = normalizeSource(p.source || p.origin || p.channel);
+      if (!acc[name]) acc[name] = { name, value: 0, color: sourceColor[name.toLowerCase()] || C.n400 };
+      acc[name].value += 1;
+      return acc;
+    }, {})
+  ).sort((a, b) => b.value - a.value);
+
+  if (!data.length) {
+    return (
+      <Box sx={{ py: 4, textAlign: "center" }}>
+        <Public sx={{ fontSize: 42, color: C.n300, mb: 1 }} />
+        <Typography sx={{ fontSize: 12, color: C.n400 }}>Aucune source détectée</Typography>
+      </Box>
+    );
+  }
+
+  return (
+    <Box>
+      <ResponsiveContainer width="100%" height={190}>
+        <PieChart>
+          <Pie data={data} cx="50%" cy="50%" innerRadius={48} outerRadius={76} paddingAngle={3} dataKey="value">
+            {data.map((entry) => (
+              <Cell key={entry.name} fill={entry.color} />
+            ))}
+          </Pie>
+          <ReTip content={<TooltipBox />} />
+        </PieChart>
+      </ResponsiveContainer>
+      <Stack spacing={0.8}>
+        {data.slice(0, 6).map((s) => (
+          <Stack key={s.name} direction="row" alignItems="center" justifyContent="space-between">
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: s.color }} />
+              <Typography sx={{ fontSize: 12, color: C.n700, fontWeight: 600 }}>{s.name}</Typography>
+            </Stack>
+            <Typography sx={{ fontSize: 12, color: s.color, fontWeight: 800 }}>{s.value}</Typography>
+          </Stack>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+SourceDistribution.propTypes = { prospects: PropTypes.array };
+SourceDistribution.defaultProps = { prospects: [] };
+
+// ─── COMPOSANT : PRÉVISION CA ─────────────────────────────────────────────
+function RevenueForecast({ opportunities = [] }) {
+  const probability = {
+    new: 0.1,
+    qualified: 0.25,
+    proposal: 0.45,
+    negotiation: 0.7,
+    won: 1,
+    lost: 0,
+  };
+  const total = opportunities.reduce((s, o) => s + Number(o.amount || 0), 0);
+  const forecast = opportunities.reduce((s, o) => s + Number(o.amount || 0) * (probability[o.stage] ?? 0.25), 0);
+  const won = opportunities.filter((o) => o.stage === "won").reduce((s, o) => s + Number(o.amount || 0), 0);
+  const ratio = total > 0 ? Math.round((forecast / total) * 100) : 0;
+
+  return (
+    <Box>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2}>
+        <Box>
+          <Typography sx={{ fontSize: 11, color: C.n400, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7 }}>
+            Prévision CA pondérée
+          </Typography>
+          <Typography sx={{ fontSize: 28, fontWeight: 900, color: C.amber, lineHeight: 1.1, mt: 0.5 }}>
+            {fmtTND(forecast)}
+          </Typography>
+        </Box>
+        <KpiGauge value={ratio} size={84} label="Fiabilité" />
+      </Stack>
+      <Stack spacing={1.2}>
+        {[
+          { label: "Pipeline total", value: total, color: C.blue },
+          { label: "Déjà gagné", value: won, color: C.green },
+          { label: "Risque pipeline", value: Math.max(total - forecast, 0), color: C.red },
+        ].map((x) => (
+          <Box key={x.label}>
+            <Stack direction="row" justifyContent="space-between" mb={0.4}>
+              <Typography sx={{ fontSize: 11, color: C.n500 }}>{x.label}</Typography>
+              <Typography sx={{ fontSize: 12, color: x.color, fontWeight: 800 }}>{fmtTND(x.value)}</Typography>
+            </Stack>
+            <LinearProgress
+              variant="determinate"
+              value={total > 0 ? Math.min(100, (x.value / total) * 100) : 0}
+              sx={{ height: 6, borderRadius: 3, bgcolor: alpha(x.color, 0.1), "& .MuiLinearProgress-bar": { bgcolor: x.color, borderRadius: 3 } }}
+            />
+          </Box>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+RevenueForecast.propTypes = { opportunities: PropTypes.array };
+RevenueForecast.defaultProps = { opportunities: [] };
+
+// ─── COMPOSANT : RECOMMANDATIONS INTELLIGENTES ────────────────────────────
+function SmartRecommendations({ prospects = [], opportunities = [], tasks = [] }) {
+  const recs = [];
+
+  prospects.forEach((p) => {
+    const score = Number(p.score || p.ai_score || p.relevance || 0);
+    const name = `${p.first_name || ""} ${p.last_name || ""}`.trim() || p.name || p.email || "Prospect";
+    const hasTask = tasks.some((t) => `${t.prospect || t.prospect_id || ""}` === `${p.id}`);
+    const hasOpportunity = opportunities.some((o) => `${o.prospect || o.prospect_id || ""}` === `${p.id}`);
+    const engagementStatus = `${p.engagement_status || p.status || ""}`.toLowerCase();
+
+    if (score >= 80 && !hasTask) {
+      recs.push({ type: "hot", color: C.red, title: name, sub: `Score IA ${score}%`, action: "Créer une tâche de contact aujourd’hui" });
+    }
+    if ((engagementStatus.includes("message_ready") || engagementStatus.includes("ready")) && recs.length < 8) {
+      recs.push({ type: "message", color: C.blue, title: name, sub: "Message IA prêt", action: "Valider et envoyer le message" });
+    }
+    if (engagementStatus.includes("replied") && recs.length < 8) {
+      recs.push({ type: "reply", color: C.green, title: name, sub: "Réponse prospect détectée", action: "Analyser la conversation et répondre" });
+    }
+    if (score >= 70 && !hasOpportunity && recs.length < 8) {
+      recs.push({ type: "deal", color: C.amber, title: name, sub: "Prospect qualifié", action: "Créer une opportunité commerciale" });
+    }
+  });
+
+  opportunities.forEach((o) => {
+    const updated = new Date(o.updated_at || o.created_at || Date.now());
+    const inactiveDays = Math.floor((Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24));
+    if (!["won", "lost"].includes(o.stage) && inactiveDays >= 7 && recs.length < 8) {
+      recs.push({ type: "risk", color: C.purple, title: o.name || o.title || "Opportunité", sub: `Inactive depuis ${inactiveDays} jours`, action: "Planifier une relance" });
+    }
+  });
+
+  const unique = recs.filter((r, i, arr) => i === arr.findIndex((x) => `${x.type}-${x.title}` === `${r.type}-${r.title}`)).slice(0, 6);
+
+  if (!unique.length) {
+    return (
+      <Box sx={{ py: 4, textAlign: "center" }}>
+        <CheckCircle sx={{ fontSize: 38, color: C.green, mb: 1 }} />
+        <Typography sx={{ fontSize: 12, color: C.n400 }}>Aucune recommandation critique</Typography>
+      </Box>
+    );
+  }
+
+  return (
+    <Stack spacing={1.2}>
+      {unique.map((r, i) => (
+        <Box key={`${r.type}-${i}`} sx={{ p: 1.5, borderRadius: 3, bgcolor: alpha(r.color, 0.045), border: `1px solid ${alpha(r.color, 0.16)}`, borderLeft: `3px solid ${r.color}` }}>
+          <Stack direction="row" alignItems="flex-start" spacing={1.2}>
+            <Box sx={{ width: 32, height: 32, borderRadius: 10, bgcolor: alpha(r.color, 0.12), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <FlashOn sx={{ fontSize: 16, color: r.color }} />
+            </Box>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography sx={{ fontSize: 12, fontWeight: 800, color: C.n800 }}>{r.title}</Typography>
+              <Typography sx={{ fontSize: 10.5, color: C.n400, mt: 0.1 }}>{r.sub}</Typography>
+              <Typography sx={{ fontSize: 11.5, color: r.color, fontWeight: 800, mt: 0.6 }}>{r.action}</Typography>
+            </Box>
+          </Stack>
+        </Box>
+      ))}
+    </Stack>
+  );
+}
+SmartRecommendations.propTypes = {
+  prospects: PropTypes.array,
+  opportunities: PropTypes.array,
+  tasks: PropTypes.array,
+};
+SmartRecommendations.defaultProps = { prospects: [], opportunities: [], tasks: [] };
+
+// ─── COMPOSANT : HEATMAP VILLES ───────────────────────────────────────────
+function ProspectHeatmap({ prospects = [] }) {
+  const rows = Object.values(
+    prospects.reduce((acc, p) => {
+      const city = p.city || p.region || p.country || "Non renseigné";
+      if (!acc[city]) acc[city] = { city, count: 0, hot: 0 };
+      acc[city].count += 1;
+      if (Number(p.score || p.ai_score || p.relevance || 0) >= 70) acc[city].hot += 1;
+      return acc;
+    }, {})
+  ).sort((a, b) => b.count - a.count).slice(0, 7);
+  const max = Math.max(...rows.map((r) => r.count), 1);
+
+  if (!rows.length) {
+    return <Typography sx={{ fontSize: 12, color: C.n400, textAlign: "center", py: 4 }}>Aucune ville disponible</Typography>;
+  }
+
+  return (
+    <Stack spacing={1.1}>
+      {rows.map((r) => {
+        const pct = Math.round((r.count / max) * 100);
+        return (
+          <Box key={r.city}>
+            <Stack direction="row" alignItems="center" justifyContent="space-between" mb={0.4}>
+              <Stack direction="row" alignItems="center" spacing={0.7}>
+                <LocationOn sx={{ fontSize: 13, color: C.red }} />
+                <Typography sx={{ fontSize: 12, fontWeight: 700, color: C.n700 }}>{r.city}</Typography>
+              </Stack>
+              <Typography sx={{ fontSize: 11, fontWeight: 800, color: C.red }}>{r.count}</Typography>
+            </Stack>
+            <Box sx={{ height: 8, bgcolor: alpha(C.red, 0.08), borderRadius: 4, overflow: "hidden" }}>
+              <Box sx={{ height: "100%", width: `${pct}%`, bgcolor: C.red, borderRadius: 4 }} />
+            </Box>
+            <Typography sx={{ fontSize: 10, color: C.n400, mt: 0.25 }}>{r.hot} prospects chauds</Typography>
+          </Box>
+        );
+      })}
+    </Stack>
+  );
+}
+ProspectHeatmap.propTypes = { prospects: PropTypes.array };
+ProspectHeatmap.defaultProps = { prospects: [] };
 
 // ─── PERFORMANCE TAB ─────────────────────────────────────────────
 function AdminPerformanceTab({ allUsers }) {
@@ -2082,6 +2447,45 @@ export default function AdminDashboard({ data, onRefresh }) {
           </Grid>
 
           <Grid container spacing={2.5} mb={2.5}>
+            <Grid item xs={12}>
+              <AiCenter data={effectiveData} prospects={prospects} opportunities={opportunities} tasks={tasks} />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <Card accent={C.blue} sx={{ height: "100%" }}>
+                <Stack direction="row" alignItems="center" spacing={1} mb={2.5}>
+                  <Box sx={{ width: 8, height: 24, bgcolor: C.blue, borderRadius: 2 }} />
+                  <Typography sx={{ fontSize: 14, fontWeight: 700, color: C.n800 }}>
+                    Sources prospects
+                  </Typography>
+                </Stack>
+                <SourceDistribution prospects={prospects} />
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <Card accent={C.amber} sx={{ height: "100%" }}>
+                <Stack direction="row" alignItems="center" spacing={1} mb={2.5}>
+                  <Box sx={{ width: 8, height: 24, bgcolor: C.amber, borderRadius: 2 }} />
+                  <Typography sx={{ fontSize: 14, fontWeight: 700, color: C.n800 }}>
+                    Prévision commerciale
+                  </Typography>
+                </Stack>
+                <RevenueForecast opportunities={opportunities} />
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <Card accent={C.red} sx={{ height: "100%" }}>
+                <Stack direction="row" alignItems="center" spacing={1} mb={2.5}>
+                  <Box sx={{ width: 8, height: 24, bgcolor: C.red, borderRadius: 2 }} />
+                  <Typography sx={{ fontSize: 14, fontWeight: 700, color: C.n800 }}>
+                    Suggestions intelligentes
+                  </Typography>
+                </Stack>
+                <SmartRecommendations prospects={prospects} opportunities={opportunities} tasks={tasks} />
+              </Card>
+            </Grid>
+          </Grid>
+
+          <Grid container spacing={2.5} mb={2.5}>
             <Grid item xs={12} md={5}>
               <Card accent={C.red}>
                 <Stack direction="row" alignItems="center" spacing={1} mb={2.5}>
@@ -2198,6 +2602,11 @@ export default function AdminDashboard({ data, onRefresh }) {
                   </Typography>
                 </Stack>
                 <GeoProspects prospects={prospects} />
+                <Divider sx={{ my: 2 }} />
+                <Typography sx={{ fontSize: 12, fontWeight: 800, color: C.n700, mb: 1.5 }}>
+                  Heatmap prospection par ville
+                </Typography>
+                <ProspectHeatmap prospects={prospects} />
               </Card>
             </Grid>
 

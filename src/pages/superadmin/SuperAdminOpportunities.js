@@ -499,6 +499,7 @@ export default function SuperAdminOpportunities() {
   const [selectedOpportunity, setSelectedOpportunity] = useState(null);
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [backendStats, setBackendStats] = useState(null);
 
   const fetchOpps = async () => {
     setLoading(true);
@@ -524,6 +525,12 @@ export default function SuperAdminOpportunities() {
     fetchOpps();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, search, stageFilter]);
+
+  useEffect(() => {
+    apiGet("/api/superadmin/opportunities/stats/")
+      .then((res) => setBackendStats(res.data))
+      .catch((e) => console.error("Erreur stats opportunités:", e));
+  }, []);
 
   const showNotification = (text, type = "success") => {
     setMessage({ text, type });
@@ -558,6 +565,18 @@ export default function SuperAdminOpportunities() {
       conversionRate: total ? Math.round((won / total) * 100) : 0,
     };
   }, [opps]);
+  const displayStats = backendStats
+    ? {
+        ...stats,
+        total: backendStats.total,
+        totalAmount: backendStats.total_amount,
+        wonAmount: backendStats.won_amount,
+        lostAmount: backendStats.lost_amount,
+        qualifiedCount: backendStats.qualified,
+        negotiationCount: backendStats.negotiation,
+        conversionRate: backendStats.conversion_rate,
+      }
+    : stats;
 
   return (
     <SuperAdminLayout>
@@ -630,7 +649,7 @@ export default function SuperAdminOpportunities() {
               Montant total
             </Typography>
             <Typography variant="h5" sx={{ fontWeight: 700, color: THEME.success }}>
-              {stats.totalAmount.toLocaleString("fr-FR")} TND
+              {displayStats.totalAmount.toLocaleString("fr-FR")} TND
             </Typography>
           </Box>
           <Avatar sx={{ bgcolor: alpha(THEME.success, 0.1), width: 48, height: 48 }}>
@@ -644,7 +663,7 @@ export default function SuperAdminOpportunities() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Total opportunités"
-            value={stats.total}
+            value={displayStats.total}
             icon={<AttachMoney />}
             color={THEME.primary}
           />
@@ -652,7 +671,7 @@ export default function SuperAdminOpportunities() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Montant gagné"
-            value={`${stats.wonAmount.toLocaleString("fr-FR")}TND`}
+            value={`${displayStats.wonAmount.toLocaleString("fr-FR")}TND`}
             icon={<CheckCircleIcon />}
             color={THEME.success}
           />
@@ -660,7 +679,7 @@ export default function SuperAdminOpportunities() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Montant perdu"
-            value={`${stats.lostAmount.toLocaleString("fr-FR")}TND`}
+            value={`${displayStats.lostAmount.toLocaleString("fr-FR")}TND`}
             icon={<CancelIcon />}
             color={THEME.error}
           />
@@ -668,13 +687,13 @@ export default function SuperAdminOpportunities() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Moyenne"
-            value={`${stats.avgAmount.toLocaleString("fr-FR")}TND`}
+            value={`${displayStats.avgAmount.toLocaleString("fr-FR")}TND`}
             icon={<TrendingUpIcon />}
             color={THEME.warning}
           >
             <Chip
               size="small"
-              label={`${stats.qualifiedCount} qualifiées`}
+              label={`${displayStats.qualifiedCount} qualifiées`}
               sx={{
                 bgcolor: alpha(THEME.blue, 0.1),
                 color: THEME.blue,
@@ -686,13 +705,13 @@ export default function SuperAdminOpportunities() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Taux conversion"
-            value={`${stats.conversionRate}%`}
+            value={`${displayStats.conversionRate}%`}
             icon={<TrendingUpIcon />}
             color={THEME.purple}
           >
             <Chip
               size="small"
-              label={`${stats.negotiationCount} en négo`}
+              label={`${displayStats.negotiationCount} en négo`}
               sx={{
                 bgcolor: alpha(THEME.purple, 0.1),
                 color: THEME.purple,

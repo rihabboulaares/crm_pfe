@@ -28,6 +28,13 @@ import {
   Star,
   EmojiEvents,
   RateReview,
+  AutoAwesome,
+  SmartToy,
+  MarkEmailRead,
+  Send,
+  Psychology,
+  Whatshot,
+  Insights,
 } from "@mui/icons-material";
 import { alpha, styled, keyframes } from "@mui/material/styles";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
@@ -182,6 +189,357 @@ StatCard.propTypes = {
   sub: PropTypes.string,
 };
 StatCard.defaultProps = { value: null, sub: null };
+
+
+// ─── HELPERS IA CRM ──────────────────────────────────────────────
+const getProspectName = (p) =>
+  `${p.first_name || ""} ${p.last_name || ""}`.trim() ||
+  p.name ||
+  p.full_name ||
+  p.company_name ||
+  p.email ||
+  "Prospect";
+
+const getProspectScore = (p) =>
+  Number(
+    p.ai_score ??
+      p.score ??
+      p.relevance ??
+      p.qualification_score ??
+      p.social_profile_summary?.relevance ??
+      0
+  );
+
+const isAiProspect = (p) => {
+  const source = String(p.source || p.origin || p.created_by_type || "").toLowerCase();
+  return Boolean(
+    p.created_by_agent ||
+      p.generated_by_ai ||
+      p.ai_generated ||
+      source.includes("agent") ||
+      source.includes("ia") ||
+      source.includes("google maps") ||
+      source.includes("linkedin") ||
+      source.includes("instagram") ||
+      source.includes("facebook")
+  );
+};
+
+const isHotProspect = (p) =>
+  getProspectScore(p) >= 75 || ["qualified", "hot", "chaud"].includes(String(p.status || "").toLowerCase());
+
+const isMessageReady = (p) =>
+  ["message_ready", "prepared", "ready"].includes(String(p.engagement_status || p.status || "").toLowerCase()) ||
+  Boolean(p.prepared_message || p.generated_message || p.ai_message);
+
+const hasReply = (p) =>
+  ["replied", "follow_up_required", "reply_detected"].includes(
+    String(p.engagement_status || p.reply_status || p.status || "").toLowerCase()
+  ) || Boolean(p.has_reply || p.replied_at || p.last_reply_at);
+
+const daysSince = (date) => {
+  if (!date) return null;
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return null;
+  return Math.floor((new Date() - d) / (1000 * 60 * 60 * 24));
+};
+
+const fmtTND = (n) => {
+  const value = Number(n || 0);
+  return `${value.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} TND`;
+};
+
+// ─── WIDGET AGENT ENGAGEMENT ─────────────────────────────────────
+function EngagementAgentWidget({ prospects = [] }) {
+  const aiProspects = prospects.filter(isAiProspect);
+  const messagesReady = prospects.filter(isMessageReady);
+  const replies = prospects.filter(hasReply);
+  const hot = prospects.filter(isHotProspect);
+  const responseRate = messagesReady.length
+    ? Math.round((replies.length / messagesReady.length) * 100)
+    : 0;
+
+  const stats = [
+    { label: "Prospects IA", value: aiProspects.length, color: C.purple, icon: <SmartToy /> },
+    { label: "Prospects chauds", value: hot.length, color: C.red, icon: <Whatshot /> },
+    { label: "Messages prêts", value: messagesReady.length, color: C.blue, icon: <Send /> },
+    { label: "Réponses", value: replies.length, color: C.green, icon: <MarkEmailRead /> },
+  ];
+
+  return (
+    <AccentCard accent={C.purple}>
+      <Stack direction="row" alignItems="center" spacing={1} mb={2}>
+        <AutoAwesome sx={{ color: C.purple, fontSize: 19 }} />
+        <Box>
+          <Typography sx={{ fontSize: 13, fontWeight: 800, color: C.n800 }}>
+            Agent d&apos;engagement IA
+          </Typography>
+          <Typography sx={{ fontSize: 11, color: C.n400 }}>
+            Suivi des messages et réponses prospects
+          </Typography>
+        </Box>
+      </Stack>
+
+      <Grid container spacing={1.2}>
+        {stats.map((s) => (
+          <Grid item xs={6} key={s.label}>
+            <Box
+              sx={{
+                p: 1.4,
+                borderRadius: 12,
+                bgcolor: alpha(s.color, 0.07),
+                border: `1px solid ${alpha(s.color, 0.16)}`,
+              }}
+            >
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <Box
+                  sx={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 9,
+                    bgcolor: alpha(s.color, 0.13),
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {React.cloneElement(s.icon, { sx: { color: s.color, fontSize: 16 } })}
+                </Box>
+                <Box>
+                  <Typography sx={{ fontSize: 18, fontWeight: 900, color: s.color, lineHeight: 1 }}>
+                    {s.value}
+                  </Typography>
+                  <Typography sx={{ fontSize: 10, color: C.n500 }}>{s.label}</Typography>
+                </Box>
+              </Stack>
+            </Box>
+          </Grid>
+        ))}
+      </Grid>
+
+      <Box sx={{ mt: 2 }}>
+        <Stack direction="row" justifyContent="space-between" mb={0.5}>
+          <Typography sx={{ fontSize: 12, color: C.n500 }}>Taux de réponse IA</Typography>
+          <Typography sx={{ fontSize: 12, fontWeight: 800, color: responseRate >= 25 ? C.green : C.amber }}>
+            {responseRate}%
+          </Typography>
+        </Stack>
+        <LinearProgress
+          variant="determinate"
+          value={Math.min(responseRate, 100)}
+          sx={{
+            height: 6,
+            borderRadius: 4,
+            bgcolor: C.n100,
+            "& .MuiLinearProgress-bar": { bgcolor: responseRate >= 25 ? C.green : C.amber, borderRadius: 4 },
+          }}
+        />
+      </Box>
+    </AccentCard>
+  );
+}
+EngagementAgentWidget.propTypes = { prospects: PropTypes.array };
+EngagementAgentWidget.defaultProps = { prospects: [] };
+
+// ─── PROSPECTS CHAUDS IA ─────────────────────────────────────────
+function HotProspectsCard({ prospects = [] }) {
+  const hotProspects = prospects
+    .filter(isHotProspect)
+    .sort((a, b) => getProspectScore(b) - getProspectScore(a))
+    .slice(0, 5);
+
+  return (
+    <AccentCard accent={C.red}>
+      <Stack direction="row" alignItems="center" spacing={1} mb={2}>
+        <Whatshot sx={{ color: C.red, fontSize: 19 }} />
+        <Typography sx={{ fontSize: 13, fontWeight: 800, color: C.n800 }}>
+          Prospects chauds à traiter
+        </Typography>
+      </Stack>
+
+      {hotProspects.length === 0 ? (
+        <Box sx={{ textAlign: "center", py: 3, bgcolor: C.n50, borderRadius: 12 }}>
+          <Typography sx={{ fontSize: 13, color: C.n400 }}>Aucun prospect chaud pour le moment</Typography>
+        </Box>
+      ) : (
+        <Stack spacing={1}>
+          {hotProspects.map((p) => {
+            const score = getProspectScore(p);
+            const color = score >= 80 ? C.green : score >= 60 ? C.amber : C.red;
+            return (
+              <Box
+                key={p.id}
+                sx={{
+                  p: 1.4,
+                  borderRadius: 11,
+                  bgcolor: alpha(color, 0.05),
+                  border: `1px solid ${alpha(color, 0.15)}`,
+                  borderLeft: `3px solid ${color}`,
+                }}
+              >
+                <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.n800 }} noWrap>
+                      {getProspectName(p)}
+                    </Typography>
+                    <Typography sx={{ fontSize: 11, color: C.n400 }} noWrap>
+                      {p.company_name || p.company || p.email || p.source || "Source inconnue"}
+                    </Typography>
+                  </Box>
+                  <Chip
+                    size="small"
+                    label={`Score ${Math.round(score)}%`}
+                    sx={{ bgcolor: alpha(color, 0.12), color, fontWeight: 800, fontSize: 10 }}
+                  />
+                </Stack>
+              </Box>
+            );
+          })}
+        </Stack>
+      )}
+    </AccentCard>
+  );
+}
+HotProspectsCard.propTypes = { prospects: PropTypes.array };
+HotProspectsCard.defaultProps = { prospects: [] };
+
+// ─── RECOMMANDATIONS IA ─────────────────────────────────────────
+function AiRecommendations({ prospects = [], tasks = [], opportunities = [] }) {
+  const recs = [];
+
+  prospects.filter(hasReply).slice(0, 2).forEach((p) =>
+    recs.push({
+      type: "Réponse détectée",
+      title: getProspectName(p),
+      text: "Le prospect a répondu. Préparer une réponse personnalisée avec l'agent d'engagement.",
+      color: C.green,
+      icon: <MarkEmailRead />,
+    })
+  );
+
+  prospects.filter(isMessageReady).slice(0, 2).forEach((p) =>
+    recs.push({
+      type: "Message prêt",
+      title: getProspectName(p),
+      text: "Un message IA est prêt. Vérifier le contenu puis envoyer sur le bon canal.",
+      color: C.blue,
+      icon: <Send />,
+    })
+  );
+
+  prospects.filter((p) => isHotProspect(p) && !isMessageReady(p)).slice(0, 2).forEach((p) =>
+    recs.push({
+      type: "Prospect chaud",
+      title: getProspectName(p),
+      text: "Score élevé. Créer une tâche de relance ou transformer en opportunité.",
+      color: C.red,
+      icon: <Whatshot />,
+    })
+  );
+
+  opportunities
+    .filter((o) => !["won", "lost"].includes(String(o.stage || "").toLowerCase()) && daysSince(o.updated_at || o.created_at) >= 7)
+    .slice(0, 2)
+    .forEach((o) =>
+      recs.push({
+        type: "Opportunité inactive",
+        title: o.name || o.title || "Opportunité",
+        text: "Aucune activité récente. Programmer une relance commerciale.",
+        color: C.amber,
+        icon: <Insights />,
+      })
+    );
+
+  tasks
+    .filter((t) => t.status !== "done" && t.status !== "cancelled" && t.due_date && new Date(t.due_date) < new Date())
+    .slice(0, 1)
+    .forEach((t) =>
+      recs.push({
+        type: "Tâche en retard",
+        title: t.title,
+        text: "Cette tâche bloque le suivi commercial. Elle doit être traitée en priorité.",
+        color: C.red,
+        icon: <Warning />,
+      })
+    );
+
+  const finalRecs = recs.slice(0, 5);
+
+  return (
+    <AccentCard accent={C.purple}>
+      <Stack direction="row" alignItems="center" spacing={1} mb={2}>
+        <Psychology sx={{ color: C.purple, fontSize: 19 }} />
+        <Box>
+          <Typography sx={{ fontSize: 13, fontWeight: 800, color: C.n800 }}>
+            Suggestions intelligentes
+          </Typography>
+          <Typography sx={{ fontSize: 11, color: C.n400 }}>
+            Actions recommandées selon l&apos;activité CRM
+          </Typography>
+        </Box>
+      </Stack>
+
+      {finalRecs.length === 0 ? (
+        <Box sx={{ textAlign: "center", py: 3, bgcolor: alpha(C.green, 0.06), borderRadius: 12 }}>
+          <CheckCircle sx={{ color: C.green, mb: 0.5 }} />
+          <Typography sx={{ fontSize: 13, color: C.green, fontWeight: 700 }}>
+            Aucune action urgente détectée
+          </Typography>
+        </Box>
+      ) : (
+        <Stack spacing={1.1}>
+          {finalRecs.map((r, i) => (
+            <Box
+              key={`${r.type}-${i}`}
+              sx={{
+                p: 1.5,
+                borderRadius: 12,
+                bgcolor: alpha(r.color, 0.05),
+                border: `1px solid ${alpha(r.color, 0.14)}`,
+              }}
+            >
+              <Stack direction="row" alignItems="flex-start" spacing={1.2}>
+                <Box
+                  sx={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 10,
+                    bgcolor: alpha(r.color, 0.12),
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  {React.cloneElement(r.icon, { sx: { color: r.color, fontSize: 17 } })}
+                </Box>
+                <Box sx={{ minWidth: 0 }}>
+                  <Chip
+                    size="small"
+                    label={r.type}
+                    sx={{ height: 20, fontSize: 10, bgcolor: alpha(r.color, 0.1), color: r.color, fontWeight: 700, mb: 0.6 }}
+                  />
+                  <Typography sx={{ fontSize: 13, fontWeight: 800, color: C.n800 }} noWrap>
+                    {r.title}
+                  </Typography>
+                  <Typography sx={{ fontSize: 11.5, color: C.n500, lineHeight: 1.45 }}>
+                    {r.text}
+                  </Typography>
+                </Box>
+              </Stack>
+            </Box>
+          ))}
+        </Stack>
+      )}
+    </AccentCard>
+  );
+}
+AiRecommendations.propTypes = {
+  prospects: PropTypes.array,
+  tasks: PropTypes.array,
+  opportunities: PropTypes.array,
+};
+AiRecommendations.defaultProps = { prospects: [], tasks: [], opportunities: [] };
 
 // ─── PERFORMANCE TAB ─────────────────────────────────────────────
 function PerformanceTab() {
@@ -422,6 +780,14 @@ export default function CommercialDashboard({ data }) {
   const pipeline = opportunities.reduce((s, o) => s + parseFloat(o.amount || 0), 0);
   const completionRate = tasks.length > 0 ? Math.round((doneTasks.length / tasks.length) * 100) : 0;
 
+  const aiProspects = prospects.filter(isAiProspect);
+  const hotProspects = prospects.filter(isHotProspect);
+  const messagesReady = prospects.filter(isMessageReady);
+  const repliesDetected = prospects.filter(hasReply);
+  const engagementResponseRate = messagesReady.length
+    ? Math.round((repliesDetected.length / messagesReady.length) * 100)
+    : 0;
+
   const prospectPieData = Object.entries(
     prospects.reduce((acc, p) => {
       acc[p.status] = (acc[p.status] || 0) + 1;
@@ -654,6 +1020,45 @@ export default function CommercialDashboard({ data }) {
           </Grid>
 
           <Grid container spacing={2.5} mb={2.5}>
+            <Grid item xs={12} sm={6} md={3}>
+              <StatCard
+                icon={<SmartToy />}
+                label="Prospects IA"
+                value={aiProspects.length}
+                color={C.purple}
+                sub={`${hotProspects.length} prospects chauds`}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <StatCard
+                icon={<Send />}
+                label="Messages prêts"
+                value={messagesReady.length}
+                color={C.blue}
+                sub="À valider avant envoi"
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <StatCard
+                icon={<MarkEmailRead />}
+                label="Réponses détectées"
+                value={repliesDetected.length}
+                color={C.green}
+                sub={`${engagementResponseRate}% taux de réponse`}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <StatCard
+                icon={<Whatshot />}
+                label="Prospects chauds"
+                value={hotProspects.length}
+                color={C.red}
+                sub="Priorité commerciale"
+              />
+            </Grid>
+          </Grid>
+
+          <Grid container spacing={2.5} mb={2.5}>
             {/* Progress */}
             <Grid item xs={12} md={4}>
               <AccentCard accent={C.green}>
@@ -809,6 +1214,18 @@ export default function CommercialDashboard({ data }) {
                   </Stack>
                 )}
               </AccentCard>
+            </Grid>
+          </Grid>
+
+          <Grid container spacing={2.5} mb={2.5}>
+            <Grid item xs={12} md={4}>
+              <EngagementAgentWidget prospects={prospects} />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <HotProspectsCard prospects={prospects} />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <AiRecommendations prospects={prospects} tasks={tasks} opportunities={opportunities} />
             </Grid>
           </Grid>
 

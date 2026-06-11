@@ -666,6 +666,7 @@ function TasksTab() {
   const [selectedTask, setSelectedTask] = useState(null);
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [backendStats, setBackendStats] = useState(null);
 
   const fetchTasks = async () => {
     setLoading(true);
@@ -693,6 +694,12 @@ function TasksTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, search, statusFilter, priorityFilter, typeFilter]);
 
+  useEffect(() => {
+    apiGet("/api/superadmin/tasks/stats/")
+      .then((res) => setBackendStats(res.data))
+      .catch((e) => console.error("Erreur stats tâches:", e));
+  }, []);
+
   const showNotification = (text, type = "success") => {
     setMessage({ text, type });
     setTimeout(() => setMessage({ text: "", type: "success" }), 5000);
@@ -712,6 +719,17 @@ function TasksTab() {
     high: tasks.filter((t) => t.priority === "high").length,
     quota: tasks.filter((t) => t.task_type === "quota").length,
   };
+  const displayStats = backendStats
+    ? {
+        ...stats,
+        total: backendStats.total,
+        todo: backendStats.todo,
+        inProgress: backendStats.in_progress,
+        done: backendStats.done,
+        high: backendStats.high,
+        quota: backendStats.quota,
+      }
+    : stats;
 
   return (
     <>
@@ -742,7 +760,7 @@ function TasksTab() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Total tâches"
-            value={stats.total}
+            value={displayStats.total}
             icon={<TaskIcon />}
             color={THEME.primary}
           />
@@ -750,7 +768,7 @@ function TasksTab() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="À faire"
-            value={stats.todo}
+            value={displayStats.todo}
             icon={<FlagIcon />}
             color={THEME.n500}
           />
@@ -758,7 +776,7 @@ function TasksTab() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="En cours"
-            value={stats.inProgress}
+            value={displayStats.inProgress}
             icon={<Timeline />}
             color={THEME.blue}
           />
@@ -766,7 +784,7 @@ function TasksTab() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Terminées"
-            value={stats.done}
+            value={displayStats.done}
             icon={<CheckCircle />}
             color={THEME.success}
           />
@@ -774,7 +792,7 @@ function TasksTab() {
         <Grid item xs={12} sm={6} md={2.4}>
           <StatsCardItem
             title="Haute priorité"
-            value={stats.high}
+            value={displayStats.high}
             icon={<PriorityIcon />}
             color={THEME.error}
           />

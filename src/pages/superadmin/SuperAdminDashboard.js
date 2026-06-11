@@ -2,7 +2,6 @@
 // src/pages/superadmin/SuperAdminDashboard.js
 import React, { useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import axios from "axios";
 import {
   Box,
   Grid,
@@ -70,6 +69,7 @@ import {
 } from "recharts";
 import { alpha } from "@mui/material/styles";
 import SuperAdminLayout from "./SuperAdminLayout";
+import { apiGet, apiPatch, safeArray, SA_ENDPOINTS } from "./saUtils";
 
 // ── Palette ──────────────────────────────────────────────────
 const T = {
@@ -103,17 +103,6 @@ const FEEDBACK_STATUS_COLORS = {
   done: { label: "Traité", color: "#4caf50" },
   rejected: { label: "Rejeté", color: "#f44336" },
 };
-
-// ── Helpers ───────────────────────────────────────────────────
-const apiGet = (url) =>
-  axios.get(`http://127.0.0.1:8000${url}`, {
-    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-  });
-
-const apiPatch = (url, data) =>
-  axios.patch(`http://127.0.0.1:8000${url}`, data, {
-    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-  });
 
 // ── StatCard ──────────────────────────────────────────────────
 function StatCard({ icon, label, value, color, sub }) {
@@ -199,6 +188,7 @@ SectionCard.propTypes = {
 export default function SuperAdminDashboard() {
   const [activeTab, setActiveTab] = useState(0);
   const [stats, setStats] = useState(null);
+  const [growthData, setGrowthData] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [users, setUsers] = useState([]);
   const [marketingData, setMarketingData] = useState(null);
@@ -212,12 +202,14 @@ export default function SuperAdminDashboard() {
   // ── Charger données CRM ──────────────────────────────────────
   useEffect(() => {
     Promise.all([
-      apiGet("/api/superadmin/stats/"),
+      apiGet(SA_ENDPOINTS.stats),
+      apiGet(SA_ENDPOINTS.dashboardGrowth),
       apiGet("/api/superadmin/companies/?page_size=5&ordering=-created_at"),
       apiGet("/api/superadmin/users/?page_size=5"),
     ])
-      .then(([s, c, u]) => {
+      .then(([s, g, c, u]) => {
         setStats(s.data);
+        setGrowthData(safeArray(g.data));
         setCompanies(c.data.results || c.data);
         setUsers(u.data.results || u.data);
       })
@@ -232,7 +224,7 @@ export default function SuperAdminDashboard() {
   useEffect(() => {
     if (activeTab !== 1 || marketingData) return;
     setMarketingLoading(true);
-    apiGet("/api/superadmin/marketing-dashboard/")
+    apiGet(SA_ENDPOINTS.marketingDashboard)
       .then((res) => setMarketingData(res.data))
       .catch((e) => console.error("Marketing error:", e))
       .finally(() => setMarketingLoading(false));
@@ -240,7 +232,7 @@ export default function SuperAdminDashboard() {
 
   const reloadMarketing = () => {
     setMarketingLoading(true);
-    apiGet("/api/superadmin/marketing-dashboard/")
+    apiGet(SA_ENDPOINTS.marketingDashboard)
       .then((res) => setMarketingData(res.data))
       .catch((e) => console.error(e))
       .finally(() => setMarketingLoading(false));
@@ -248,7 +240,7 @@ export default function SuperAdminDashboard() {
 
   const updateFeedbackStatus = async (id, newStatus) => {
     try {
-      await apiPatch(`/api/superadmin/feedbacks/${id}/`, { status: newStatus });
+      await apiPatch(SA_ENDPOINTS.feedback(id), { status: newStatus });
       reloadMarketing();
     } catch (e) {
       console.error(e);
@@ -285,33 +277,13 @@ export default function SuperAdminDashboard() {
     { name: "Essai", value: stats?.trial_subscriptions || 0 },
     { name: "Expirés", value: stats?.expired_subscriptions || 0 },
   ];
-  const areaData = [
-    {
-      mois: "Oct",
-      entreprises: Math.max(0, (stats?.total_companies || 0) - 8),
-      revenus: Math.max(0, (stats?.total_revenue_monthly || 0) - 300),
-    },
-    {
-      mois: "Nov",
-      entreprises: Math.max(0, (stats?.total_companies || 0) - 5),
-      revenus: Math.max(0, (stats?.total_revenue_monthly || 0) - 180),
-    },
-    {
-      mois: "Déc",
-      entreprises: Math.max(0, (stats?.total_companies || 0) - 3),
-      revenus: Math.max(0, (stats?.total_revenue_monthly || 0) - 90),
-    },
-    {
-      mois: "Jan",
-      entreprises: Math.max(0, (stats?.total_companies || 0) - 1),
-      revenus: Math.max(0, (stats?.total_revenue_monthly || 0) - 30),
-    },
-    {
-      mois: "Fév",
-      entreprises: stats?.total_companies || 0,
-      revenus: stats?.total_revenue_monthly || 0,
-    },
-  ];
+  const areaData = growthData.map((row) => ({
+    mois: row.month,
+    entreprises: row.companies || 0,
+    prospects: row.prospects || 0,
+    opportunites: row.opportunities || 0,
+    revenus: row.revenue || 0,
+  }));
   const totalSubs =
     (stats?.active_subscriptions || 0) +
     (stats?.trial_subscriptions || 0) +

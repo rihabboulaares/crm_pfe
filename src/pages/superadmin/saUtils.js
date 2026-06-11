@@ -1,15 +1,51 @@
 /* eslint-disable prettier/prettier */
 // src/pages/superadmin/saUtils.js
-// Utilitaires partagés entre toutes les pages SuperAdmin
-
 import axios from "axios";
-import PropTypes from "prop-types";
+
+export const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || "http://127.0.0.1:8000";
+
+export const api = axios.create({ baseURL: API_BASE_URL });
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+export const apiGet = (url, config = {}) => api.get(url, config);
+export const apiPost = (url, data = {}, config = {}) => api.post(url, data, config);
+export const apiPut = (url, data = {}, config = {}) => api.put(url, data, config);
+export const apiPatch = (url, data = {}, config = {}) => api.patch(url, data, config);
+export const apiDelete = (url, config = {}) => api.delete(url, config);
+
+export const SA_ENDPOINTS = {
+  stats: "/api/superadmin/stats/",
+  dashboardGrowth: "/api/superadmin/dashboard-growth/",
+  crmFunnel: "/api/superadmin/crm-funnel/",
+  geoStats: "/api/superadmin/geo-stats/",
+  usersPerformance: "/api/superadmin/users-performance/",
+  companiesStats: "/api/superadmin/companies/stats/",
+  prospectsStats: "/api/superadmin/prospects/stats/",
+  opportunitiesStats: "/api/superadmin/opportunities/stats/",
+  tasksStats: "/api/superadmin/tasks/stats/",
+  contactsStats: "/api/superadmin/contacts/stats/",
+  teamsStats: "/api/superadmin/teams/stats/",
+  invitationsStats: "/api/superadmin/invitations/stats/",
+  aiAgents: "/api/superadmin/ai-agents/",
+  aiAgentStats: "/api/superadmin/ai-agents/stats/",
+  auditLogs: "/api/superadmin/audit-logs/",
+  systemHealth: "/api/superadmin/system-health/",
+  marketingDashboard: "/api/superadmin/marketing-dashboard/",
+  feedback: (id) => `/api/superadmin/feedbacks/${id}/`,
+};
+
 export const T = {
   red: "#dc2626",
   purple: "#7c3aed",
   blue: "#2563eb",
   green: "#059669",
   amber: "#d97706",
+  rose: "#e11d48",
   n50: "#f9fafb",
   n100: "#f3f4f6",
   n200: "#e5e7eb",
@@ -17,17 +53,28 @@ export const T = {
   n800: "#1f2937",
 };
 
-export const apiGet = (url) =>
-  axios.get(`http://127.0.0.1:8000${url}`, {
-    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-  });
+export const safeArray = (value) => (Array.isArray(value) ? value : []);
+export const formatNumber = (value) => Number(value || 0).toLocaleString("fr-FR");
+export const formatCurrency = (value) =>
+  `${Number(value || 0).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} TND`;
+export const percent = (value, total) => `${total ? Math.round((Number(value || 0) / total) * 100) : 0}%`;
+export const formatDate = (value) => (value ? new Date(value).toLocaleDateString("fr-FR") : "—");
+export const formatDateTime = (value) =>
+  value ? new Date(value).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—";
 
-export const apiPost = (url, data = {}) =>
-  axios.post(`http://127.0.0.1:8000${url}`, data, {
-    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-  });
+export const statusColors = {
+  online: { bg: "#dcfce7", text: T.green },
+  success: { bg: "#dcfce7", text: T.green },
+  warning: { bg: "#fef3c7", text: T.amber },
+  slow: { bg: "#fef3c7", text: T.amber },
+  failed: { bg: "#fee2e2", text: T.red },
+  offline: { bg: "#fee2e2", text: T.red },
+  running: { bg: "#dbeafe", text: T.blue },
+  partial: { bg: "#ede9fe", text: T.purple },
+};
 
-// Couleurs selon statut prospect
+export const colorForStatus = (status) => statusColors[status] || { bg: T.n100, text: T.n500 };
+
 export const prospectStatusColor = (status) =>
   ({
     new: { bg: "#dbeafe", text: T.blue },
@@ -37,7 +84,6 @@ export const prospectStatusColor = (status) =>
     won: { bg: "#ede9fe", text: T.purple },
   }[status] || { bg: T.n100, text: T.n500 });
 
-// Couleurs selon stage opportunité
 export const opportunityStageColor = (stage) =>
   ({
     new: { bg: "#dbeafe", text: T.blue },
@@ -48,16 +94,15 @@ export const opportunityStageColor = (stage) =>
     lost: { bg: "#fee2e2", text: T.red },
   }[stage] || { bg: T.n100, text: T.n500 });
 
-// Couleurs selon statut tâche
 export const taskStatusColor = (status) =>
   ({
     todo: { bg: T.n100, text: T.n500 },
     in_progress: { bg: "#dbeafe", text: T.blue },
     done: { bg: "#d1fae5", text: T.green },
+    completed: { bg: "#d1fae5", text: T.green },
     cancelled: { bg: "#fee2e2", text: T.red },
   }[status] || { bg: T.n100, text: T.n500 });
 
-// Couleurs selon priorité tâche
 export const taskPriorityColor = (priority) =>
   ({
     low: { bg: "#d1fae5", text: T.green },

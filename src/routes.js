@@ -34,6 +34,10 @@ import SuperAdminProspects from "./pages/superadmin/SuperAdminProspects";
 import SuperAdminContacts from "./pages/superadmin/SuperAdminContacts";
 import SuperAdminOpportunities from "./pages/superadmin/SuperAdminOpportunities";
 import SuperAdminTasks from "./pages/superadmin/SuperAdminTasks";
+import SuperAdminStats from "./pages/superadmin/SuperAdminStats";
+import SuperAdminAgents from "./pages/superadmin/SuperAdminAgents";
+import SuperAdminMonitoring from "./pages/superadmin/SuperAdminMonitoring";
+import SuperAdminAuditLogs from "./pages/superadmin/SuperAdminAuditLogs";
 import AgentChat from "./pages/Agentchat"; // adapte le chemin selon où tu mets le composant
 import ProspectSearch from "./pages/ProspectSearch";
 
@@ -311,6 +315,30 @@ const routes = [
     key: "sa-tasks",
     route: "/superadmin/tasks",
     component: sa(<SuperAdminTasks />),
+  },
+  {
+    type: "route",
+    key: "sa-agents",
+    route: "/superadmin/agents",
+    component: sa(<SuperAdminAgents />),
+  },
+  {
+    type: "route",
+    key: "sa-monitoring",
+    route: "/superadmin/monitoring",
+    component: sa(<SuperAdminMonitoring />),
+  },
+  {
+    type: "route",
+    key: "sa-logs",
+    route: "/superadmin/logs",
+    component: sa(<SuperAdminAuditLogs />),
+  },
+  {
+    type: "route",
+    key: "sa-stats",
+    route: "/superadmin/stats",
+    component: sa(<SuperAdminStats />),
   },
 ];
 

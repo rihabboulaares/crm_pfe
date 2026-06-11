@@ -454,6 +454,7 @@ export default function SuperAdminUsers() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [backendStats, setBackendStats] = useState(null);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -477,6 +478,12 @@ export default function SuperAdminUsers() {
     fetchUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, search, roleFilter]);
+
+  useEffect(() => {
+    api("/api/superadmin/companies/stats/")
+      .then((res) => setBackendStats(res.data))
+      .catch((e) => console.error("Erreur stats utilisateurs:", e));
+  }, []);
 
   const showNotification = (text, type = "success") => {
     setMessage({ text, type });
@@ -515,6 +522,7 @@ export default function SuperAdminUsers() {
     }),
     [users]
   );
+  const displayStats = backendStats ? { ...stats, total: backendStats.total_users } : stats;
 
   const roleColor = (role) =>
     ({
@@ -594,13 +602,13 @@ export default function SuperAdminUsers() {
         <Grid item xs={12} sm={6} md={3}>
           <StatsCardItem
             title="Total utilisateurs"
-            value={stats.total}
+            value={displayStats.total}
             icon={<People />}
             color={THEME.primary}
           >
             <Chip
               size="small"
-              label={`${stats.active} Actifs`}
+              label={`${displayStats.active} Actifs`}
               sx={{
                 bgcolor: alpha(THEME.success, 0.1),
                 color: THEME.success,
@@ -610,7 +618,7 @@ export default function SuperAdminUsers() {
             />
             <Chip
               size="small"
-              label={`${stats.inactive} Inactifs`}
+              label={`${displayStats.inactive} Inactifs`}
               sx={{
                 bgcolor: alpha(THEME.error, 0.1),
                 color: THEME.error,
@@ -624,13 +632,13 @@ export default function SuperAdminUsers() {
         <Grid item xs={12} sm={6} md={3}>
           <StatsCardItem
             title="Rôles"
-            value={stats.admins + stats.managers + stats.commercials}
+            value={displayStats.admins + displayStats.managers + displayStats.commercials}
             icon={<AdminIcon />}
             color={THEME.blue}
           >
             <Chip
               size="small"
-              label={`${stats.admins} Admins`}
+              label={`${displayStats.admins} Admins`}
               sx={{
                 bgcolor: alpha(THEME.blue, 0.1),
                 color: THEME.blue,
@@ -640,7 +648,7 @@ export default function SuperAdminUsers() {
             />
             <Chip
               size="small"
-              label={`${stats.managers} Managers`}
+              label={`${displayStats.managers} Managers`}
               sx={{
                 bgcolor: alpha(THEME.purple, 0.1),
                 color: THEME.purple,
@@ -654,13 +662,13 @@ export default function SuperAdminUsers() {
         <Grid item xs={12} sm={6} md={3}>
           <StatsCardItem
             title="Vérification"
-            value={stats.verified}
+            value={displayStats.verified}
             icon={<VerifiedIcon />}
             color={THEME.success}
           >
             <Chip
               size="small"
-              label={`${((stats.verified / stats.total) * 100 || 0).toFixed(0)}% vérifiés`}
+              label={`${((displayStats.verified / displayStats.total) * 100 || 0).toFixed(0)}% vérifiés`}
               sx={{
                 bgcolor: alpha(THEME.success, 0.1),
                 color: THEME.success,
@@ -674,7 +682,7 @@ export default function SuperAdminUsers() {
         <Grid item xs={12} sm={6} md={3}>
           <StatsCardItem
             title="Commerciaux"
-            value={stats.commercials}
+            value={displayStats.commercials}
             icon={<CommercialIcon />}
             color={THEME.n500}
           />

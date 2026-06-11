@@ -1,6 +1,7 @@
 /* eslint-disable prettier/prettier */
-// src/pages/modules/ManagerDashboard.jsx — v2 Redesigned + Feedback intégré
-import React, { useState, useCallback } from "react";
+// src/pages/modules/ManagerDashboard.jsx — version IA + Google Maps complète
+
+import React, { useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import {
   Grid,
@@ -11,26 +12,15 @@ import {
   Chip,
   Divider,
   LinearProgress,
+  Alert,
   Button,
-  TextField,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  IconButton,
+  Paper,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
-  Collapse,
-  Alert,
 } from "@mui/material";
 import {
   PersonAdd,
@@ -40,20 +30,23 @@ import {
   TrendingUp,
   Warning,
   EmojiEvents,
-  Add,
-  Close,
-  Send as SendIcon,
+  BarChart as BarChartIcon,
+  SmartToy,
+  AutoAwesome,
+  LocationOn,
+  Psychology,
+  Campaign,
+  MarkEmailRead,
+  Map as MapIcon,
+  Insights,
+  HealthAndSafety,
+  Refresh,
   Phone,
   Email,
   Groups,
-  ExpandMore,
-  ExpandLess,
-  TrendingDown,
-  BarChart as BarChartIcon,
   Timeline,
-  FiberManualRecord,
-  RateReview,
-  Star,
+  TrendingDown,
+  Bolt,
 } from "@mui/icons-material";
 import { alpha, styled, keyframes } from "@mui/material/styles";
 import {
@@ -66,16 +59,17 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
+  FunnelChart,
+  Funnel,
+  LabelList,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts";
+import { GoogleMap, LoadScript, Marker, InfoWindow } from "@react-google-maps/api";
 
-import { ScoreRing, GoalRow, AlertRow, PerfSkeleton, scoreColor } from "./PerformanceWidgets";
-import {
-  useTeamKPI,
-  useAlerts,
-  useLeaderboard,
-  useCommercialGoals,
-  perfApi,
-} from "../../hooks/usePerformance";
+import { ScoreRing, AlertRow, PerfSkeleton, scoreColor } from "./PerformanceWidgets";
+import { useTeamKPI, useAlerts, useLeaderboard } from "../../hooks/usePerformance";
 import { FeedbackButton, useTrackActivity } from "../superadmin/Marketingwidgets";
 import DashboardDataFrame, { useOfficialDashboardData } from "./DashboardDataFrame";
 
@@ -83,31 +77,46 @@ const toList = (d) => (Array.isArray(d) ? d : d?.results || []);
 
 const C = {
   red: "#dc2626",
+  redDark: "#991b1b",
   green: "#059669",
   blue: "#2563eb",
   amber: "#d97706",
   purple: "#7c3aed",
   teal: "#0d9488",
+  rose: "#e11d48",
+  indigo: "#4f46e5",
   n50: "#f8fafc",
   n100: "#f1f5f9",
   n200: "#e2e8f0",
+  n300: "#cbd5e1",
   n400: "#94a3b8",
   n500: "#64748b",
   n600: "#475569",
+  n700: "#334155",
   n800: "#1e293b",
+  white: "#ffffff",
   grad: "linear-gradient(135deg,#dc2626 0%,#991b1b 100%)",
 };
 
-const fadeUp = keyframes`from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}`;
+const fadeUp = keyframes`
+  from { opacity:0; transform:translateY(10px); }
+  to { opacity:1; transform:translateY(0); }
+`;
+
+const pulse = keyframes`
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.04); opacity: .75; }
+  100% { transform: scale(1); opacity: 1; }
+`;
 
 const AccentCard = styled(Box)(({ accent }) => ({
-  background: "#fff",
+  background: C.white,
   border: `1px solid ${C.n200}`,
   borderRadius: 16,
   borderTop: `3px solid ${accent || C.red}`,
-  padding: "20px",
+  padding: 20,
   boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
-  transition: "box-shadow 0.2s",
+  transition: "box-shadow 0.2s, transform 0.2s",
   "&:hover": { boxShadow: "0 4px 16px rgba(0,0,0,0.08)" },
 }));
 
@@ -117,7 +126,7 @@ const KpiTile = styled(Box)(({ color }) => ({
   gap: 12,
   padding: "16px 18px",
   borderRadius: 14,
-  background: "#fff",
+  background: C.white,
   border: `1px solid ${C.n200}`,
   borderLeft: `4px solid ${color || C.red}`,
   boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
@@ -145,779 +154,516 @@ const PrimaryBtn = styled(Button)(() => ({
   fontSize: 13,
   padding: "8px 18px",
   boxShadow: `0 3px 10px ${alpha(C.red, 0.28)}`,
-  "&:hover": {
-    background: "linear-gradient(135deg,#dc2626,#7f1d1d)",
-    transform: "translateY(-1px)",
-  },
-  "&:disabled": { background: C.n200, boxShadow: "none", color: "#fff" },
-  transition: "all 0.18s",
+  "&:hover": { background: "linear-gradient(135deg,#dc2626,#7f1d1d)" },
 }));
 
-const GhostBtn = styled(Button)(({ bcolor }) => ({
-  border: `1.5px solid ${alpha(bcolor || C.red, 0.3)}`,
-  color: bcolor || C.red,
-  background: "transparent",
-  borderRadius: 10,
-  textTransform: "none",
-  fontWeight: 600,
-  fontSize: 13,
-  padding: "7px 16px",
-  "&:hover": { background: alpha(bcolor || C.red, 0.05), borderColor: bcolor || C.red },
-  transition: "all 0.15s",
-}));
+function fmtTND(value) {
+  const n = Number(value || 0);
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "TND",
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  }).format(n);
+}
 
-const MiniBar = ({ value, color, label }) => (
-  <Box sx={{ minWidth: 90 }}>
-    <Stack direction="row" justifyContent="space-between" mb={0.3}>
-      <Typography sx={{ fontSize: 10, color: C.n400 }}>{label}</Typography>
-      <Typography sx={{ fontSize: 10, fontWeight: 700, color }}>{Math.round(value)}%</Typography>
-    </Stack>
-    <Box sx={{ height: 4, borderRadius: 2, bgcolor: alpha(color, 0.12), overflow: "hidden" }}>
+function safeDate(d) {
+  if (!d) return null;
+  const parsed = new Date(d);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function isOverdue(task) {
+  const d = safeDate(task?.due_date);
+  if (!d) return false;
+  return task.status !== "done" && task.status !== "cancelled" && d < new Date();
+}
+
+function getProspectName(p) {
+  return (
+    p.name ||
+    p.company_name ||
+    `${p.first_name || ""} ${p.last_name || ""}`.trim() ||
+    p.email ||
+    `Prospect #${p.id}`
+  );
+}
+
+function getProspectScore(p) {
+  return Number(p.ai_score || p.score || p.relevance || p.lead_score || 0);
+}
+
+function getSource(p) {
+  return (p.source || p.origin || p.channel || "manuel").toString().toLowerCase();
+}
+
+function getStatusLabel(status) {
+  const map = {
+    new: "Nouveau",
+    contacted: "Contacté",
+    qualified: "Qualifié",
+    won: "Gagné",
+    lost: "Perdu",
+    proposal: "Proposition",
+    negotiation: "Négociation",
+  };
+  return map[status] || status || "—";
+}
+
+function SectionTitle({ icon, title, subtitle }) {
+  return (
+    <Stack direction="row" alignItems="center" spacing={1.2} mb={2}>
       <Box
         sx={{
-          height: "100%",
-          width: `${Math.min(100, value)}%`,
-          bgcolor: color,
-          borderRadius: 2,
-          transition: "width 0.8s ease",
-        }}
-      />
-    </Box>
-  </Box>
-);
-MiniBar.propTypes = { value: PropTypes.number, color: PropTypes.string, label: PropTypes.string };
-
-const ActivityPills = ({ calls = 0, emails = 0, meetings = 0 }) => (
-  <Stack direction="row" spacing={0.5}>
-    {[
-      { icon: <Phone sx={{ fontSize: 10 }} />, val: calls, color: C.blue },
-      { icon: <Email sx={{ fontSize: 10 }} />, val: emails, color: C.purple },
-      { icon: <Groups sx={{ fontSize: 10 }} />, val: meetings, color: C.teal },
-    ].map((item, i) => (
-      <Box
-        key={i}
-        sx={{
+          width: 34,
+          height: 34,
+          borderRadius: 10,
+          bgcolor: alpha(C.red, 0.1),
+          color: C.red,
           display: "flex",
           alignItems: "center",
-          gap: 0.3,
-          bgcolor: alpha(item.color, 0.1),
-          borderRadius: 1,
-          px: 0.6,
-          py: 0.2,
+          justifyContent: "center",
         }}
       >
-        {React.cloneElement(item.icon, { sx: { fontSize: 10, color: item.color } })}
-        <Typography sx={{ fontSize: 10, fontWeight: 600, color: item.color }}>
-          {item.val}
-        </Typography>
+        {icon}
       </Box>
-    ))}
-  </Stack>
-);
-ActivityPills.propTypes = {
-  calls: PropTypes.number,
-  emails: PropTypes.number,
-  meetings: PropTypes.number,
+      <Box>
+        <Typography sx={{ fontSize: 14, fontWeight: 800, color: C.n800 }}>{title}</Typography>
+        {subtitle && <Typography sx={{ fontSize: 11, color: C.n400 }}>{subtitle}</Typography>}
+      </Box>
+    </Stack>
+  );
+}
+SectionTitle.propTypes = { icon: PropTypes.node, title: PropTypes.string, subtitle: PropTypes.string };
+SectionTitle.defaultProps = { icon: null, title: "", subtitle: "" };
+
+function MiniKpi({ label, value, icon, color, sub }) {
+  return (
+    <Box
+      sx={{
+        p: 1.6,
+        borderRadius: 12,
+        bgcolor: alpha(color, 0.06),
+        border: `1px solid ${alpha(color, 0.14)}`,
+      }}
+    >
+      <Stack direction="row" alignItems="center" justifyContent="space-between" mb={0.8}>
+        <Typography sx={{ fontSize: 10, fontWeight: 800, color: C.n500, textTransform: "uppercase" }}>
+          {label}
+        </Typography>
+        <Box sx={{ color }}>{icon}</Box>
+      </Stack>
+      <Typography sx={{ fontSize: 24, fontWeight: 900, color, lineHeight: 1 }}>{value}</Typography>
+      {sub && <Typography sx={{ fontSize: 11, color: C.n500, mt: 0.5 }}>{sub}</Typography>}
+    </Box>
+  );
+}
+MiniKpi.propTypes = {
+  label: PropTypes.string.isRequired,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+  icon: PropTypes.node,
+  color: PropTypes.string,
+  sub: PropTypes.string,
 };
-ActivityPills.defaultProps = { calls: 0, emails: 0, meetings: 0 };
+MiniKpi.defaultProps = { icon: null, color: C.red, sub: null };
 
-// FEEDBACK SECTION
-function FeedbackSection({ members }) {
-  const [feedbacks, setFeedbacks] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [showModal, setShowModal] = useState(false);
-  const [target, setTarget] = useState(null);
-  const [rating, setRating] = useState(0);
-  const [hover, setHover] = useState(0);
-  const [comment, setComment] = useState("");
-  const [sending, setSending] = useState(false);
-  const [sentOk, setSentOk] = useState(false);
-  const [filterUser, setFilterUser] = useState("all");
-  const commerciaux = members.filter((m) => m.role === "COMMERCIAL");
-  const ratingLabel = ["", "Insuffisant", "À améliorer", "Correct", "Bien", "Excellent"];
-  const ratingColor = ["", C.red, C.red, C.amber, C.green, C.green];
+function AiCenter({ prospects, tasks, opportunities }) {
+  const aiProspects = prospects.filter((p) => {
+    const source = getSource(p);
+    return p.created_by_agent || p.ai_generated || source.includes("agent") || source.includes("maps") || source.includes("linkedin") || source.includes("instagram") || source.includes("facebook");
+  });
+  const qualifiedAi = aiProspects.filter((p) => p.status === "qualified" || getProspectScore(p) >= 70);
+  const messagesReady = prospects.filter((p) => ["message_ready", "prepared", "ready_to_send"].includes(p.engagement_status || p.status));
+  const replied = prospects.filter((p) => ["replied", "reply_detected", "follow_up_required"].includes(p.engagement_status || p.status));
+  const hotProspects = prospects.filter((p) => getProspectScore(p) >= 80).length;
+  const qualificationRate = aiProspects.length ? Math.round((qualifiedAi.length / aiProspects.length) * 100) : 0;
 
-  const fetchFeedbacks = useCallback(async () => {
-    setLoading(true);
-    try {
-      const now = new Date();
-      const res = await perfApi.get(
-        `/feedback/?year=${now.getFullYear()}&month=${now.getMonth() + 1}`
-      );
-      setFeedbacks(Array.isArray(res.data) ? res.data : res.data.results || []);
-    } catch {
-      setFeedbacks([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  React.useEffect(() => {
-    fetchFeedbacks();
-  }, [fetchFeedbacks]);
+  const sourceData = Object.entries(
+    prospects.reduce((acc, p) => {
+      const source = getSource(p);
+      const clean = source.includes("maps")
+        ? "Google Maps"
+        : source.includes("linkedin")
+        ? "LinkedIn"
+        : source.includes("instagram")
+        ? "Instagram"
+        : source.includes("facebook")
+        ? "Facebook"
+        : source.includes("web") || source.includes("site")
+        ? "Web"
+        : source.includes("agent")
+        ? "Agent IA"
+        : "Manuel";
+      acc[clean] = (acc[clean] || 0) + 1;
+      return acc;
+    }, {})
+  ).map(([name, value], index) => ({
+    name,
+    value,
+    color: [C.blue, C.purple, C.rose, C.indigo, C.teal, C.amber, C.n400][index % 7],
+  }));
 
-  const handleSend = async () => {
-    if (!rating || !comment.trim() || !target) return;
-    setSending(true);
-    try {
-      const now = new Date();
-      await perfApi.post("/feedback/", {
-        commercial: target.id,
-        rating,
-        comment,
-        year: now.getFullYear(),
-        month: now.getMonth() + 1,
-      });
-      setSentOk(true);
-      setTimeout(() => {
-        setSentOk(false);
-        setShowModal(false);
-        setRating(0);
-        setComment("");
-        setTarget(null);
-        fetchFeedbacks();
-      }, 1500);
-    } catch {
-      console.error("feedback error");
-    } finally {
-      setSending(false);
-    }
-  };
-  const filtered =
-    filterUser === "all"
-      ? feedbacks
-      : feedbacks.filter((f) => f.commercial === parseInt(filterUser));
+  return (
+    <AccentCard accent={C.purple}>
+      <SectionTitle
+        icon={<SmartToy sx={{ fontSize: 18 }} />}
+        title="Centre IA Manager"
+        subtitle="Supervision de la prospection et de l'engagement intelligent"
+      />
+      <Grid container spacing={1.5} mb={2.5}>
+        <Grid item xs={6} md={3}>
+          <MiniKpi label="Prospects IA" value={aiProspects.length} icon={<AutoAwesome fontSize="small" />} color={C.purple} sub={`${hotProspects} chauds`} />
+        </Grid>
+        <Grid item xs={6} md={3}>
+          <MiniKpi label="Qualification" value={`${qualificationRate}%`} icon={<Psychology fontSize="small" />} color={C.green} sub={`${qualifiedAi.length} qualifiés`} />
+        </Grid>
+        <Grid item xs={6} md={3}>
+          <MiniKpi label="Messages prêts" value={messagesReady.length} icon={<Campaign fontSize="small" />} color={C.amber} sub="à valider" />
+        </Grid>
+        <Grid item xs={6} md={3}>
+          <MiniKpi label="Réponses" value={replied.length} icon={<MarkEmailRead fontSize="small" />} color={C.blue} sub="à traiter" />
+        </Grid>
+      </Grid>
+
+      <Grid container spacing={2}>
+        <Grid item xs={12} md={5}>
+          <Typography sx={{ fontSize: 12, fontWeight: 800, color: C.n700, mb: 1 }}>
+            Répartition des sources
+          </Typography>
+          {sourceData.length ? (
+            <ResponsiveContainer width="100%" height={190}>
+              <PieChart>
+                <Pie data={sourceData} cx="50%" cy="50%" innerRadius={48} outerRadius={72} dataKey="value" label={({ name, value }) => `${name}: ${value}`}>
+                  {sourceData.map((entry) => (
+                    <Cell key={entry.name} fill={entry.color} />
+                  ))}
+                </Pie>
+                <ReTooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <Typography sx={{ fontSize: 13, color: C.n400 }}>Aucune source disponible</Typography>
+          )}
+        </Grid>
+        <Grid item xs={12} md={7}>
+          <Typography sx={{ fontSize: 12, fontWeight: 800, color: C.n700, mb: 1 }}>
+            Monitoring des agents
+          </Typography>
+          <Grid container spacing={1.2}>
+            {[
+              { label: "Agent Prospection", status: aiProspects.length > 0 ? "Actif" : "En attente", color: aiProspects.length > 0 ? C.green : C.amber },
+              { label: "Agent Engagement", status: messagesReady.length || replied.length ? "Actif" : "En attente", color: messagesReady.length || replied.length ? C.green : C.amber },
+              { label: "Google Maps", status: process.env.REACT_APP_GOOGLE_MAPS_API_KEY ? "Connecté" : "Clé manquante", color: process.env.REACT_APP_GOOGLE_MAPS_API_KEY ? C.green : C.red },
+              { label: "Gemini", status: "Configuré", color: C.green },
+              { label: "Playwright", status: "Session sociale", color: C.blue },
+              { label: "CRM Import", status: "Disponible", color: C.teal },
+            ].map((item) => (
+              <Grid item xs={12} sm={6} key={item.label}>
+                <Box sx={{ p: 1.2, borderRadius: 10, bgcolor: alpha(item.color, 0.06), border: `1px solid ${alpha(item.color, 0.14)}` }}>
+                  <Stack direction="row" alignItems="center" justifyContent="space-between">
+                    <Typography sx={{ fontSize: 12, fontWeight: 700, color: C.n700 }}>{item.label}</Typography>
+                    <Chip
+                      size="small"
+                      label={item.status}
+                      sx={{ height: 22, fontSize: 10, fontWeight: 800, bgcolor: alpha(item.color, 0.1), color: item.color }}
+                    />
+                  </Stack>
+                </Box>
+              </Grid>
+            ))}
+          </Grid>
+        </Grid>
+      </Grid>
+    </AccentCard>
+  );
+}
+AiCenter.propTypes = { prospects: PropTypes.array, tasks: PropTypes.array, opportunities: PropTypes.array };
+AiCenter.defaultProps = { prospects: [], tasks: [], opportunities: [] };
+
+function GeoProspectsMap({ prospects }) {
+  const [selected, setSelected] = useState(null);
+  const apiKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
+  const mappedProspects = prospects
+    .map((p) => ({ ...p, lat: Number(p.latitude || p.lat), lng: Number(p.longitude || p.lng) }))
+    .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+
+  const fallbackByCity = Object.entries(
+    prospects.reduce((acc, p) => {
+      const city = p.city || p.region || p.country || "Localisation inconnue";
+      acc[city] = (acc[city] || 0) + 1;
+      return acc;
+    }, {})
+  )
+    .map(([city, count]) => ({ city, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const center = mappedProspects.length
+    ? { lat: mappedProspects[0].lat, lng: mappedProspects[0].lng }
+    : { lat: 36.8065, lng: 10.1815 };
+
+  if (!apiKey) {
+    return (
+      <Box>
+        <Alert severity="warning" sx={{ borderRadius: 2, mb: 2, fontSize: 13 }}>
+          Clé Google Maps manquante. Ajoute REACT_APP_GOOGLE_MAPS_API_KEY dans le fichier .env du frontend puis redémarre npm start.
+        </Alert>
+        <CityFallback cities={fallbackByCity} />
+      </Box>
+    );
+  }
+
+  if (!mappedProspects.length) {
+    return (
+      <Box>
+        <Alert severity="info" sx={{ borderRadius: 2, mb: 2, fontSize: 13 }}>
+          Aucun prospect avec latitude/longitude. La carte Google Maps sera affichée dès que les coordonnées existent dans le backend.
+        </Alert>
+        <CityFallback cities={fallbackByCity} />
+      </Box>
+    );
+  }
 
   return (
     <Box>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2.5}>
-        <Stack direction="row" alignItems="center" spacing={1.5}>
-          <Box
-            sx={{
-              width: 38,
-              height: 38,
-              borderRadius: 10,
-              background: C.grad,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <RateReview sx={{ color: "#fff", fontSize: 19 }} />
-          </Box>
-          <Box>
-            <Typography sx={{ fontSize: 14, fontWeight: 800, color: C.n800 }}>
-              Feedbacks manager
-            </Typography>
-            <Typography sx={{ fontSize: 12, color: C.n400 }}>
-              {new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}
-            </Typography>
-          </Box>
-        </Stack>
-        <PrimaryBtn
-          size="small"
-          startIcon={<Add sx={{ fontSize: 15 }} />}
-          onClick={() => setShowModal(true)}
+      <LoadScript googleMapsApiKey={apiKey}>
+        <GoogleMap
+          mapContainerStyle={{ width: "100%", height: 360, borderRadius: 16 }}
+          center={center}
+          zoom={mappedProspects.length > 1 ? 7 : 11}
+          options={{ streetViewControl: false, mapTypeControl: false, fullscreenControl: true }}
         >
-          Nouveau feedback
-        </PrimaryBtn>
-      </Stack>
-
-      <Stack direction="row" spacing={1.5} alignItems="center" mb={2} flexWrap="wrap" gap={1}>
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <Select
-            value={filterUser}
-            onChange={(e) => setFilterUser(e.target.value)}
-            sx={{ borderRadius: 2, fontSize: 13 }}
-          >
-            <MenuItem value="all">Tous les commerciaux</MenuItem>
-            {commerciaux.map((m) => (
-              <MenuItem key={m.id} value={m.id.toString()}>
-                {m.username}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <Stack direction="row" spacing={0.8}>
-          {[5, 4, 3, 2, 1].map((r) => {
-            const count = feedbacks.filter((f) => f.rating === r).length;
-            return count > 0 ? (
-              <Box
-                key={r}
-                sx={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 0.4,
-                  bgcolor: alpha(ratingColor[r], 0.08),
-                  border: `1px solid ${alpha(ratingColor[r], 0.18)}`,
-                  borderRadius: 8,
-                  px: 1,
-                  py: 0.3,
-                }}
-              >
-                <Typography sx={{ fontSize: 11, color: "#f59e0b" }}>{"★".repeat(r)}</Typography>
-                <Typography sx={{ fontSize: 11, fontWeight: 700, color: ratingColor[r] }}>
-                  {count}
+          {mappedProspects.map((p) => (
+            <Marker
+              key={p.id}
+              position={{ lat: p.lat, lng: p.lng }}
+              onClick={() => setSelected(p)}
+            />
+          ))}
+          {selected && (
+            <InfoWindow position={{ lat: selected.lat, lng: selected.lng }} onCloseClick={() => setSelected(null)}>
+              <Box sx={{ minWidth: 180 }}>
+                <Typography sx={{ fontWeight: 800, fontSize: 13, color: C.n800 }}>
+                  {getProspectName(selected)}
                 </Typography>
+                <Typography sx={{ fontSize: 12, color: C.n600 }}>{selected.city || selected.address || selected.country || "—"}</Typography>
+                <Typography sx={{ fontSize: 12, color: C.n600 }}>Source : {getSource(selected)}</Typography>
+                <Typography sx={{ fontSize: 12, color: C.n600 }}>Score IA : {getProspectScore(selected) || "—"}</Typography>
               </Box>
-            ) : null;
-          })}
-        </Stack>
-      </Stack>
-
-      {loading ? (
-        <Box sx={{ textAlign: "center", py: 4 }}>
-          <Typography sx={{ color: C.n400, fontSize: 13 }}>Chargement...</Typography>
-        </Box>
-      ) : filtered.length === 0 ? (
-        <Box
-          sx={{
-            textAlign: "center",
-            py: 5,
-            bgcolor: C.n50,
-            borderRadius: 14,
-            border: `1px dashed ${C.n200}`,
-          }}
-        >
-          <RateReview sx={{ fontSize: 36, color: C.n300, mb: 1 }} />
-          <Typography sx={{ fontSize: 13, fontWeight: 600, color: C.n400 }}>
-            Aucun feedback ce mois
-          </Typography>
-          <Typography sx={{ fontSize: 12, color: C.n400, mt: 0.5, mb: 2 }}>
-            Donnez du feedback à vos commerciaux pour les motiver
-          </Typography>
-          <GhostBtn
-            size="small"
-            startIcon={<Add sx={{ fontSize: 14 }} />}
-            onClick={() => setShowModal(true)}
-          >
-            Créer un feedback
-          </GhostBtn>
-        </Box>
-      ) : (
-        <Stack spacing={1.2}>
-          {filtered.slice(0, 8).map((fb, i) => {
-            const u = members.find((m) => m.id === fb.commercial);
-            const r = fb.rating || 0;
-            const col = ratingColor[r] || C.amber;
-            return (
-              <Box
-                key={fb.id || i}
-                sx={{
-                  p: 2,
-                  borderRadius: 12,
-                  bgcolor: alpha(col, 0.03),
-                  border: `1px solid ${alpha(col, 0.14)}`,
-                  borderLeft: `3px solid ${col}`,
-                  transition: "all 0.15s",
-                  "&:hover": { bgcolor: alpha(col, 0.06) },
-                }}
-              >
-                <Stack direction="row" alignItems="flex-start" gap={1.5}>
-                  <Avatar
-                    sx={{
-                      width: 38,
-                      height: 38,
-                      bgcolor: alpha(C.purple, 0.12),
-                      color: C.purple,
-                      fontSize: 14,
-                      fontWeight: 800,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {u?.username?.[0]?.toUpperCase() || "?"}
-                  </Avatar>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Stack direction="row" alignItems="center" spacing={1} mb={0.3} flexWrap="wrap">
-                      <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.n800 }}>
-                        {u?.username || `#${fb.commercial}`}
-                      </Typography>
-                      <Stack direction="row" spacing={0.1}>
-                        {[1, 2, 3, 4, 5].map((s) => (
-                          <Typography
-                            key={s}
-                            sx={{ fontSize: 13, color: s <= r ? "#f59e0b" : C.n200, lineHeight: 1 }}
-                          >
-                            ★
-                          </Typography>
-                        ))}
-                      </Stack>
-                      <Typography sx={{ fontSize: 11, fontWeight: 700, color: col }}>
-                        {ratingLabel[r]}
-                      </Typography>
-                    </Stack>
-                    <Typography sx={{ fontSize: 13, color: C.n600, lineHeight: 1.5 }}>
-                      {fb.comment}
-                    </Typography>
-                  </Box>
-                  <Typography
-                    sx={{ fontSize: 11, color: C.n400, whiteSpace: "nowrap", flexShrink: 0 }}
-                  >
-                    {fb.month}/{fb.year}
-                  </Typography>
-                </Stack>
-              </Box>
-            );
-          })}
-        </Stack>
-      )}
-
-      <Dialog
-        open={showModal}
-        onClose={() => setShowModal(false)}
-        PaperProps={{ sx: { borderRadius: 4, minWidth: 440 } }}
-      >
-        <Box sx={{ position: "relative", pt: 5 }}>
-          <Box
-            sx={{
-              position: "absolute",
-              top: -22,
-              left: "50%",
-              transform: "translateX(-50%)",
-              width: 52,
-              height: 52,
-              borderRadius: "50%",
-              background: C.grad,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              boxShadow: `0 4px 14px ${alpha(C.red, 0.35)}`,
-            }}
-          >
-            <RateReview sx={{ color: "#fff", fontSize: 24 }} />
-          </Box>
-        </Box>
-        <DialogTitle sx={{ textAlign: "center", pb: 1 }}>
-          <Typography sx={{ fontWeight: 800, fontSize: 18, color: C.n800 }}>
-            Nouveau feedback
-          </Typography>
-          <Typography sx={{ fontSize: 12, color: C.n400, mt: 0.3 }}>
-            {new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}
-          </Typography>
-        </DialogTitle>
-        <DialogContent sx={{ px: 3, pb: 1 }}>
-          {sentOk ? (
-            <Box sx={{ textAlign: "center", py: 3 }}>
-              <Typography sx={{ fontSize: 36, mb: 1 }}>🎉</Typography>
-              <Typography sx={{ fontWeight: 700, color: C.green, fontSize: 15 }}>
-                Feedback envoyé avec succès !
-              </Typography>
-            </Box>
-          ) : (
-            <Stack spacing={2.5} mt={0.5}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Commercial ciblé *</InputLabel>
-                <Select
-                  value={target?.id || ""}
-                  label="Commercial ciblé *"
-                  onChange={(e) => setTarget(commerciaux.find((m) => m.id === e.target.value))}
-                  sx={{ borderRadius: 2 }}
-                >
-                  {commerciaux.map((m) => (
-                    <MenuItem key={m.id} value={m.id}>
-                      <Stack direction="row" alignItems="center" spacing={1.5}>
-                        <Avatar
-                          sx={{
-                            width: 26,
-                            height: 26,
-                            fontSize: 11,
-                            bgcolor: alpha(C.purple, 0.15),
-                            color: C.purple,
-                          }}
-                        >
-                          {m.username?.[0]?.toUpperCase()}
-                        </Avatar>
-                        <span>{m.username}</span>
-                      </Stack>
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <Box>
-                <Typography sx={{ fontSize: 12, fontWeight: 700, color: C.n600, mb: 1.5 }}>
-                  Note globale *
-                </Typography>
-                <Stack direction="row" alignItems="center" spacing={0.5}>
-                  {[1, 2, 3, 4, 5].map((s) => (
-                    <Box
-                      key={s}
-                      onMouseEnter={() => setHover(s)}
-                      onMouseLeave={() => setHover(0)}
-                      onClick={() => setRating(s)}
-                      sx={{
-                        fontSize: 32,
-                        cursor: "pointer",
-                        transition: "all 0.1s",
-                        lineHeight: 1,
-                        userSelect: "none",
-                        color: s <= (hover || rating) ? "#f59e0b" : C.n200,
-                        transform: s <= (hover || rating) ? "scale(1.2)" : "scale(1)",
-                      }}
-                    >
-                      ★
-                    </Box>
-                  ))}
-                  {rating > 0 && (
-                    <Typography
-                      sx={{ fontSize: 13, fontWeight: 700, color: ratingColor[rating], ml: 1 }}
-                    >
-                      {ratingLabel[rating]}
-                    </Typography>
-                  )}
-                </Stack>
-              </Box>
-              <TextField
-                fullWidth
-                multiline
-                rows={4}
-                label="Commentaire *"
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-                placeholder="Ex: Excellent travail ce mois-ci ! Améliorer la prospection..."
-                sx={{
-                  "& .MuiOutlinedInput-root": { borderRadius: 2 },
-                  "& .MuiOutlinedInput-root.Mui-focused fieldset": { borderColor: C.red },
-                  "& label.Mui-focused": { color: C.red },
-                }}
-              />
-            </Stack>
+            </InfoWindow>
           )}
-        </DialogContent>
-        {!sentOk && (
-          <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
-            <GhostBtn onClick={() => setShowModal(false)}>Annuler</GhostBtn>
-            <PrimaryBtn
-              disabled={!rating || !comment.trim() || !target || sending}
-              onClick={handleSend}
-              startIcon={<SendIcon sx={{ fontSize: 16 }} />}
-            >
-              {sending ? "Envoi..." : "Envoyer le feedback"}
-            </PrimaryBtn>
-          </DialogActions>
-        )}
-      </Dialog>
+        </GoogleMap>
+      </LoadScript>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" mt={1.5}>
+        <Typography sx={{ fontSize: 11, color: C.n500 }}>{mappedProspects.length} prospects affichés sur Google Maps</Typography>
+        <Typography sx={{ fontSize: 11, color: C.n400 }}>{prospects.length - mappedProspects.length} sans coordonnées</Typography>
+      </Stack>
     </Box>
   );
 }
-FeedbackSection.propTypes = { members: PropTypes.array };
-FeedbackSection.defaultProps = { members: [] };
+GeoProspectsMap.propTypes = { prospects: PropTypes.array };
+GeoProspectsMap.defaultProps = { prospects: [] };
 
-// COMMERCIAL DETAIL PANEL
-function CommercialDetailPanel({ entry, kpi, history, onFeedback, onGoal }) {
-  if (!entry)
-    return (
-      <Box
-        sx={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100%",
-          gap: 1.5,
-          py: 6,
-        }}
-      >
-        <Box
-          sx={{
-            width: 56,
-            height: 56,
-            borderRadius: "50%",
-            bgcolor: C.n100,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <People sx={{ fontSize: 26, color: C.n300 }} />
-        </Box>
-        <Typography sx={{ fontSize: 13, color: C.n400, textAlign: "center" }}>
-          Cliquez sur un commercial{"\n"}pour voir sa fiche
-        </Typography>
-      </Box>
-    );
-  const color = scoreColor(entry.score);
-  const sd = kpi || entry;
+function CityFallback({ cities }) {
+  if (!cities.length) return <Typography sx={{ fontSize: 13, color: C.n400 }}>Aucune donnée géographique.</Typography>;
+  const max = Math.max(...cities.map((c) => c.count), 1);
   return (
-    <Box sx={{ p: 2.5, height: "100%", overflowY: "auto" }}>
-      <Box
-        sx={{
-          p: 2,
-          borderRadius: 14,
-          mb: 2,
-          background: `linear-gradient(135deg,${alpha(color, 0.08)},${alpha(color, 0.02)})`,
-          border: `1px solid ${alpha(color, 0.2)}`,
-        }}
-      >
-        <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}>
-          <Stack direction="row" alignItems="center" spacing={1.5}>
-            <Avatar
-              sx={{
-                width: 46,
-                height: 46,
-                bgcolor: alpha(color, 0.15),
-                color,
-                fontWeight: 800,
-                fontSize: 17,
-              }}
-            >
-              {entry.username?.[0]?.toUpperCase()}
-            </Avatar>
-            <Box>
-              <Typography sx={{ fontWeight: 700, fontSize: 14, color: C.n800 }}>
-                {entry.username}
-              </Typography>
-              <Box
-                sx={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 0.5,
-                  bgcolor: alpha(color, 0.1),
-                  border: `1px solid ${alpha(color, 0.25)}`,
-                  borderRadius: 20,
-                  px: 1,
-                  py: 0.2,
-                }}
-              >
-                <FiberManualRecord sx={{ fontSize: 8, color }} />
-                <Typography sx={{ fontSize: 12, fontWeight: 700, color }}>
-                  {Math.round(entry.score)}%
-                </Typography>
-              </Box>
+    <Stack spacing={1}>
+      {cities.slice(0, 8).map((c) => (
+        <Box key={c.city}>
+          <Stack direction="row" justifyContent="space-between" mb={0.4}>
+            <Typography sx={{ fontSize: 12, fontWeight: 700, color: C.n700 }}>{c.city}</Typography>
+            <Typography sx={{ fontSize: 12, fontWeight: 800, color: C.blue }}>{c.count}</Typography>
+          </Stack>
+          <LinearProgress
+            variant="determinate"
+            value={(c.count / max) * 100}
+            sx={{ height: 6, borderRadius: 3, bgcolor: C.n100, "& .MuiLinearProgress-bar": { bgcolor: C.blue, borderRadius: 3 } }}
+          />
+        </Box>
+      ))}
+    </Stack>
+  );
+}
+CityFallback.propTypes = { cities: PropTypes.array };
+CityFallback.defaultProps = { cities: [] };
+
+function PipelineFunnel({ opportunities }) {
+  const stages = [
+    { key: "new", name: "Nouveau", color: C.blue, probability: 0.1 },
+    { key: "qualified", name: "Qualifié", color: C.purple, probability: 0.25 },
+    { key: "proposal", name: "Proposition", color: C.amber, probability: 0.5 },
+    { key: "negotiation", name: "Négociation", color: C.teal, probability: 0.7 },
+    { key: "won", name: "Gagné", color: C.green, probability: 1 },
+  ];
+  const data = stages.map((s) => {
+    const items = opportunities.filter((o) => o.stage === s.key || o.status === s.key);
+    return {
+      name: s.name,
+      value: Math.max(items.length, 0),
+      fill: s.color,
+      amount: items.reduce((sum, o) => sum + Number(o.amount || 0), 0),
+      forecast: items.reduce((sum, o) => sum + Number(o.amount || 0) * (Number(o.probability || 0) || s.probability), 0),
+    };
+  });
+  const totalPipeline = opportunities.reduce((sum, o) => sum + Number(o.amount || 0), 0);
+  const forecast = data.reduce((sum, d) => sum + d.forecast, 0);
+
+  return (
+    <AccentCard accent={C.green}>
+      <SectionTitle icon={<Insights sx={{ fontSize: 18 }} />} title="Pipeline & Prévision CA" subtitle="Prévision basée sur le stade et la probabilité" />
+      <Grid container spacing={2}>
+        <Grid item xs={12} md={7}>
+          {opportunities.length ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <FunnelChart>
+                <ReTooltip
+  formatter={(value, name) => [`${value} opportunité(s)`, name]}
+/>
+                <Funnel dataKey="value" data={data.filter((d) => d.value > 0)} isAnimationActive>
+                  <LabelList position="right" fill={C.n700} stroke="none" dataKey="name" />
+                </Funnel>
+              </FunnelChart>
+            </ResponsiveContainer>
+          ) : (
+            <Typography sx={{ fontSize: 13, color: C.n400 }}>Aucune opportunité.</Typography>
+          )}
+        </Grid>
+        <Grid item xs={12} md={5}>
+          <Stack spacing={1.3}>
+            <MiniKpi label="Pipeline total" value={fmtTND(totalPipeline)} icon={<AttachMoney fontSize="small" />} color={C.green} />
+            <MiniKpi label="Prévision CA" value={fmtTND(forecast)} icon={<TrendingUp fontSize="small" />} color={C.blue} />
+            <Box sx={{ p: 1.4, borderRadius: 12, bgcolor: C.n50, border: `1px solid ${C.n200}` }}>
+              <Typography sx={{ fontSize: 11, fontWeight: 800, color: C.n500, mb: 1 }}>Détail par étape</Typography>
+              <Stack spacing={0.8}>
+                {data.map((d) => (
+                  <Stack key={d.name} direction="row" alignItems="center" justifyContent="space-between">
+                    <Stack direction="row" alignItems="center" spacing={0.8}>
+                      <Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: d.fill }} />
+                      <Typography sx={{ fontSize: 11, color: C.n600 }}>{d.name}</Typography>
+                    </Stack>
+                    <Typography sx={{ fontSize: 11, fontWeight: 800, color: d.fill }}>{d.value}</Typography>
+                  </Stack>
+                ))}
+              </Stack>
             </Box>
           </Stack>
-          <ScoreRing score={entry.score} size={68} strokeWidth={7} label="KPI" />
-        </Stack>
-        <Grid container spacing={0.8}>
-          {[
-            {
-              label: "Tâches",
-              value: `${sd.tasks_done || 0}/${sd.tasks_total || 0}`,
-              color: C.blue,
-            },
-            { label: "Dans les temps", value: sd.tasks_on_time || 0, color: C.green },
-            { label: "Deals", value: sd.opportunities_won || 0, color: C.amber },
-            {
-              label: "Pénalités",
-              value: `${sd.penalty_points || 0} pts`,
-              color: (sd.penalty_points || 0) < 0 ? C.red : C.green,
-            },
-          ].map((s) => (
-            <Grid item xs={6} key={s.label}>
-              <Box
-                sx={{ textAlign: "center", p: 0.8, bgcolor: alpha(s.color, 0.07), borderRadius: 2 }}
-              >
-                <Typography sx={{ fontSize: 14, fontWeight: 800, color: s.color }}>
-                  {s.value}
-                </Typography>
-                <Typography sx={{ fontSize: 9, color: C.n400 }}>{s.label}</Typography>
-              </Box>
+        </Grid>
+      </Grid>
+    </AccentCard>
+  );
+}
+PipelineFunnel.propTypes = { opportunities: PropTypes.array };
+PipelineFunnel.defaultProps = { opportunities: [] };
+
+function SmartAlerts({ prospects, tasks, opportunities, members }) {
+  const alerts = [];
+  const now = new Date();
+
+  prospects.forEach((p) => {
+    const score = getProspectScore(p);
+    const status = p.engagement_status || p.status;
+    if (score >= 80 && !["contacted", "message_ready", "replied", "won"].includes(status)) {
+      alerts.push({ type: "warning", title: `Prospect chaud sans suivi : ${getProspectName(p)}`, sub: `Score IA ${score}% · action recommandée : relance rapide` });
+    }
+    if (["replied", "reply_detected", "follow_up_required"].includes(status)) {
+      alerts.push({ type: "info", title: `Réponse détectée : ${getProspectName(p)}`, sub: "Un commercial doit traiter la conversation" });
+    }
+  });
+
+  opportunities.forEach((o) => {
+    const updated = safeDate(o.updated_at || o.last_activity_at || o.created_at);
+    const days = updated ? Math.floor((now - updated) / (1000 * 60 * 60 * 24)) : 0;
+    if (!["won", "lost"].includes(o.stage || o.status) && days >= 7) {
+      alerts.push({ type: "warning", title: `Opportunité inactive : ${o.name || o.title || "Opportunité"}`, sub: `${days} jours sans activité · relance recommandée` });
+    }
+  });
+
+  tasks.filter(isOverdue).forEach((t) => {
+    alerts.push({ type: "error", title: `Tâche en retard : ${t.title}`, sub: `${t.assigned_to_detail?.username || "Commercial"} · échéance dépassée` });
+  });
+
+  members.forEach((m) => {
+    const memberTasks = tasks.filter((t) => t.assigned_to === m.id);
+    const done = memberTasks.filter((t) => t.status === "done").length;
+    if (memberTasks.length >= 3 && done === 0) {
+      alerts.push({ type: "warning", title: `Activité faible : ${m.username}`, sub: "Aucune tâche terminée récemment · coaching conseillé" });
+    }
+  });
+
+  return (
+    <AccentCard accent={C.amber}>
+      <SectionTitle icon={<Warning sx={{ fontSize: 18 }} />} title="Alertes IA Manager" subtitle="Risques et actions à suivre" />
+      {alerts.length ? (
+        <Grid container spacing={1}>
+          {alerts.slice(0, 8).map((alert, i) => (
+            <Grid item xs={12} md={6} key={`${alert.title}-${i}`}>
+              <AlertRow {...alert} />
             </Grid>
           ))}
         </Grid>
-      </Box>
-      <Typography
-        sx={{
-          fontSize: 10,
-          fontWeight: 700,
-          color: C.n400,
-          textTransform: "uppercase",
-          letterSpacing: 0.8,
-          mb: 1,
-        }}
-      >
-        Activités ce mois
-      </Typography>
-      <Stack direction="row" spacing={0.8} mb={2}>
-        {[
-          { icon: <Phone />, val: sd.calls || 0, label: "Appels", color: C.blue },
-          { icon: <Email />, val: sd.emails || 0, label: "Emails", color: C.purple },
-          { icon: <Groups />, val: sd.meetings || 0, label: "Meetings", color: C.teal },
-        ].map((item) => (
-          <Box
-            key={item.label}
-            sx={{
-              flex: 1,
-              textAlign: "center",
-              p: 1,
-              bgcolor: alpha(item.color, 0.07),
-              borderRadius: 2,
-              border: `1px solid ${alpha(item.color, 0.14)}`,
-            }}
-          >
-            {React.cloneElement(item.icon, { sx: { fontSize: 15, color: item.color, mb: 0.2 } })}
-            <Typography sx={{ fontSize: 16, fontWeight: 800, color: item.color, lineHeight: 1 }}>
-              {item.val}
-            </Typography>
-            <Typography sx={{ fontSize: 9, color: C.n400 }}>{item.label}</Typography>
-          </Box>
-        ))}
-      </Stack>
-      <Typography
-        sx={{
-          fontSize: 10,
-          fontWeight: 700,
-          color: C.n400,
-          textTransform: "uppercase",
-          letterSpacing: 0.8,
-          mb: 1,
-        }}
-      >
-        Décomposition
-      </Typography>
-      <Stack spacing={1} mb={2}>
-        {[
-          { label: "Tâches", value: sd.score_tasks || 0, color: C.blue },
-          { label: "Délais", value: sd.score_deadlines || 0, color: C.green },
-          { label: "Activités", value: sd.score_activities || 0, color: C.purple },
-          { label: "Opportunités", value: sd.score_opportunities || 0, color: C.amber },
-        ].map((item) => (
-          <Box key={item.label}>
-            <Stack direction="row" justifyContent="space-between" mb={0.3}>
-              <Typography sx={{ fontSize: 11, color: C.n600 }}>{item.label}</Typography>
-              <Typography sx={{ fontSize: 11, fontWeight: 700, color: item.color }}>
-                {Math.round(item.value)}%
-              </Typography>
-            </Stack>
-            <Box
-              sx={{
-                height: 4,
-                borderRadius: 3,
-                bgcolor: alpha(item.color, 0.1),
-                overflow: "hidden",
-              }}
-            >
-              <Box
-                sx={{
-                  height: "100%",
-                  width: `${item.value}%`,
-                  bgcolor: item.color,
-                  borderRadius: 3,
-                  transition: "width 0.8s ease",
-                }}
-              />
-            </Box>
-          </Box>
-        ))}
-      </Stack>
-      {history && history.length > 0 && (
-        <>
-          <Typography
-            sx={{
-              fontSize: 10,
-              fontWeight: 700,
-              color: C.n400,
-              textTransform: "uppercase",
-              letterSpacing: 0.8,
-              mb: 1,
-            }}
-          >
-            Évolution (6 mois)
-          </Typography>
-          <Box sx={{ height: 72, mb: 2 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={history} margin={{ top: 4, right: 4, bottom: 0, left: -28 }}>
-                <defs>
-                  <linearGradient id="ag2" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={color} stopOpacity={0.25} />
-                    <stop offset="95%" stopColor={color} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="label" tick={{ fontSize: 8, fill: C.n400 }} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: 8, fill: C.n400 }} />
-                <ReTooltip
-                  contentStyle={{ fontSize: 11, borderRadius: 6 }}
-                  formatter={(v) => [`${Math.round(v)}%`, "Score"]}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="score"
-                  stroke={color}
-                  strokeWidth={2}
-                  fill="url(#ag2)"
-                  dot={{ r: 2.5, fill: color }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </Box>
-        </>
+      ) : (
+        <Alert severity="success" sx={{ borderRadius: 2, fontSize: 13 }}>Aucune alerte critique détectée.</Alert>
       )}
-      <Stack direction="row" spacing={1}>
-        <GhostBtn
-          fullWidth
-          size="small"
-          startIcon={<RateReview sx={{ fontSize: 14 }} />}
-          onClick={() => onFeedback(entry)}
-        >
-          Feedback
-        </GhostBtn>
-        <GhostBtn
-          fullWidth
-          size="small"
-          bcolor={C.blue}
-          startIcon={<Star sx={{ fontSize: 14 }} />}
-          onClick={() => onGoal(entry)}
-        >
-          Objectif
-        </GhostBtn>
-      </Stack>
-    </Box>
+    </AccentCard>
   );
 }
-CommercialDetailPanel.propTypes = {
-  entry: PropTypes.object,
-  kpi: PropTypes.object,
-  history: PropTypes.array,
-  onFeedback: PropTypes.func,
-  onGoal: PropTypes.func,
-};
-CommercialDetailPanel.defaultProps = {
-  entry: null,
-  kpi: null,
-  history: [],
-  onFeedback: () => {},
-  onGoal: () => {},
-};
+SmartAlerts.propTypes = { prospects: PropTypes.array, tasks: PropTypes.array, opportunities: PropTypes.array, members: PropTypes.array };
+SmartAlerts.defaultProps = { prospects: [], tasks: [], opportunities: [], members: [] };
 
-// PERFORMANCE TABLE
-function PerformanceTable({ leaderboard, selected, onSelect }) {
-  if (!leaderboard.length)
-    return (
-      <Alert severity="info" sx={{ borderRadius: 2, fontSize: 12 }}>
-        Aucune donnée KPI ce mois.
-      </Alert>
-    );
+function ManagerRecommendations({ prospects, tasks, opportunities, leaderboard }) {
+  const recs = [];
+  const top = leaderboard?.[0];
+  const low = leaderboard?.find((e) => Number(e.score || 0) < 60);
+  const hot = prospects.find((p) => getProspectScore(p) >= 85);
+  const replied = prospects.find((p) => ["replied", "reply_detected", "follow_up_required"].includes(p.engagement_status || p.status));
+  const riskyOpp = opportunities.find((o) => !["won", "lost"].includes(o.stage || o.status));
+
+  if (top) recs.push({ icon: "🏆", title: `${top.username} est le meilleur performer`, action: "Prévoir une reconnaissance ou un bonus", color: C.green });
+  if (low) recs.push({ icon: "🎯", title: `${low.username} a un score faible`, action: "Planifier un coaching individuel", color: C.red });
+  if (hot) recs.push({ icon: "🔥", title: `Prospect chaud : ${getProspectName(hot)}`, action: "Assigner une relance prioritaire", color: C.amber });
+  if (replied) recs.push({ icon: "💬", title: `Réponse à traiter : ${getProspectName(replied)}`, action: "Demander au commercial de répondre aujourd'hui", color: C.blue });
+  if (riskyOpp) recs.push({ icon: "📈", title: `Opportunité à suivre : ${riskyOpp.name || riskyOpp.title || "Opportunité"}`, action: "Vérifier la prochaine action commerciale", color: C.purple });
+
+  if (!recs.length) {
+    recs.push({ icon: "✅", title: "Situation stable", action: "Continuer le suivi hebdomadaire de l'équipe", color: C.green });
+  }
+
   return (
-    <TableContainer
-      component={Paper}
-      elevation={0}
-      sx={{ borderRadius: 14, border: `1px solid ${C.n200}`, overflow: "hidden" }}
-    >
+    <AccentCard accent={C.indigo}>
+      <SectionTitle icon={<Psychology sx={{ fontSize: 18 }} />} title="Recommandations Manager" subtitle="Actions intelligentes proposées" />
+      <Grid container spacing={1.5}>
+        {recs.slice(0, 6).map((r, index) => (
+          <Grid item xs={12} md={6} key={`${r.title}-${index}`}>
+            <Box sx={{ p: 1.6, borderRadius: 12, bgcolor: alpha(r.color, 0.06), border: `1px solid ${alpha(r.color, 0.14)}`, height: "100%" }}>
+              <Stack direction="row" spacing={1.2} alignItems="flex-start">
+                <Typography sx={{ fontSize: 24, lineHeight: 1 }}>{r.icon}</Typography>
+                <Box>
+                  <Typography sx={{ fontSize: 13, fontWeight: 800, color: C.n800 }}>{r.title}</Typography>
+                  <Typography sx={{ fontSize: 12, color: C.n600, mt: 0.5 }}>{r.action}</Typography>
+                </Box>
+              </Stack>
+            </Box>
+          </Grid>
+        ))}
+      </Grid>
+    </AccentCard>
+  );
+}
+ManagerRecommendations.propTypes = { prospects: PropTypes.array, tasks: PropTypes.array, opportunities: PropTypes.array, leaderboard: PropTypes.array };
+ManagerRecommendations.defaultProps = { prospects: [], tasks: [], opportunities: [], leaderboard: [] };
+
+function PerformanceTable({ leaderboard, selected, onSelect }) {
+  if (!leaderboard.length) {
+    return <Alert severity="info" sx={{ borderRadius: 2, fontSize: 12 }}>Aucune donnée KPI ce mois.</Alert>;
+  }
+
+  return (
+    <TableContainer component={Paper} elevation={0} sx={{ borderRadius: 14, border: `1px solid ${C.n200}`, overflow: "hidden" }}>
       <Table size="small">
         <TableHead>
           <TableRow sx={{ bgcolor: C.n50 }}>
-            {[
-              "#",
-              "Commercial",
-              "Score KPI",
-              "Tâches",
-              "Délais",
-              "Activités",
-              "Deals",
-              "Pénalité",
-            ].map((h) => (
-              <TableCell
-                key={h}
-                sx={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: C.n400,
-                  textTransform: "uppercase",
-                  letterSpacing: 0.6,
-                  borderBottom: `1px solid ${C.n200}`,
-                  py: 1.5,
-                }}
-              >
-                {h}
-              </TableCell>
+            {["#", "Commercial", "Score", "Tâches", "Activités", "Deals", "Pénalité"].map((h) => (
+              <TableCell key={h} sx={{ fontSize: 10, fontWeight: 800, color: C.n400, textTransform: "uppercase", py: 1.5 }}>{h}</TableCell>
             ))}
           </TableRow>
         </TableHead>
@@ -925,104 +671,40 @@ function PerformanceTable({ leaderboard, selected, onSelect }) {
           {leaderboard.map((entry) => {
             const isSel = selected?.user_id === entry.user_id;
             const color = scoreColor(entry.score);
-            const taskPct =
-              entry.tasks_total > 0 ? Math.round((entry.tasks_done / entry.tasks_total) * 100) : 0;
-            const timePct =
-              entry.tasks_done > 0
-                ? Math.round(((entry.tasks_on_time || 0) / entry.tasks_done) * 100)
-                : 0;
-            const rank =
-              entry.rank === 1 ? "🥇" : entry.rank === 2 ? "🥈" : entry.rank === 3 ? "🥉" : null;
+            const taskPct = entry.tasks_total > 0 ? Math.round((entry.tasks_done / entry.tasks_total) * 100) : 0;
+            const rank = entry.rank === 1 ? "🥇" : entry.rank === 2 ? "🥈" : entry.rank === 3 ? "🥉" : `#${entry.rank}`;
             return (
               <TableRow
                 key={entry.user_id}
                 onClick={() => onSelect(isSel ? null : entry)}
-                sx={{
-                  cursor: "pointer",
-                  bgcolor: isSel ? alpha(C.red, 0.03) : "white",
-                  borderLeft: isSel ? `3px solid ${C.red}` : "3px solid transparent",
-                  transition: "all .15s",
-                  "&:hover": { bgcolor: alpha(C.n100, 0.8) },
-                  "&:last-child td": { border: 0 },
-                }}
+                sx={{ cursor: "pointer", bgcolor: isSel ? alpha(C.red, 0.03) : "white", borderLeft: isSel ? `3px solid ${C.red}` : "3px solid transparent", "&:hover": { bgcolor: alpha(C.n100, 0.8) } }}
               >
-                <TableCell sx={{ py: 1.5 }}>
-                  {rank ? (
-                    <Typography sx={{ fontSize: 17 }}>{rank}</Typography>
-                  ) : (
-                    <Typography sx={{ fontSize: 12, fontWeight: 600, color: C.n400 }}>
-                      #{entry.rank}
-                    </Typography>
-                  )}
-                </TableCell>
+                <TableCell sx={{ py: 1.5, fontSize: 13, fontWeight: 800 }}>{rank}</TableCell>
                 <TableCell sx={{ py: 1.5 }}>
                   <Stack direction="row" alignItems="center" spacing={1.2}>
-                    <Avatar
-                      sx={{
-                        width: 28,
-                        height: 28,
-                        bgcolor: alpha(color, 0.15),
-                        color,
-                        fontWeight: 700,
-                        fontSize: 11,
-                      }}
-                    >
-                      {entry.username?.[0]?.toUpperCase()}
-                    </Avatar>
-                    <Typography sx={{ fontSize: 12, fontWeight: 700, color: C.n800 }}>
-                      {entry.username}
-                    </Typography>
+                    <Avatar sx={{ width: 30, height: 30, bgcolor: alpha(color, 0.15), color, fontWeight: 800, fontSize: 11 }}>{entry.username?.[0]?.toUpperCase()}</Avatar>
+                    <Typography sx={{ fontSize: 12, fontWeight: 800, color: C.n800 }}>{entry.username}</Typography>
                   </Stack>
                 </TableCell>
                 <TableCell sx={{ py: 1.5 }}>
-                  <Stack direction="row" alignItems="center" gap={0.8}>
-                    <Typography sx={{ fontSize: 17, fontWeight: 800, color, minWidth: 40 }}>
-                      {Math.round(entry.score)}%
-                    </Typography>
-                    {entry.score >= 85 ? (
-                      <TrendingUp sx={{ fontSize: 13, color: C.green }} />
-                    ) : entry.score < 60 ? (
-                      <TrendingDown sx={{ fontSize: 13, color: C.red }} />
-                    ) : null}
+                  <Stack direction="row" alignItems="center" spacing={0.5}>
+                    <Typography sx={{ fontSize: 17, fontWeight: 900, color }}>{Math.round(entry.score)}%</Typography>
+                    {entry.score >= 85 ? <TrendingUp sx={{ fontSize: 13, color: C.green }} /> : entry.score < 60 ? <TrendingDown sx={{ fontSize: 13, color: C.red }} /> : null}
                   </Stack>
                 </TableCell>
-                <TableCell sx={{ py: 1.5 }}>
-                  <MiniBar
-                    value={taskPct}
-                    color={C.blue}
-                    label={`${entry.tasks_done}/${entry.tasks_total}`}
-                  />
+                <TableCell sx={{ py: 1.5, minWidth: 100 }}>
+                  <Typography sx={{ fontSize: 10, color: C.n500, mb: 0.3 }}>{entry.tasks_done}/{entry.tasks_total}</Typography>
+                  <LinearProgress variant="determinate" value={taskPct} sx={{ height: 5, borderRadius: 2, bgcolor: C.n100, "& .MuiLinearProgress-bar": { bgcolor: C.blue, borderRadius: 2 } }} />
                 </TableCell>
                 <TableCell sx={{ py: 1.5 }}>
-                  <MiniBar
-                    value={timePct}
-                    color={timePct === 100 ? C.green : timePct >= 70 ? C.amber : C.red}
-                    label={`${timePct}%`}
-                  />
+                  <Stack direction="row" spacing={0.5}>
+                    {[{ icon: <Phone />, val: entry.calls || 0, color: C.blue }, { icon: <Email />, val: entry.emails || 0, color: C.purple }, { icon: <Groups />, val: entry.meetings || 0, color: C.teal }].map((it, i) => (
+                      <Chip key={i} size="small" icon={React.cloneElement(it.icon, { sx: { fontSize: 12 } })} label={it.val} sx={{ height: 22, fontSize: 10, bgcolor: alpha(it.color, 0.1), color: it.color, fontWeight: 800 }} />
+                    ))}
+                  </Stack>
                 </TableCell>
-                <TableCell sx={{ py: 1.5 }}>
-                  <ActivityPills
-                    calls={entry.calls || 0}
-                    emails={entry.emails || 0}
-                    meetings={entry.meetings || 0}
-                  />
-                </TableCell>
-                <TableCell sx={{ py: 1.5 }}>
-                  <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.teal }}>
-                    {entry.opportunities_won || 0}
-                  </Typography>
-                </TableCell>
-                <TableCell sx={{ py: 1.5 }}>
-                  <Typography
-                    sx={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      color: (entry.penalty_points || 0) < 0 ? C.red : C.green,
-                    }}
-                  >
-                    {entry.penalty_points || 0} pts
-                  </Typography>
-                </TableCell>
+                <TableCell sx={{ py: 1.5, fontSize: 13, fontWeight: 900, color: C.teal }}>{entry.opportunities_won || 0}</TableCell>
+                <TableCell sx={{ py: 1.5, fontSize: 11, fontWeight: 800, color: (entry.penalty_points || 0) < 0 ? C.red : C.green }}>{entry.penalty_points || 0} pts</TableCell>
               </TableRow>
             );
           })}
@@ -1031,637 +713,139 @@ function PerformanceTable({ leaderboard, selected, onSelect }) {
     </TableContainer>
   );
 }
-PerformanceTable.propTypes = {
-  leaderboard: PropTypes.array,
-  selected: PropTypes.object,
-  onSelect: PropTypes.func,
-};
+PerformanceTable.propTypes = { leaderboard: PropTypes.array, selected: PropTypes.object, onSelect: PropTypes.func };
 PerformanceTable.defaultProps = { leaderboard: [], selected: null, onSelect: () => {} };
 
-// GOAL MODAL
-function GoalModal({ open, onClose, members, preselected, onCreated }) {
-  const [form, setForm] = useState({ commercial: "", goal_type: "calls", target_value: "" });
-  const [loading, setLoading] = useState(false);
-  React.useEffect(() => {
-    if (preselected) setForm((f) => ({ ...f, commercial: preselected.user_id || "" }));
-  }, [preselected]);
-  const GOAL_TYPES = [
-    { value: "calls", label: "Appels effectués" },
-    { value: "emails", label: "Emails envoyés" },
-    { value: "meetings", label: "Meetings réalisés" },
-    { value: "opportunities_won", label: "Opportunités gagnées" },
-    { value: "tasks_done", label: "Tâches terminées" },
-  ];
-  const handleCreate = async () => {
-    if (!form.commercial || !form.target_value) return;
-    setLoading(true);
-    try {
-      const now = new Date();
-      await perfApi.post("/goals/", {
-        commercial: parseInt(form.commercial),
-        goal_type: form.goal_type,
-        target_value: parseInt(form.target_value),
-        year: now.getFullYear(),
-        month: now.getMonth() + 1,
-      });
-      onCreated?.();
-      setForm({ commercial: "", goal_type: "calls", target_value: "" });
-      onClose();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-  return (
-    <Dialog open={open} onClose={onClose} PaperProps={{ sx: { borderRadius: 4, minWidth: 400 } }}>
-      <DialogTitle sx={{ pb: 1 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center">
-          <Box>
-            <Typography sx={{ fontWeight: 800, fontSize: 16 }}>Créer un objectif</Typography>
-            <Typography sx={{ fontSize: 12, color: C.n400 }}>Mois en cours</Typography>
-          </Box>
-          <IconButton onClick={onClose} size="small">
-            <Close fontSize="small" />
-          </IconButton>
-        </Stack>
-      </DialogTitle>
-      <DialogContent sx={{ pt: 1 }}>
-        <Stack spacing={2} mt={0.5}>
-          <FormControl fullWidth size="small">
-            <InputLabel>Commercial ciblé</InputLabel>
-            <Select
-              value={form.commercial}
-              label="Commercial ciblé"
-              sx={{ borderRadius: 2 }}
-              onChange={(e) => setForm({ ...form, commercial: e.target.value })}
-            >
-              {members
-                .filter((m) => m.role === "COMMERCIAL")
-                .map((m) => (
-                  <MenuItem key={m.id} value={m.id}>
-                    <Stack direction="row" alignItems="center" spacing={1}>
-                      <Avatar
-                        sx={{
-                          width: 22,
-                          height: 22,
-                          fontSize: 10,
-                          bgcolor: alpha(C.blue, 0.15),
-                          color: C.blue,
-                        }}
-                      >
-                        {m.username?.[0]?.toUpperCase()}
-                      </Avatar>
-                      <span>{m.username}</span>
-                    </Stack>
-                  </MenuItem>
-                ))}
-            </Select>
-          </FormControl>
-          <FormControl fullWidth size="small">
-            <InputLabel>Type d&apos;objectif</InputLabel>
-            <Select
-              value={form.goal_type}
-              label="Type d'objectif"
-              sx={{ borderRadius: 2 }}
-              onChange={(e) => setForm({ ...form, goal_type: e.target.value })}
-            >
-              {GOAL_TYPES.map((g) => (
-                <MenuItem key={g.value} value={g.value}>
-                  {g.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <TextField
-            size="small"
-            label="Valeur cible"
-            type="number"
-            fullWidth
-            value={form.target_value}
-            inputProps={{ min: 1 }}
-            onChange={(e) => setForm({ ...form, target_value: e.target.value })}
-            sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
-            helperText="Ex: 50 appels, 10 deals..."
-          />
-        </Stack>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
-        <GhostBtn onClick={onClose}>Annuler</GhostBtn>
-        <PrimaryBtn
-          disabled={!form.commercial || !form.target_value || loading}
-          onClick={handleCreate}
-          startIcon={<Add sx={{ fontSize: 16 }} />}
-        >
-          Créer l&apos;objectif
-        </PrimaryBtn>
-      </DialogActions>
-    </Dialog>
-  );
-}
-GoalModal.propTypes = {
-  open: PropTypes.bool,
-  onClose: PropTypes.func,
-  members: PropTypes.array,
-  preselected: PropTypes.object,
-  onCreated: PropTypes.func,
-};
-GoalModal.defaultProps = {
-  open: false,
-  onClose: () => {},
-  members: [],
-  preselected: null,
-  onCreated: () => {},
-};
-
-// TEAM PERFORMANCE TAB
-function TeamPerformanceTab({ members }) {
+function TeamPerformanceTab({ members, prospects, tasks, opportunities }) {
   const { data: teamData, loading } = useTeamKPI();
   const { data: alertsData } = useAlerts();
   const { data: leaderboard } = useLeaderboard();
-  const { data: goals, refetch: refetchGoals } = useCommercialGoals();
   const [selected, setSelected] = useState(null);
-  const [selectedKpi, setSelectedKpi] = useState(null);
-  const [selectedHistory, setSelectedHistory] = useState([]);
-  const [goalModal, setGoalModal] = useState(false);
-  const [goalPresel, setGoalPresel] = useState(null);
-  const [showAlerts, setShowAlerts] = useState(true);
-  const [subTab, setSubTab] = useState(0);
   const leaderboardList = leaderboard?.leaderboard || [];
-
-  const fetchFullKpi = useCallback(async (userId) => {
-    try {
-      const res = await perfApi.get(`/kpi/${userId}/`);
-      setSelectedKpi(res.data);
-    } catch {
-      setSelectedKpi(null);
-    }
-  }, []);
-  const fetchHistory = useCallback(async (userId) => {
-    try {
-      const res = await perfApi.get(`/kpi/history/${userId}/?months=6`);
-      setSelectedHistory(res.data);
-    } catch {
-      setSelectedHistory([]);
-    }
-  }, []);
-  const handleSelect = (entry) => {
-    setSelected(entry);
-    setSelectedKpi(null);
-    if (entry) {
-      fetchFullKpi(entry.user_id);
-      fetchHistory(entry.user_id);
-    } else setSelectedHistory([]);
-  };
-
-  const allAlerts = alertsData
+  const avgScore = teamData?.avg_score || (leaderboardList.length ? Math.round(leaderboardList.reduce((s, e) => s + Number(e.score || 0), 0) / leaderboardList.length) : 0);
+  const externalAlerts = alertsData
     ? [
-        ...(alertsData.overdue_tasks || []).map((t) => ({
-          type: "error",
-          title: `En retard : "${t.title}"`,
-          sub: `${t.commercial} · ${new Date(t.due_date).toLocaleDateString("fr-FR")}`,
-        })),
-        ...(alertsData.inactive_users || []).map((u) => ({
-          type: "warning",
-          title: `${u.username} inactif depuis 3 jours`,
-          sub: "Aucune activité détectée",
-        })),
-        ...(alertsData.low_score_users || []).map((u) => ({
-          type: "warning",
-          title: `Score faible : ${u.username} — ${Math.round(u.score)}%`,
-          sub: `Pénalité : ${u.penalty} pts`,
-        })),
-        ...(alertsData.upcoming_tasks || []).map((t) => ({
-          type: "info",
-          title: `Deadline 24h : "${t.title}"`,
-          sub: t.commercial,
-        })),
+        ...(alertsData.overdue_tasks || []).map((t) => ({ type: "error", title: `En retard : ${t.title}`, sub: `${t.commercial} · ${new Date(t.due_date).toLocaleDateString("fr-FR")}` })),
+        ...(alertsData.inactive_users || []).map((u) => ({ type: "warning", title: `${u.username} inactif`, sub: "Aucune activité détectée" })),
+        ...(alertsData.low_score_users || []).map((u) => ({ type: "warning", title: `Score faible : ${u.username}`, sub: `${Math.round(u.score)}%` })),
       ]
     : [];
 
   if (loading) return <PerfSkeleton rows={6} />;
-  const avgScore = teamData?.avg_score || 0;
 
   return (
     <Box sx={{ animation: `${fadeUp} 0.2s ease` }}>
       <Grid container spacing={2} mb={3}>
-        {[
-          {
-            label: "Score moyen",
-            value: `${Math.round(avgScore)}%`,
-            color: scoreColor(avgScore),
-            icon: <BarChartIcon />,
-          },
-          {
-            label: "Commerciaux",
-            value: teamData?.team_count || leaderboardList.length,
-            color: C.blue,
-            icon: <People />,
-          },
-          {
-            label: "En difficulté",
-            value: (teamData?.in_difficulty || []).length,
-            color: C.red,
-            icon: <Warning />,
-          },
-          {
-            label: "Alertes",
-            value: allAlerts.length,
-            color: allAlerts.length > 0 ? C.amber : C.green,
-            icon: <Timeline />,
-          },
-        ].map((s) => (
-          <Grid item xs={6} sm={3} key={s.label}>
-            <KpiTile color={s.color}>
-              <Box
-                sx={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 10,
-                  bgcolor: alpha(s.color, 0.1),
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                {React.cloneElement(s.icon, { sx: { fontSize: 18, color: s.color } })}
-              </Box>
-              <Box>
-                <Typography
-                  sx={{
-                    fontSize: 10,
-                    color: C.n400,
-                    textTransform: "uppercase",
-                    letterSpacing: 0.6,
-                    fontWeight: 700,
-                  }}
-                >
-                  {s.label}
-                </Typography>
-                <Typography sx={{ fontSize: 20, fontWeight: 900, color: s.color, lineHeight: 1.1 }}>
-                  {s.value}
-                </Typography>
-              </Box>
-            </KpiTile>
-          </Grid>
-        ))}
+        <Grid item xs={6} sm={3}><KpiTile color={scoreColor(avgScore)}><ScoreRing score={avgScore} size={48} /><Box><Typography sx={{ fontSize: 10, color: C.n400, fontWeight: 800 }}>Score moyen</Typography><Typography sx={{ fontSize: 20, fontWeight: 900, color: scoreColor(avgScore) }}>{Math.round(avgScore)}%</Typography></Box></KpiTile></Grid>
+        <Grid item xs={6} sm={3}><KpiTile color={C.blue}><People sx={{ color: C.blue }} /><Box><Typography sx={{ fontSize: 10, color: C.n400, fontWeight: 800 }}>Commerciaux</Typography><Typography sx={{ fontSize: 20, fontWeight: 900, color: C.blue }}>{teamData?.team_count || members.length}</Typography></Box></KpiTile></Grid>
+        <Grid item xs={6} sm={3}><KpiTile color={C.red}><Warning sx={{ color: C.red }} /><Box><Typography sx={{ fontSize: 10, color: C.n400, fontWeight: 800 }}>En difficulté</Typography><Typography sx={{ fontSize: 20, fontWeight: 900, color: C.red }}>{(teamData?.in_difficulty || []).length || leaderboardList.filter((e) => e.score < 60).length}</Typography></Box></KpiTile></Grid>
+        <Grid item xs={6} sm={3}><KpiTile color={C.amber}><Timeline sx={{ color: C.amber }} /><Box><Typography sx={{ fontSize: 10, color: C.n400, fontWeight: 800 }}>Alertes KPI</Typography><Typography sx={{ fontSize: 20, fontWeight: 900, color: C.amber }}>{externalAlerts.length}</Typography></Box></KpiTile></Grid>
       </Grid>
 
-      {allAlerts.length > 0 && (
-        <Box sx={{ mb: 3 }}>
-          <Stack
-            direction="row"
-            alignItems="center"
-            justifyContent="space-between"
-            onClick={() => setShowAlerts(!showAlerts)}
-            sx={{ cursor: "pointer", mb: 1 }}
-          >
-            <Typography
-              sx={{
-                fontSize: 12,
-                fontWeight: 700,
-                color: C.n600,
-                textTransform: "uppercase",
-                letterSpacing: 0.6,
-              }}
-            >
-              🚨 Alertes ({allAlerts.length})
-            </Typography>
-            {showAlerts ? (
-              <ExpandLess sx={{ fontSize: 16, color: C.n400 }} />
-            ) : (
-              <ExpandMore sx={{ fontSize: 16, color: C.n400 }} />
-            )}
-          </Stack>
-          <Collapse in={showAlerts}>
-            <Grid container spacing={1}>
-              {allAlerts.slice(0, 6).map((a, i) => (
-                <Grid item xs={12} sm={6} key={i}>
-                  <AlertRow {...a} />
-                </Grid>
-              ))}
-            </Grid>
-          </Collapse>
+      {externalAlerts.length > 0 && (
+        <Box mb={3}>
+          <Grid container spacing={1}>
+            {externalAlerts.slice(0, 4).map((a, i) => <Grid item xs={12} sm={6} key={i}><AlertRow {...a} /></Grid>)}
+          </Grid>
         </Box>
       )}
 
-      <Stack
-        direction="row"
-        spacing={1}
-        mb={2.5}
-        sx={{
-          bgcolor: "#fff",
-          p: 0.8,
-          borderRadius: 12,
-          border: `1px solid ${C.n200}`,
-          width: "fit-content",
-        }}
-      >
-        {[
-          { label: "Classement & KPIs", icon: <BarChartIcon sx={{ fontSize: 14 }} /> },
-          { label: "Feedbacks équipe", icon: <RateReview sx={{ fontSize: 14 }} /> },
-        ].map((tab, i) => (
-          <TabPill key={i} active={subTab === i ? 1 : 0} onClick={() => setSubTab(i)}>
-            {React.cloneElement(tab.icon, {
-              sx: { fontSize: 14, color: subTab === i ? C.red : C.n400 },
-            })}
-            <span className="lbl">{tab.label}</span>
-          </TabPill>
-        ))}
-      </Stack>
-
-      {subTab === 0 && (
-        <Box sx={{ display: "flex", gap: 2.5, alignItems: "flex-start" }}>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}>
-              <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.n800 }}>
-                🏆 Classement —{" "}
-                {new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}
-              </Typography>
-              <PrimaryBtn
-                size="small"
-                startIcon={<Add sx={{ fontSize: 14 }} />}
-                onClick={() => {
-                  setGoalPresel(null);
-                  setGoalModal(true);
-                }}
-              >
-                Objectif
-              </PrimaryBtn>
-            </Stack>
-            <PerformanceTable
-              leaderboard={leaderboardList}
-              selected={selected}
-              onSelect={handleSelect}
-            />
-            {goals.length > 0 && (
-              <Box sx={{ mt: 3 }}>
-                <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.n800, mb: 1.5 }}>
-                  🎯 Objectifs équipe
-                </Typography>
-                <Grid container spacing={1.5}>
-                  {goals.slice(0, 6).map((g) => (
-                    <Grid item xs={12} sm={6} key={g.id}>
-                      <Box
-                        sx={{
-                          p: 1.5,
-                          bgcolor: "#fff",
-                          borderRadius: 10,
-                          border: `1px solid ${C.n200}`,
-                        }}
-                      >
-                        <Typography sx={{ fontSize: 11, color: C.n400, mb: 0.5 }}>
-                          {g.commercial_username}
-                        </Typography>
-                        <GoalRow goal={g} />
-                      </Box>
-                    </Grid>
-                  ))}
-                </Grid>
-              </Box>
-            )}
-          </Box>
-          <Box
-            sx={{
-              width: 290,
-              flexShrink: 0,
-              bgcolor: "#fff",
-              borderRadius: 16,
-              border: `1px solid ${C.n200}`,
-              boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-              minHeight: 480,
-              position: "sticky",
-              top: 20,
-            }}
-          >
-            <CommercialDetailPanel
-              entry={selected}
-              kpi={selectedKpi}
-              history={selectedHistory}
-              onFeedback={(e) => {
-                setSelected(e);
-                setSubTab(1);
-              }}
-              onGoal={(e) => {
-                setGoalPresel(e);
-                setGoalModal(true);
-              }}
-            />
-          </Box>
-        </Box>
-      )}
-
-      {subTab === 1 && (
-        <AccentCard accent={C.purple}>
-          <FeedbackSection members={members} />
-        </AccentCard>
-      )}
-      <GoalModal
-        open={goalModal}
-        onClose={() => setGoalModal(false)}
-        members={members}
-        preselected={goalPresel}
-        onCreated={refetchGoals}
-      />
+      <Grid container spacing={2.5}>
+        <Grid item xs={12} lg={8}>
+          <AccentCard accent={C.red}>
+            <SectionTitle icon={<EmojiEvents sx={{ fontSize: 18 }} />} title="Classement commerciaux" subtitle="Performance de l'équipe ce mois" />
+            <PerformanceTable leaderboard={leaderboardList} selected={selected} onSelect={setSelected} />
+          </AccentCard>
+        </Grid>
+        <Grid item xs={12} lg={4}>
+          <ManagerRecommendations prospects={prospects} tasks={tasks} opportunities={opportunities} leaderboard={leaderboardList} />
+        </Grid>
+      </Grid>
     </Box>
   );
 }
-TeamPerformanceTab.propTypes = { members: PropTypes.array };
-TeamPerformanceTab.defaultProps = { members: [] };
+TeamPerformanceTab.propTypes = { members: PropTypes.array, prospects: PropTypes.array, tasks: PropTypes.array, opportunities: PropTypes.array };
+TeamPerformanceTab.defaultProps = { members: [], prospects: [], tasks: [], opportunities: [] };
 
-// MAIN
-export default function ManagerDashboard({ data }) {
+export default function ManagerDashboard({ data, onRefresh }) {
   const remote = useOfficialDashboardData("MANAGER", data);
   const [activeTab, setActiveTab] = useState(0);
   useTrackActivity("dashboard");
+
   const effectiveData = data || remote.data || {};
+  const effectiveRefresh = onRefresh || remote.refresh;
   const prospects = toList(effectiveData?.prospects);
   const tasks = toList(effectiveData?.tasks);
   const opportunities = toList(effectiveData?.opportunities);
-  const members = toList(effectiveData?.members);
+  const members = toList(effectiveData?.members || effectiveData?.users);
   const user = JSON.parse(localStorage.getItem("user") || "{}");
-
   const standaloneBlocked = !data && (remote.loading || remote.error);
-  const overdueTasks = tasks.filter(
-    (t) =>
-      t.status !== "done" &&
-      t.status !== "cancelled" &&
-      t.due_date &&
-      new Date(t.due_date) < new Date()
-  );
-  const activeTasks = tasks.filter((t) => t.status === "in_progress");
-  const wonOpps = opportunities.filter((o) => o.stage === "won");
-  const pipeline = opportunities.reduce((s, o) => s + parseFloat(o.amount || 0), 0);
-  const statusColor = { todo: C.n400, in_progress: C.blue, done: C.green, cancelled: C.red };
-  const statusLabel = {
-    todo: "À faire",
-    in_progress: "En cours",
-    done: "Terminé",
-    cancelled: "Annulé",
-  };
+
+  const overdueTasks = tasks.filter(isOverdue);
+  const activeTasks = tasks.filter((t) => t.status === "in_progress" || t.status === "todo");
+  const wonOpps = opportunities.filter((o) => (o.stage || o.status) === "won");
+  const pipeline = opportunities.reduce((s, o) => s + Number(o.amount || 0), 0);
+  const hotProspects = prospects.filter((p) => getProspectScore(p) >= 80);
+  const replies = prospects.filter((p) => ["replied", "reply_detected", "follow_up_required"].includes(p.engagement_status || p.status));
+
   const barData = members.map((m) => ({
     name: m.username,
-    Prospects: prospects.filter((p) => p.assigned_to === m.id).length,
-    Tâches: tasks.filter((t) => t.assigned_to === m.id && t.status === "done").length,
+    Prospects: prospects.filter((p) => p.assigned_to === m.id || p.owner === m.id).length,
+    Taches: tasks.filter((t) => t.assigned_to === m.id && t.status === "done").length,
   }));
-  const teamTasks = tasks
-    .filter((t) => t.status !== "done" && t.status !== "cancelled")
-    .sort((a, b) => new Date(a.due_date || "9999") - new Date(b.due_date || "9999"))
-    .slice(0, 6);
+
+  const monthlyData = useMemo(() => {
+    return Array.from({ length: 6 }, (_, i) => {
+      const d = new Date();
+      d.setMonth(d.getMonth() - 5 + i);
+      const month = d.getMonth();
+      const year = d.getFullYear();
+      const label = d.toLocaleDateString("fr-FR", { month: "short" });
+      return {
+        month: label,
+        Prospects: prospects.filter((p) => {
+          const c = safeDate(p.created_at);
+          return c && c.getMonth() === month && c.getFullYear() === year;
+        }).length,
+        Opportunites: opportunities.filter((o) => {
+          const c = safeDate(o.created_at);
+          return c && c.getMonth() === month && c.getFullYear() === year;
+        }).length,
+      };
+    });
+  }, [prospects, opportunities]);
+
   const tabs = [
-    { label: "Mon équipe CRM", icon: <People sx={{ fontSize: 15 }} /> },
+    { label: "Vue Manager", icon: <People sx={{ fontSize: 15 }} /> },
     { label: "Performance & KPIs", icon: <EmojiEvents sx={{ fontSize: 15 }} /> },
   ];
 
   const body = (
     <Box sx={{ animation: `${fadeUp} 0.2s ease` }}>
-      <Box
-        sx={{
-          borderRadius: 20,
-          p: 3,
-          mb: 3,
-          position: "relative",
-          overflow: "hidden",
-          background: C.grad,
-          boxShadow: `0 8px 28px ${alpha(C.red, 0.28)}`,
-        }}
-      >
-        <Box
-          sx={{
-            position: "absolute",
-            top: -50,
-            right: -50,
-            width: 180,
-            height: 180,
-            borderRadius: "50%",
-            bgcolor: "rgba(255,255,255,0.06)",
-          }}
-        />
-        <Box
-          sx={{
-            position: "absolute",
-            bottom: -30,
-            left: "35%",
-            width: 100,
-            height: 100,
-            borderRadius: "50%",
-            bgcolor: "rgba(255,255,255,0.04)",
-          }}
-        />
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          flexWrap="wrap"
-          gap={2}
-          sx={{ position: "relative", zIndex: 1 }}
-        >
+      <Box sx={{ borderRadius: 20, p: 3, mb: 3, position: "relative", overflow: "hidden", background: C.grad, boxShadow: `0 8px 28px ${alpha(C.red, 0.28)}` }}>
+        <Box sx={{ position: "absolute", top: -50, right: -50, width: 180, height: 180, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.06)" }} />
+        <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2} sx={{ position: "relative", zIndex: 1 }}>
           <Stack direction="row" alignItems="center" spacing={2}>
-            <Avatar
-              sx={{
-                width: 52,
-                height: 52,
-                bgcolor: "rgba(255,255,255,0.2)",
-                fontSize: 22,
-                fontWeight: 900,
-              }}
-            >
-              {user.username?.[0]?.toUpperCase()}
-            </Avatar>
+            <Avatar sx={{ width: 54, height: 54, bgcolor: "rgba(255,255,255,0.2)", fontSize: 22, fontWeight: 900 }}>{user.username?.[0]?.toUpperCase() || "M"}</Avatar>
             <Box>
-              <Typography
-                sx={{
-                  fontSize: 11,
-                  color: "rgba(255,255,255,0.65)",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: 1,
-                  mb: 0.2,
-                }}
-              >
-                Tableau de bord Manager
-              </Typography>
-              <Typography sx={{ fontSize: 20, fontWeight: 900, color: "#fff" }}>
-                Bonjour, {user.username} 👋
-              </Typography>
+              <Typography sx={{ fontSize: 11, color: "rgba(255,255,255,0.65)", fontWeight: 800, textTransform: "uppercase", letterSpacing: 1 }}>Tableau de bord Manager IA</Typography>
+              <Typography sx={{ fontSize: 22, fontWeight: 900, color: "#fff" }}>Bonjour, {user.username || "Manager"} 👋</Typography>
+              <Typography sx={{ fontSize: 12, color: "rgba(255,255,255,0.70)" }}>Pilotage équipe, agents IA, pipeline et géographie commerciale</Typography>
             </Box>
           </Stack>
-          <Stack direction="row" spacing={1}>
-            {overdueTasks.length > 0 && (
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 0.8,
-                  bgcolor: "rgba(255,255,255,0.15)",
-                  border: "1px solid rgba(255,255,255,0.25)",
-                  borderRadius: 20,
-                  px: 1.5,
-                  py: 0.6,
-                }}
-              >
-                <Warning sx={{ fontSize: 14, color: "#fcd34d" }} />
-                <Typography sx={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>
-                  {overdueTasks.length} en retard
-                </Typography>
-              </Box>
-            )}
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 0.8,
-                bgcolor: "rgba(255,255,255,0.12)",
-                border: "1px solid rgba(255,255,255,0.2)",
-                borderRadius: 20,
-                px: 1.5,
-                py: 0.6,
-              }}
-            >
-              <People sx={{ fontSize: 14, color: "#fff" }} />
-              <Typography sx={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>
-                {members.length} membres
-              </Typography>
-            </Box>
-            {/* Feedback superadmin */}
-            <Box
-              sx={{
-                "& .MuiButton-root": {
-                  borderColor: "rgba(255,255,255,0.55)",
-                  color: "#fff",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  borderRadius: 20,
-                  textTransform: "none",
-                  px: 1.8,
-                  py: 0.5,
-                  "&:hover": { borderColor: "#fff", bgcolor: "rgba(255,255,255,0.15)" },
-                },
-              }}
-            >
-              <FeedbackButton />
-            </Box>
+          <Stack direction="row" spacing={1} flexWrap="wrap" gap={1}>
+            {overdueTasks.length > 0 && <Chip icon={<Warning sx={{ color: "#fcd34d !important" }} />} label={`${overdueTasks.length} en retard`} sx={{ color: "#fff", fontWeight: 800, bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.25)" }} />}
+            <Chip icon={<People sx={{ color: "#fff !important" }} />} label={`${members.length} membres`} sx={{ color: "#fff", fontWeight: 800, bgcolor: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)" }} />
+            <Box onClick={effectiveRefresh} sx={{ display: "flex", alignItems: "center", gap: 0.8, color: "#fff", fontWeight: 800, fontSize: 12, bgcolor: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 20, px: 1.6, py: 0.7, cursor: "pointer" }}><Refresh sx={{ fontSize: 15 }} />Actualiser</Box>
+            <Box sx={{ "& .MuiButton-root": { borderColor: "rgba(255,255,255,.55)", color: "#fff", fontSize: 12, fontWeight: 700, borderRadius: 20, textTransform: "none" } }}><FeedbackButton /></Box>
           </Stack>
         </Stack>
       </Box>
 
-      <Stack
-        direction="row"
-        spacing={1}
-        mb={3}
-        sx={{
-          bgcolor: "#fff",
-          p: 1,
-          borderRadius: 14,
-          border: `1px solid ${C.n200}`,
-          width: "fit-content",
-        }}
-      >
+      <Stack direction="row" spacing={1} mb={3} sx={{ bgcolor: "#fff", p: 1, borderRadius: 14, border: `1px solid ${C.n200}`, width: "fit-content" }}>
         {tabs.map((tab, i) => (
-          <TabPill key={i} active={activeTab === i ? 1 : 0} onClick={() => setActiveTab(i)}>
-            {React.cloneElement(tab.icon, {
-              sx: { fontSize: 15, color: activeTab === i ? C.red : C.n400 },
-            })}
+          <TabPill key={tab.label} active={activeTab === i ? 1 : 0} onClick={() => setActiveTab(i)}>
+            {React.cloneElement(tab.icon, { sx: { fontSize: 15, color: activeTab === i ? C.red : C.n400 } })}
             <span className="lbl">{tab.label}</span>
           </TabPill>
         ))}
@@ -1670,245 +854,115 @@ export default function ManagerDashboard({ data }) {
       {activeTab === 0 && (
         <Box sx={{ animation: `${fadeUp} 0.2s ease` }}>
           <Grid container spacing={2.5} mb={3}>
-            {[
-              {
-                label: "Membres équipe",
-                value: members.length,
-                color: C.blue,
-                icon: <People />,
-                sub: null,
-              },
-              {
-                label: "Prospects équipe",
-                value: prospects.length,
-                color: C.purple,
-                icon: <PersonAdd />,
-                sub: `${prospects.filter((p) => p.status === "new").length} nouveaux`,
-              },
-              {
-                label: "Tâches actives",
-                value: activeTasks.length,
-                color: C.amber,
-                icon: <CheckCircle />,
-                sub: `${overdueTasks.length} en retard`,
-              },
-              {
-                label: "Pipeline équipe",
-                value: `${(pipeline / 1000).toFixed(1)}k TND`,
-                color: C.green,
-                icon: <AttachMoney />,
-                sub: `${wonOpps.length} gagnées`,
-              },
-            ].map((s) => (
-              <Grid item xs={12} sm={6} md={3} key={s.label}>
-                <AccentCard accent={s.color}>
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Box>
-                      <Typography
-                        sx={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          color: C.n400,
-                          textTransform: "uppercase",
-                          letterSpacing: 0.8,
-                          mb: 0.5,
-                        }}
-                      >
-                        {s.label}
-                      </Typography>
-                      <Typography sx={{ fontSize: 26, fontWeight: 900, color: C.n800 }}>
-                        {s.value}
-                      </Typography>
-                      {s.sub && (
-                        <Typography sx={{ fontSize: 11, color: C.n400 }}>{s.sub}</Typography>
-                      )}
-                    </Box>
-                    <Box
-                      sx={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 12,
-                        bgcolor: alpha(s.color, 0.1),
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      {React.cloneElement(s.icon, { sx: { color: s.color, fontSize: 22 } })}
-                    </Box>
-                  </Stack>
-                </AccentCard>
-              </Grid>
-            ))}
+            <Grid item xs={12} sm={6} md={3}><KpiTile color={C.blue}><People sx={{ color: C.blue }} /><Box><Typography sx={{ fontSize: 10, color: C.n400, fontWeight: 800 }}>Membres équipe</Typography><Typography sx={{ fontSize: 24, fontWeight: 900, color: C.blue }}>{members.length}</Typography></Box></KpiTile></Grid>
+            <Grid item xs={12} sm={6} md={3}><KpiTile color={C.purple}><PersonAdd sx={{ color: C.purple }} /><Box><Typography sx={{ fontSize: 10, color: C.n400, fontWeight: 800 }}>Prospects équipe</Typography><Typography sx={{ fontSize: 24, fontWeight: 900, color: C.purple }}>{prospects.length}</Typography><Typography sx={{ fontSize: 11, color: C.n500 }}>{hotProspects.length} chauds</Typography></Box></KpiTile></Grid>
+            <Grid item xs={12} sm={6} md={3}><KpiTile color={C.amber}><CheckCircle sx={{ color: C.amber }} /><Box><Typography sx={{ fontSize: 10, color: C.n400, fontWeight: 800 }}>Tâches actives</Typography><Typography sx={{ fontSize: 24, fontWeight: 900, color: C.amber }}>{activeTasks.length}</Typography><Typography sx={{ fontSize: 11, color: C.n500 }}>{overdueTasks.length} en retard</Typography></Box></KpiTile></Grid>
+            <Grid item xs={12} sm={6} md={3}><KpiTile color={C.green}><AttachMoney sx={{ color: C.green }} /><Box><Typography sx={{ fontSize: 10, color: C.n400, fontWeight: 800 }}>Pipeline équipe</Typography><Typography sx={{ fontSize: 24, fontWeight: 900, color: C.green }}>{fmtTND(pipeline)}</Typography><Typography sx={{ fontSize: 11, color: C.n500 }}>{wonOpps.length} gagnées</Typography></Box></KpiTile></Grid>
           </Grid>
+
           <Grid container spacing={2.5} mb={2.5}>
-            <Grid item xs={12} md={7}>
-              <AccentCard accent={C.blue}>
-                <Stack direction="row" alignItems="center" spacing={1} mb={2}>
-                  <TrendingUp sx={{ color: C.blue, fontSize: 18 }} />
-                  <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.n800 }}>
-                    Performance équipe
-                  </Typography>
+            <Grid item xs={12} lg={8}><AiCenter prospects={prospects} tasks={tasks} opportunities={opportunities} /></Grid>
+            <Grid item xs={12} lg={4}>
+              <AccentCard accent={C.rose}>
+                <SectionTitle icon={<Bolt sx={{ fontSize: 18 }} />} title="Actions immédiates" subtitle="Priorités du jour" />
+                <Stack spacing={1.2}>
+                  <MiniKpi label="Prospects chauds" value={hotProspects.length} icon={<AutoAwesome fontSize="small" />} color={C.amber} />
+                  <MiniKpi label="Réponses à traiter" value={replies.length} icon={<MarkEmailRead fontSize="small" />} color={C.blue} />
+                  <MiniKpi label="Tâches en retard" value={overdueTasks.length} icon={<Warning fontSize="small" />} color={C.red} />
                 </Stack>
-                {barData.length === 0 ? (
-                  <Typography sx={{ fontSize: 13, color: C.n400 }}>Aucune donnée</Typography>
-                ) : (
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={barData} barSize={18}>
+              </AccentCard>
+            </Grid>
+          </Grid>
+
+          <Grid container spacing={2.5} mb={2.5}>
+            <Grid item xs={12} lg={7}>
+              <AccentCard accent={C.blue}>
+                <SectionTitle icon={<BarChartIcon sx={{ fontSize: 18 }} />} title="Performance équipe" subtitle="Prospects et tâches terminées par commercial" />
+                {barData.length ? (
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart data={barData} barSize={20}>
                       <CartesianGrid strokeDasharray="3 3" stroke={C.n200} />
                       <XAxis dataKey="name" tick={{ fontSize: 11, fill: C.n400 }} />
                       <YAxis tick={{ fontSize: 11, fill: C.n400 }} allowDecimals={false} />
                       <ReTooltip />
                       <Bar dataKey="Prospects" fill={C.blue} radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Tâches" fill={C.green} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Taches" fill={C.green} radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
-                )}
+                ) : <Typography sx={{ fontSize: 13, color: C.n400 }}>Aucune donnée.</Typography>}
               </AccentCard>
             </Grid>
-            <Grid item xs={12} md={5}>
-              <AccentCard accent={C.purple}>
-                <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.n800, mb: 2 }}>
-                  Membres de l&apos;équipe
-                </Typography>
-                <Stack spacing={1.2}>
-                  {members.map((m, i) => {
-                    const mt = tasks.filter((t) => t.assigned_to === m.id);
-                    const md = mt.filter((t) => t.status === "done");
-                    const pct = mt.length > 0 ? Math.round((md.length / mt.length) * 100) : 0;
-                    return (
-                      <Box key={m.id}>
-                        <Stack
-                          direction="row"
-                          alignItems="center"
-                          justifyContent="space-between"
-                          mb={0.5}
-                        >
-                          <Stack direction="row" alignItems="center" spacing={1}>
-                            <Avatar
-                              sx={{
-                                width: 28,
-                                height: 28,
-                                bgcolor: alpha(C.blue, 0.12),
-                                fontSize: 11,
-                              }}
-                            >
-                              {m.username?.[0]?.toUpperCase()}
-                            </Avatar>
-                            <Box>
-                              <Typography sx={{ fontSize: 12, fontWeight: 600 }}>
-                                {m.username}
-                              </Typography>
-                              <Typography sx={{ fontSize: 10, color: C.n400 }}>{m.role}</Typography>
-                            </Box>
-                          </Stack>
-                          <Chip
-                            size="small"
-                            label={`${md.length}/${mt.length}`}
-                            sx={{
-                              fontSize: 10,
-                              bgcolor: alpha(C.green, 0.1),
-                              color: C.green,
-                              fontWeight: 700,
-                            }}
-                          />
-                        </Stack>
-                        {mt.length > 0 && (
-                          <LinearProgress
-                            variant="determinate"
-                            value={pct}
-                            sx={{
-                              height: 3,
-                              borderRadius: 2,
-                              bgcolor: C.n100,
-                              "& .MuiLinearProgress-bar": { bgcolor: C.green },
-                            }}
-                          />
-                        )}
-                        {i < members.length - 1 && <Divider sx={{ mt: 1.2 }} />}
-                      </Box>
-                    );
-                  })}
-                </Stack>
+            <Grid item xs={12} lg={5}>
+              <AccentCard accent={C.teal}>
+                <SectionTitle icon={<Timeline sx={{ fontSize: 18 }} />} title="Évolution mensuelle" subtitle="Prospects et opportunités" />
+                <ResponsiveContainer width="100%" height={240}>
+                  <AreaChart data={monthlyData} margin={{ top: 5, right: 5, bottom: 0, left: -20 }}>
+                    <defs>
+                      <linearGradient id="gProspects" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={C.blue} stopOpacity={0.25} /><stop offset="95%" stopColor={C.blue} stopOpacity={0} /></linearGradient>
+                      <linearGradient id="gOpps" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={C.green} stopOpacity={0.25} /><stop offset="95%" stopColor={C.green} stopOpacity={0} /></linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.n200} vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: C.n400 }} />
+                    <YAxis tick={{ fontSize: 11, fill: C.n400 }} allowDecimals={false} />
+                    <ReTooltip />
+                    <Area type="monotone" dataKey="Prospects" stroke={C.blue} fill="url(#gProspects)" strokeWidth={2} />
+                    <Area type="monotone" dataKey="Opportunites" stroke={C.green} fill="url(#gOpps)" strokeWidth={2} />
+                  </AreaChart>
+                </ResponsiveContainer>
               </AccentCard>
             </Grid>
           </Grid>
-          <AccentCard accent={C.amber}>
-            <Stack direction="row" alignItems="center" spacing={1} mb={2}>
-              <CheckCircle sx={{ color: C.amber, fontSize: 18 }} />
-              <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.n800 }}>
-                Tâches équipe en cours
-              </Typography>
-            </Stack>
-            {teamTasks.length === 0 ? (
-              <Typography sx={{ fontSize: 13, color: C.n400 }}>Aucune tâche en cours</Typography>
-            ) : (
-              <Grid container spacing={1.2}>
-                {teamTasks.map((t) => {
-                  const isOverdue = t.due_date && new Date(t.due_date) < new Date();
-                  const sc = isOverdue ? C.red : statusColor[t.status] || C.n400;
-                  return (
-                    <Grid item xs={12} sm={6} key={t.id}>
-                      <Box
-                        sx={{
-                          p: 1.5,
-                          bgcolor: isOverdue ? alpha(C.red, 0.04) : C.n50,
-                          borderRadius: 10,
-                          borderLeft: `3px solid ${sc}`,
-                        }}
-                      >
-                        <Stack direction="row" alignItems="center" justifyContent="space-between">
-                          <Box sx={{ flex: 1, overflow: "hidden" }}>
-                            <Typography
-                              sx={{
-                                fontSize: 12,
-                                fontWeight: 600,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {t.title}
-                            </Typography>
-                            <Typography sx={{ fontSize: 11, color: C.n400 }}>
-                              {t.assigned_to_detail?.username || "—"} ·{" "}
-                              {t.due_date
-                                ? new Date(t.due_date).toLocaleDateString("fr-FR")
-                                : "Pas d'échéance"}
-                            </Typography>
-                          </Box>
-                          <Chip
-                            size="small"
-                            label={statusLabel[t.status]}
-                            sx={{
-                              fontSize: 10,
-                              ml: 1,
-                              bgcolor: alpha(statusColor[t.status] || C.n400, 0.1),
-                              color: statusColor[t.status] || C.n400,
-                            }}
-                          />
-                        </Stack>
-                      </Box>
-                    </Grid>
-                  );
-                })}
-              </Grid>
-            )}
+
+          <Grid container spacing={2.5} mb={2.5}>
+            <Grid item xs={12} lg={6}><PipelineFunnel opportunities={opportunities} /></Grid>
+            <Grid item xs={12} lg={6}>
+              <AccentCard accent={C.blue}>
+                <SectionTitle icon={<MapIcon sx={{ fontSize: 18 }} />} title="Répartition géographique" subtitle="Google Maps des prospects de l'équipe" />
+                <GeoProspectsMap prospects={prospects} />
+              </AccentCard>
+            </Grid>
+          </Grid>
+
+          <Grid container spacing={2.5} mb={2.5}>
+            <Grid item xs={12} lg={6}><SmartAlerts prospects={prospects} tasks={tasks} opportunities={opportunities} members={members} /></Grid>
+            <Grid item xs={12} lg={6}><ManagerRecommendations prospects={prospects} tasks={tasks} opportunities={opportunities} leaderboard={[]} /></Grid>
+          </Grid>
+
+          <AccentCard accent={C.purple}>
+            <SectionTitle icon={<People sx={{ fontSize: 18 }} />} title="Membres de l'équipe" subtitle="Suivi rapide des commerciaux" />
+            <Grid container spacing={1.5}>
+              {members.map((m) => {
+                const mt = tasks.filter((t) => t.assigned_to === m.id);
+                const md = mt.filter((t) => t.status === "done");
+                const pct = mt.length ? Math.round((md.length / mt.length) * 100) : 0;
+                return (
+                  <Grid item xs={12} sm={6} md={4} key={m.id}>
+                    <Box sx={{ p: 1.5, borderRadius: 12, border: `1px solid ${C.n200}`, bgcolor: C.n50 }}>
+                      <Stack direction="row" alignItems="center" spacing={1.2} mb={1}>
+                        <Avatar sx={{ width: 34, height: 34, bgcolor: alpha(C.blue, 0.12), color: C.blue, fontWeight: 800 }}>{m.username?.[0]?.toUpperCase()}</Avatar>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography sx={{ fontSize: 13, fontWeight: 800, color: C.n800 }}>{m.username}</Typography>
+                          <Typography sx={{ fontSize: 10, color: C.n400 }}>{m.role}</Typography>
+                        </Box>
+                        <Chip size="small" label={`${md.length}/${mt.length}`} sx={{ fontSize: 10, bgcolor: alpha(C.green, 0.1), color: C.green, fontWeight: 800 }} />
+                      </Stack>
+                      <LinearProgress variant="determinate" value={pct} sx={{ height: 5, borderRadius: 3, bgcolor: C.n100, "& .MuiLinearProgress-bar": { bgcolor: C.green, borderRadius: 3 } }} />
+                    </Box>
+                  </Grid>
+                );
+              })}
+            </Grid>
           </AccentCard>
         </Box>
       )}
-      {activeTab === 1 && <TeamPerformanceTab members={members} />}
+
+      {activeTab === 1 && <TeamPerformanceTab members={members} prospects={prospects} tasks={tasks} opportunities={opportunities} />}
     </Box>
   );
 
   if (!data) {
     return (
-      <DashboardDataFrame
-        loading={standaloneBlocked && remote.loading}
-        error={standaloneBlocked ? remote.error : null}
-        onRefresh={remote.refresh}
-        lastUpdated={remote.lastUpdated}
-      >
+      <DashboardDataFrame loading={standaloneBlocked && remote.loading} error={standaloneBlocked ? remote.error : null} onRefresh={remote.refresh} lastUpdated={remote.lastUpdated}>
         {standaloneBlocked ? null : body}
       </DashboardDataFrame>
     );
@@ -1916,5 +970,6 @@ export default function ManagerDashboard({ data }) {
 
   return body;
 }
-ManagerDashboard.propTypes = { data: PropTypes.object };
-ManagerDashboard.defaultProps = { data: null };
+
+ManagerDashboard.propTypes = { data: PropTypes.object, onRefresh: PropTypes.func };
+ManagerDashboard.defaultProps = { data: null, onRefresh: null };
