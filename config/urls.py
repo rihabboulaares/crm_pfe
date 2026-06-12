@@ -2,7 +2,9 @@
 URL configuration for config project.
 """
 from django.contrib import admin
+from django.conf import settings
 from django.urls import path, include
+from django.views.static import serve
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from agentProspection.api.views import ProspectAgentView, ProspectingRequiredSessionsView
 from sales.views import ProspectViewSet, TaskViewSet
@@ -14,6 +16,12 @@ prospect_tasks = ProspectViewSet.as_view({"get": "tasks"})
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path(
+        "tools/<path:path>",
+        serve,
+        {"document_root": settings.BASE_DIR.parent / "crm-frontend" / "public" / "tools"},
+        name="frontend-tools",
+    ),
     path("api/users/", include("users.urls")),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
@@ -25,6 +33,7 @@ urlpatterns = [
     path("api/subscriptions/", include("subscriptions.urls")),
     path("api/superadmin/", include("superadmin.urls")),
     path("api/notifications/", include("Notifications.urls")),
+    path("api/social/", include("social_sessions.urls")),
     path("api/dashboard/", include("dashboard.urls")),
     path("api/agent/prospect/", ProspectAgentView.as_view(), name="agent-prospect"),
     path(

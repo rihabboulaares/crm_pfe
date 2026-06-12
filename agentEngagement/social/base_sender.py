@@ -2,9 +2,11 @@ import random
 import time
 from pathlib import Path
 
+from django.contrib.auth import get_user_model
 from playwright.sync_api import sync_playwright
 
-from .session_manager import close_popups, get_profile_dir
+from .session_manager import close_popups
+from social_sessions.services import SocialSessionService
 
 
 def human_delay(min_ms=800, max_ms=2000):
@@ -54,24 +56,35 @@ def safe_click(page, selectors, timeout_ms=2000):
 
 
 def launch_context(platform: str, user_id: int, headless: bool = True, viewport=None, slow_mo=300):
+    user = get_user_model().objects.get(id=user_id)
+    session_status = SocialSessionService.has_valid_session(user, platform)
+    if not session_status.get("ok"):
+        raise RuntimeError(session_status.get("message") or f"Session {platform} non connectee.")
+
+    session_path = SocialSessionService.get_session_path(user, platform)
+    if not session_path:
+        raise RuntimeError(f"Session {platform} introuvable pour user {user_id}.")
+
     playwright = sync_playwright().start()
-    context = playwright.chromium.launch_persistent_context(
-        user_data_dir=str(get_profile_dir(platform, user_id)),
-        headless=headless,
-        slow_mo=slow_mo,
-        user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-        viewport=viewport or {"width": 1280, "height": 900},
-        args=[
-            "--disable-blink-features=AutomationControlled",
-            "--start-maximized",
-        ],
-    )
-    page = context.pages[0] if context.pages else context.new_page()
-    return playwright, context, page
+    try:
+        browser, context, page = SocialSessionService.launch_context_with_session_path(
+            playwright,
+            session_path,
+            platform,
+            headless=headless,
+        )
+        if viewport:
+            try:
+                page.set_viewport_size(viewport)
+            except Exception:
+                pass
+        return playwright, context, page
+    except Exception:
+        try:
+            playwright.stop()
+        except Exception:
+            pass
+        raise
 
 
 def close_common_popups(page, platform: str):

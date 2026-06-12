@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'subscriptions.apps.SubscriptionsConfig',  # ← avec apps.py pour charger signals.py
     'superadmin',
     'Notifications',
+    'social_sessions',
     'calendar_module',
     "agentProspection",
     "agentEngagement",

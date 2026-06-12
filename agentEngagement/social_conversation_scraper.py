@@ -604,7 +604,7 @@ def scrape_social_conversation(prospect, channel, user_id=None):
     if not profile_url:
         return make_result(False, f"Aucun profil {channel} trouvé.", [], status="missing_profile_url", platform=channel)
 
-    user_id = user_id or getattr(getattr(prospect, "assigned_to", None), "id", None)
+    user_id = user_id or getattr(prospect, "assigned_to_id", None)
 
     if not user_id:
         return make_result(False, "Utilisateur introuvable pour accéder à la session sociale.", [], status="missing_user")

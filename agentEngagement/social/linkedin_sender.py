@@ -1,6 +1,8 @@
 from playwright.sync_api import sync_playwright
+from django.contrib.auth import get_user_model
 
-from .session_manager import ensure_platform_session, get_profile_dir
+from .session_manager import ensure_platform_session
+from social_sessions.services import SocialSessionService
 
 
 def sender_result(success, status, sent=False, channel="linkedin", error=None, screenshot=None):
@@ -18,26 +20,24 @@ class LinkedInSender:
     def __init__(self, user_id: int, headless: bool = True):
         self.user_id = user_id
         self.headless = headless
-        self.profile_dir = get_profile_dir("linkedin", user_id)
 
     def send(self, profile_url: str, message: str, send: bool = False) -> str:
         session_result = ensure_platform_session(self.user_id, "linkedin")
         if not session_result.get("success"):
             return "linkedin_login_required"
 
-        with sync_playwright() as p:
-            context = p.chromium.launch_persistent_context(
-                user_data_dir=str(self.profile_dir),
-                headless=self.headless,
-                slow_mo=300,
-                viewport={"width": 1400, "height": 900},
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--start-maximized",
-                ],
-            )
+        user = get_user_model().objects.get(id=self.user_id)
+        session_path = SocialSessionService.get_session_path(user, "linkedin")
+        if not session_path:
+            return "linkedin_login_required"
 
-            page = context.new_page()
+        with sync_playwright() as p:
+            browser, context, page = SocialSessionService.launch_context_with_session_path(
+                p,
+                session_path,
+                "linkedin",
+                headless=True,
+            )
 
             try:
                 if not self.ensure_login(page):
@@ -79,6 +79,7 @@ class LinkedInSender:
 
             finally:
                 context.close()
+                browser.close()
 
     def ensure_login(self, page) -> bool:
         page.goto(

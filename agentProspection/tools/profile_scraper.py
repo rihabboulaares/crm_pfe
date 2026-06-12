@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
+from asgiref.sync import sync_to_async
+from django.contrib.auth import get_user_model
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
@@ -19,6 +21,7 @@ from agentEngagement.social.session_manager import (
     ensure_platform_session,
     get_profile_dir,
 )
+from social_sessions.services import SocialSessionService
 
 
 logger = logging.getLogger(__name__)
@@ -200,26 +203,31 @@ async def is_login_required(page, platform: str) -> bool:
 
 
 async def get_authenticated_context(playwright, user_id: int | str | None, platform: str):
-    profile_dir = browser_profile_dir(user_id, platform)
-    Path(profile_dir).mkdir(parents=True, exist_ok=True)
-    is_linkedin = platform == "linkedin"
-
-    return await playwright.chromium.launch_persistent_context(
-        user_data_dir=profile_dir,
-        headless=headless_enabled(),
-        slow_mo=300 if is_linkedin else 100,
+    user = await sync_to_async(get_user_model().objects.get)(id=int(user_id or 0))
+    session_path = await sync_to_async(SocialSessionService.get_session_path)(user, platform)
+    if not session_path:
+        raise RuntimeError(f"Session {platform} requise pour acceder aux resultats authentifies.")
+    browser = await playwright.chromium.launch(
+        headless=True,
+        args=[
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+        ],
+    )
+    context = await browser.new_context(
+        storage_state=session_path,
         viewport={"width": 1400, "height": 900},
         locale="fr-FR",
+        timezone_id="Europe/Paris",
         user_agent=(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/120.0.0.0 Safari/537.36"
         ),
-        args=[
-            "--disable-blink-features=AutomationControlled",
-            "--start-maximized",
-        ],
     )
+    return context, browser
 
 
 class SocialSessionManager:
@@ -227,6 +235,7 @@ class SocialSessionManager:
         self.user_id = user_id
         self.playwright = None
         self.contexts = {}
+        self.browsers = {}
         self.login_checked = {}
         self.login_required = {}
         self.login_success = {}
@@ -241,10 +250,10 @@ class SocialSessionManager:
             return self.contexts[platform]
 
         playwright = await self.start()
-        context = await get_authenticated_context(playwright, self.user_id, platform)
+        context, browser = await get_authenticated_context(playwright, self.user_id, platform)
 
-        if reuse_session_enabled():
-            self.contexts[platform] = context
+        self.contexts[platform] = context
+        self.browsers[platform] = browser
 
         return context
 
@@ -271,6 +280,12 @@ class SocialSessionManager:
             except Exception:
                 pass
         self.contexts.clear()
+        for browser in list(self.browsers.values()):
+            try:
+                await browser.close()
+            except Exception:
+                pass
+        self.browsers.clear()
 
         if self.playwright:
             try:

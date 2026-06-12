@@ -5,7 +5,6 @@ from django.utils import timezone
 
 from .brain import analyze_and_generate, clean_crm_message
 from .schemas import ProspectProfileData
-from .scraper import EngagementScraper
 from .memory import (
     set_status,
     save_prepared_message,
@@ -15,7 +14,11 @@ from .memory import (
 from .task_manager import create_engagement_task, create_task_activity
 from .sender import EngagementSender
 from .social.social_profile_analyzer import analyze_social_profile_with_gemini
-from .social.social_profile_scraper import normalize_scraped_social_profile, scrape_social_profile
+from .social.social_profile_scraper import (
+    normalize_scraped_social_profile,
+    scrape_prospect_social_profiles,
+    scrape_social_profile,
+)
 
 logger = logging.getLogger("agentEngagement.runner")
 
@@ -265,7 +268,7 @@ def get_existing_social_analysis(prospect):
     return None
 
 
-def enrich_prospect_with_social_analysis(prospect, channel=None, force=False, existing_scraped_data=None):
+def enrich_prospect_with_social_analysis(prospect, channel=None, force=False, existing_scraped_data=None, user=None):
     try:
         logger.info("[social-analysis] started Prospect #%s", prospect.pk)
         if not force and should_reuse_social_analysis(prospect):
@@ -281,7 +284,7 @@ def enrich_prospect_with_social_analysis(prospect, channel=None, force=False, ex
             scraped_data = normalize_scraped_social_profile(prospect, channel, existing_scraped_data)
         else:
             logger.info("[social-analysis] scraping started")
-            scraped_data = scrape_social_profile(prospect, channel=channel)
+            scraped_data = scrape_social_profile(prospect, channel=channel, user=user)
 
         if not scraped_data.get("success"):
             logger.warning("[social-analysis] scraping failed: %s", scraped_data.get("error"))
@@ -293,6 +296,7 @@ def enrich_prospect_with_social_analysis(prospect, channel=None, force=False, ex
                 "analysis": None,
             }
 
+        logger.info("[social-analysis] scraping success")
         logger.info("[social-analysis] Gemini analysis started")
         analysis = analyze_social_profile_with_gemini(prospect=prospect, scraped_data=scraped_data)
 
@@ -344,8 +348,7 @@ def prepare_engagement(prospect, user, scrape=True) -> dict:
         social_analysis = get_existing_social_analysis(prospect)
 
         if scrape and not social_analysis:
-            scraper = EngagementScraper()
-            scraped_data = scraper.scrape_prospect_profiles(prospect , user_id=user.id,)
+            scraped_data = scrape_prospect_social_profiles(prospect, user)
 
             facebook_block_response = _facebook_session_block_response(scraped_data, prospect)
             if facebook_block_response:
@@ -396,6 +399,7 @@ def prepare_engagement(prospect, user, scrape=True) -> dict:
                 prospect=prospect,
                 channel=selected_channel,
                 existing_scraped_data=scraped_data.get(selected_channel) if selected_channel else None,
+                user=user,
             )
             social_analysis = social_context.get("analysis") if social_context.get("success") else None
 

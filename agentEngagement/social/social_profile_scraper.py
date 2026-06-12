@@ -1,7 +1,13 @@
 import logging
 import re
+import traceback
+from concurrent.futures import ThreadPoolExecutor
+
+from django.apps import apps
+from django.contrib.auth import get_user_model
 
 from agentEngagement.scraper import EngagementScraper
+from social_sessions.services import SocialSessionService
 
 logger = logging.getLogger("agentEngagement.social_profile_scraper")
 
@@ -151,7 +157,154 @@ def normalize_scraped_social_profile(prospect, platform, data):
     return _normalize_success(platform, profile_url, data.get("data") if isinstance(data.get("data"), dict) else data)
 
 
-def scrape_social_profile(prospect, channel=None):
+def _scrape_with_platform_scraper(platform, url, user_id, session_path=None):
+    scraper = EngagementScraper()
+
+    if platform == "linkedin":
+        return scraper.scrape_linkedin(url, user_id=user_id, session_path=session_path)
+    if platform == "instagram":
+        return scraper.scrape_instagram(url, user_id=user_id, session_path=session_path)
+    if platform == "facebook":
+        return scraper.scrape_facebook(url, user_id=user_id, session_path=session_path)
+
+    return {
+        "success": False,
+        "status": "unsupported_platform",
+        "error": "unsupported_platform",
+        "platform": platform,
+        "url": url,
+    }
+
+
+def run_social_scraping_sync(user_id, prospect_id, platform, url):
+    """
+    Unique sync boundary for social scraping.
+    Django ORM, SocialSessionService and Playwright sync_api must stay inside
+    this function or functions called synchronously from here.
+    """
+    logger.info("[social-scraper-sync] entered")
+    logger.info("[social-scraper-sync] platform=%s", platform)
+
+    if not user_id:
+        return {
+            "success": False,
+            "status": "missing_user_id",
+            "error": "missing_user_id",
+            "platform": platform,
+            "url": url,
+        }
+
+    User = get_user_model()
+    Prospect = apps.get_model("sales", "Prospect")
+
+    user = User.objects.get(id=user_id)
+    prospect = Prospect.objects.get(id=prospect_id) if prospect_id else None
+    profile_url = url or (_profile_url(prospect, platform) if prospect else "")
+
+    session_result = SocialSessionService.has_valid_session(user, platform)
+    session_path = SocialSessionService.get_session_path(user, platform)
+    logger.info("[social-scraper-sync] session loaded")
+
+    if not session_result.get("ok") or not session_path:
+        return {
+            "success": False,
+            "status": session_result.get("status") or "login_required",
+            "error": session_result.get("message") or session_result.get("status") or "login_required",
+            "platform": platform,
+            "url": profile_url,
+        }
+
+    logger.info("[social-scraper-sync] browser launched")
+    result = _scrape_with_platform_scraper(platform, profile_url, user.id, session_path=session_path)
+    logger.info("[social-scraper-sync] url opened")
+
+    if isinstance(result, dict) and result.get("status") in {"expired", "verification_required"}:
+        if result.get("status") == "verification_required":
+            SocialSessionService.mark_verification_required(
+                user,
+                platform,
+                result.get("message") or result.get("error"),
+            )
+        else:
+            SocialSessionService.mark_expired(user, platform, result.get("message") or result.get("error"))
+
+    if isinstance(result, dict) and result.get("success") is False:
+        return result
+
+    logger.info("[social-scraper-sync] scraping success")
+    return result
+
+
+def _run_social_scraping_outside_async_context(user_id, prospect_id, platform, url):
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(run_social_scraping_sync, user_id, prospect_id, platform, url)
+        return future.result()
+
+
+def scrape_prospect_social_profiles(prospect, user):
+    result = {
+        "linkedin": {},
+        "facebook": {},
+        "instagram": {},
+        "website": {},
+    }
+    user_id = getattr(user, "id", None)
+    prospect_id = getattr(prospect, "id", None) or getattr(prospect, "pk", None)
+
+    for platform in SOCIAL_PLATFORMS:
+        profile_url = _profile_url(prospect, platform)
+        if not profile_url:
+            continue
+
+        try:
+            scraped = _run_social_scraping_outside_async_context(
+                user_id,
+                prospect_id,
+                platform,
+                profile_url,
+            )
+        except Exception as exc:
+            print("[social-analysis] FULL TRACEBACK")
+            print(traceback.format_exc())
+            logger.warning("[social-analysis] scraping failed: %s", exc)
+            result[platform] = {
+                "success": False,
+                "platform": platform,
+                "status": "scraping_exception",
+                "error": str(exc),
+            }
+            continue
+
+        if not isinstance(scraped, dict):
+            result[platform] = {
+                "success": False,
+                "platform": platform,
+                "status": "invalid_scraper_response",
+                "error": "invalid_scraper_response",
+            }
+            continue
+
+        if scraped.get("success") is False or scraped.get("error"):
+            result[platform] = {
+                "success": False,
+                "platform": platform,
+                "status": scraped.get("status"),
+                "error": scraped.get("error") or scraped.get("message") or scraped.get("status"),
+            }
+            logger.warning("[scraper] %s failed but workflow continues", platform.capitalize())
+            continue
+
+        result[platform] = scraped.get("data", scraped)
+        logger.info("[scraper] %s scraped for Prospect #%s", platform.capitalize(), prospect_id)
+
+    if getattr(prospect, "website", None):
+        result["website"] = EngagementScraper().scrape_website(prospect.website)
+        logger.info("[scraper] Website scraped for Prospect #%s", prospect_id)
+
+    return result
+
+
+def scrape_social_profile(prospect, channel=None, user=None):
     """
     Retourne un dictionnaire standardise avec les donnees sociales disponibles.
     Ne doit jamais bloquer l'agent.
@@ -159,27 +312,22 @@ def scrape_social_profile(prospect, channel=None):
     """
     platform = _pick_platform(prospect, channel)
     profile_url = _profile_url(prospect, platform) if platform in SOCIAL_PLATFORMS else ""
+    user_id = getattr(user, "id", None) or getattr(prospect, "assigned_to_id", None)
+    prospect_id = getattr(prospect, "id", None) or getattr(prospect, "pk", None)
 
     if not profile_url:
         return _normalize_failure(platform, profile_url, "no_social_profile_url")
 
     try:
-        scraper = EngagementScraper()
-        user_id = getattr(getattr(prospect, "assigned_to", None), "id", None)
-
-        if platform == "linkedin":
-            scraped = scraper.scrape_linkedin(profile_url, user_id=user_id)
-        elif platform == "instagram":
-            scraped = scraper.scrape_instagram(profile_url, user_id=user_id)
-        elif platform == "facebook":
-            scraped = scraper.scrape_facebook(profile_url, user_id=user_id)
-        else:
-            return _normalize_failure(platform, profile_url, "unsupported_platform")
+        logger.info("[social-analysis] using sync flow")
+        logger.info("[social-analysis] platform=%s", platform)
+        scraped = _run_social_scraping_outside_async_context(user_id, prospect_id, platform, profile_url)
 
         if not isinstance(scraped, dict):
             return _normalize_failure(platform, profile_url, "invalid_scraper_response")
 
         if scraped.get("success") is False:
+            logger.info("[social-analysis] scrape_status=%s", scraped.get("status") or scraped.get("error"))
             return _normalize_failure(
                 platform,
                 profile_url,
@@ -188,10 +336,16 @@ def scrape_social_profile(prospect, channel=None):
 
         data = scraped.get("data") if isinstance(scraped.get("data"), dict) else scraped
         if data.get("error"):
+            logger.info("[social-analysis] scrape_status=%s", data.get("error"))
             return _normalize_failure(platform, profile_url, data.get("error"))
 
+        logger.info("[social-analysis] final_url=%s", data.get("url") or data.get("profile_url") or profile_url)
+        logger.info("[social-analysis] scrape_status=connected")
+        logger.info("[social-analysis] scraping success")
         return _normalize_success(platform, profile_url, data)
 
     except Exception as exc:
+        print("[social-analysis] FULL TRACEBACK")
+        print(traceback.format_exc())
         logger.warning("[social-analysis] scraping failed: %s", exc)
         return _normalize_failure(platform, profile_url, exc)

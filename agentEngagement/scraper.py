@@ -6,8 +6,8 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 
 from .social.session_manager import (
     ensure_platform_session,
-    get_profile_dir,
 )
+from social_sessions.services import SocialSessionService, user_from_id
 
 logger = logging.getLogger("agentEngagement.scraper")
 
@@ -74,6 +74,29 @@ def is_valid_social_profile_data(data):
 
 
 class EngagementScraper:
+    def _session_path_for_user(self, user_id: int, platform: str):
+        user = user_from_id(user_id)
+        return SocialSessionService.get_session_path(user, platform)
+
+    def _launch_central_context(self, playwright, session_path: str, platform: str):
+        logger.info("[%s-scraper] using central session path=%s", platform, session_path)
+        browser, context, page = SocialSessionService.launch_context_with_session_path(
+            playwright,
+            session_path,
+            platform,
+            headless=True,
+        )
+        return browser, context, page
+
+    def _log_page_status(self, platform: str, page, status: str):
+        try:
+            title = page.title()
+        except Exception as exc:
+            title = f"<title unavailable: {exc}>"
+        logger.info("[%s-scraper] final_url=%s", platform, getattr(page, "url", ""))
+        logger.info("[%s-scraper] title=%s", platform, title)
+        logger.info("[%s-scraper] status=%s", platform, status)
+
     def scrape_prospect_profiles(self, prospect, user_id: int = None) -> dict:
         result = {
             "linkedin": {},
@@ -141,7 +164,7 @@ class EngagementScraper:
     # LINKEDIN
     # =====================
 
-    def scrape_linkedin(self, url: str, user_id: int = None) -> dict:
+    def scrape_linkedin(self, url: str, user_id: int = None, session_path: str = None) -> dict:
         if not user_id:
             return {"error": "missing_user_id", "platform": "linkedin", "url": url}
 
@@ -154,31 +177,22 @@ class EngagementScraper:
                 "data": {},
                 "url": url,
             }
-
-        profile_dir = get_profile_dir("linkedin", user_id)
+        session_path = session_path or self._session_path_for_user(user_id, "linkedin")
 
         with sync_playwright() as p:
-            context = p.chromium.launch_persistent_context(
-                user_data_dir=str(profile_dir),
-                headless=True,
-                slow_mo=300,
-                viewport={"width": 1400, "height": 900},
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--start-maximized",
-                ],
-            )
-
-            page = context.new_page()
+            browser = context = None
 
             try:
+                browser, context, page = self._launch_central_context(p, session_path, "linkedin")
                 page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=90000)
                 page.wait_for_timeout(5000)
 
                 if self._linkedin_login_required(page):
+                    status = self._linkedin_session_status(page)
+                    self._log_page_status("linkedin", page, status)
                     return {
                         "error": "login_required",
-                        "status": "login_required",
+                        "status": status,
                         "success": False,
                         "platform": "linkedin",
                         "message": "Veuillez vous connecter à LinkedIn dans la fenêtre ouverte puis relancer l’action.",
@@ -190,10 +204,12 @@ class EngagementScraper:
 
                 body = self._safe_body_text(page)
 
-                if self._linkedin_login_text(body):
+                if self._linkedin_login_required(page) or self._linkedin_login_text(body):
+                    status = self._linkedin_session_status(page)
+                    self._log_page_status("linkedin", page, status)
                     return {
                         "error": "login_required",
-                        "status": "login_required",
+                        "status": status,
                         "success": False,
                         "platform": "linkedin",
                         "message": "Veuillez vous connecter à LinkedIn dans la fenêtre ouverte puis relancer l’action.",
@@ -204,6 +220,7 @@ class EngagementScraper:
                     "url": url,
                     "page_text_preview": body[:2500],
                 }
+                self._log_page_status("linkedin", page, "connected")
 
                 try:
                     name = page.locator("h1").first
@@ -250,25 +267,83 @@ class EngagementScraper:
                 data["recent_posts"] = self._extract_linkedin_posts(page)
                 data["posts"] = data["recent_posts"]
 
-                return data
+                return {
+                    "success": True,
+                    "status": "scraped",
+                    "platform": "linkedin",
+                    "data": data,
+                    "url": getattr(page, "url", url),
+                }
 
             except Exception as exc:
                 return {"error": str(exc), "platform": "linkedin", "url": url}
 
             finally:
-                context.close()
+                for obj in (context, browser):
+                    try:
+                        if obj:
+                            obj.close()
+                    except Exception:
+                        pass
 
     def _linkedin_login_required(self, page) -> bool:
         url = page.url.lower()
         body = self._safe_body_text(page).lower()
 
+        if self._linkedin_connected_indicators(url, body):
+            return False
+
         return (
             "login" in url
+            or "authwall" in url
             or "checkpoint" in url
+            or "challenge" in url
             or "join linkedin" in body
             or "agree & join" in body
             or "already on linkedin" in body
         )
+
+    def _linkedin_connected_indicators(self, url: str, body: str) -> bool:
+        connected_paths = ["linkedin.com/in/", "linkedin.com/feed", "linkedin.com/mynetwork"]
+        if any(token in url for token in connected_paths):
+            return True
+
+        connected_body_tokens = [
+            "accueil",
+            "mon réseau",
+            "mon réseau",
+            "messagerie",
+            "notifications",
+            "commencer un post",
+        ]
+        return sum(1 for token in connected_body_tokens if token in body) >= 3
+
+    def _linkedin_session_status(self, page) -> str:
+        url = page.url.lower()
+        body = self._safe_body_text(page).lower()
+        if self._linkedin_connected_indicators(url, body):
+            return "connected"
+        if "checkpoint" in url or "challenge" in url:
+            return "verification_required"
+        if "login" in url or "authwall" in url:
+            return "expired"
+        return "login_required"
+
+    def _mark_linkedin_session_issue(self, user_id: int, status: str):
+        if status not in {"expired", "verification_required"}:
+            return
+        try:
+            user = user_from_id(user_id)
+            if status == "verification_required":
+                SocialSessionService.mark_verification_required(
+                    user,
+                    "linkedin",
+                    "LinkedIn demande une verification manuelle.",
+                )
+            else:
+                SocialSessionService.mark_expired(user, "linkedin", "LinkedIn demande une reconnexion.")
+        except Exception as exc:
+            logger.warning("[linkedin-scraper] status update failed: %s", exc)
 
     def _linkedin_login_text(self, body: str) -> bool:
         body = (body or "").lower()
@@ -317,7 +392,7 @@ class EngagementScraper:
     # FACEBOOK / META
     # =====================
 
-    def scrape_facebook(self, url: str, user_id: int = None) -> dict:
+    def scrape_facebook(self, url: str, user_id: int = None, session_path: str = None) -> dict:
         if not user_id:
             return {
                 "success": False,
@@ -334,23 +409,13 @@ class EngagementScraper:
             status = session_result.get("status") or "login_required"
             message = session_result.get("message") or FACEBOOK_LOGIN_MESSAGE
             return _facebook_session_required_response(url, status=status, message=message)
+        session_path = session_path or self._session_path_for_user(user_id, "facebook")
 
-        profile_dir = get_profile_dir("facebook", user_id)
         playwright = sync_playwright().start()
+        browser = context = None
 
         try:
-            context = playwright.chromium.launch_persistent_context(
-                user_data_dir=str(profile_dir),
-                headless=True,
-                slow_mo=80,
-                viewport={"width": 1366, "height": 900},
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--start-maximized",
-                ],
-            )
-
-            page = context.pages[0] if context.pages else context.new_page()
+            browser, context, page = self._launch_central_context(playwright, session_path, "facebook")
 
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -426,7 +491,12 @@ class EngagementScraper:
                 }
 
             finally:
-                context.close()
+                for obj in (context, browser):
+                    try:
+                        if obj:
+                            obj.close()
+                    except Exception:
+                        pass
         finally:
             playwright.stop()
 
@@ -483,7 +553,7 @@ class EngagementScraper:
     # INSTAGRAM / META
     # =====================
 
-    def scrape_instagram(self, url: str, user_id: int = None) -> dict:
+    def scrape_instagram(self, url: str, user_id: int = None, session_path: str = None) -> dict:
         if not user_id:
             return {
                 "success": False,
@@ -498,23 +568,13 @@ class EngagementScraper:
         session_result = ensure_platform_session(user_id=user_id, platform="instagram")
         if not session_result.get("success"):
             return {**session_result, "data": {}, "platform": "instagram", "url": url}
+        session_path = session_path or self._session_path_for_user(user_id, "instagram")
 
-        profile_dir = get_profile_dir("instagram", user_id)
         playwright = sync_playwright().start()
+        browser = context = None
 
         try:
-            context = playwright.chromium.launch_persistent_context(
-                user_data_dir=str(profile_dir),
-                headless=True,
-                slow_mo=80,
-                viewport={"width": 1366, "height": 900},
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--start-maximized",
-                ],
-            )
-
-            page = context.pages[0] if context.pages else context.new_page()
+            browser, context, page = self._launch_central_context(playwright, session_path, "instagram")
 
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -626,7 +686,12 @@ class EngagementScraper:
                 }
 
             finally:
-                context.close()
+                for obj in (context, browser):
+                    try:
+                        if obj:
+                            obj.close()
+                    except Exception:
+                        pass
         finally:
             playwright.stop()
 

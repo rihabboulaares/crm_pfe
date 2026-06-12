@@ -6,6 +6,7 @@ import time
 import logging
 
 from playwright.sync_api import sync_playwright, Error as PlaywrightError
+from social_sessions.services import SocialSessionService, user_from_id
 
 logger = logging.getLogger("agentEngagement.social.session_manager")
 
@@ -280,8 +281,7 @@ def check_persistent_session_with_playwright(user_id: int, platform: str) -> dic
 
 def run_session_check_in_worker(user_id: int, platform: str) -> dict:
     """
-    Playwright Sync API cannot be started in a thread that already runs an
-    asyncio loop. Keep the existing sync code isolated in a short-lived worker.
+    Playwright Sync API is kept isolated in a short-lived worker.
     """
     result_queue = queue.Queue(maxsize=1)
 
@@ -454,62 +454,15 @@ def open_social_login_window(user_id: int, platform: str) -> dict:
             "message": "Plateforme non supportee.",
         }
 
-    lock = get_platform_lock(platform, user_id)
-
-    with lock:
-        existing_session = get_existing_open_session(user_id, platform)
-
-        if existing_session:
-            try:
-                send_login_worker_command(existing_session, "focus", timeout=5)
-            except Exception:
-                pass
-
-            return {
-                "success": True,
-                "status": "login_window_open",
-                "platform": platform,
-                "message": f"Fenetre {platform} deja ouverte. Connectez-vous puis cliquez sur Verifier.",
-            }
-
-        try:
-            startup_queue = queue.Queue(maxsize=1)
-            command_queue = queue.Queue()
-            thread = threading.Thread(
-                target=run_social_login_worker,
-                args=(platform, user_id, startup_queue, command_queue),
-                name=f"social-login-{platform}-user-{user_id}",
-                daemon=True,
-            )
-            thread.start()
-
-            startup_result = startup_queue.get(timeout=120)
-            if not startup_result.get("success"):
-                return startup_result
-
-            _OPEN_SOCIAL_LOGIN_SESSIONS[open_session_key(platform, user_id)] = {
-                "thread": thread,
-                "command_queue": command_queue,
-                "started_at": time.time(),
-            }
-
-            return {
-                "success": True,
-                "status": "login_window_open",
-                "platform": platform,
-                "message": f"Connectez-vous a {platform} dans la fenetre ouverte puis cliquez sur Verifier.",
-            }
-
-        except Exception as exc:
-            logger.exception("[social-session] open login failed %s", platform)
-
-            return {
-                "success": False,
-                "status": "browser_open_failed",
-                "platform": platform,
-                "error": str(exc)[:500],
-                "message": f"Impossible d'ouvrir la fenetre {platform}.",
-            }
+    return {
+        "success": False,
+        "status": "local_tool_required",
+        "platform": platform,
+        "message": (
+            "Connexion manuelle locale requise. Utilisez social_session_tool, "
+            "puis importez le fichier JSON dans Mes connexions sociales."
+        ),
+    }
 
 
 def check_social_session(user_id: int, platform: str) -> dict:
@@ -523,38 +476,25 @@ def check_social_session(user_id: int, platform: str) -> dict:
             "message": "Plateforme non supportee.",
         }
 
-    lock = get_platform_lock(platform, user_id)
-
-    with lock:
-        open_session = get_existing_open_session(user_id, platform)
-
-        if open_session:
-            try:
-                result = send_login_worker_command(open_session, "check", timeout=30)
-                if result.pop("close_session", False):
-                    _OPEN_SOCIAL_LOGIN_SESSIONS.pop(open_session_key(platform, user_id), None)
-                    thread = open_session.get("thread")
-                    if thread and thread.is_alive():
-                        thread.join(timeout=5)
-                return result
-
-            except Exception as exc:
-                logger.warning("[social-session] open page check failed %s: %s", platform, exc)
-                close_open_social_window(user_id, platform)
-
-        try:
-            return run_session_check_in_worker(user_id, platform)
-
-        except Exception as exc:
-            logger.exception("[social-session] check failed %s", platform)
-
-            return {
-                "success": False,
-                "status": "session_check_error",
-                "platform": platform,
-                "error": str(exc)[:500],
-                "message": f"Verification {platform} impossible.",
-            }
+    try:
+        user = user_from_id(user_id)
+        result = SocialSessionService.check_session(user, platform)
+        return {
+            "success": result.get("ok", False),
+            "status": "connected" if result.get("status") == "connected" else result.get("status"),
+            "platform": platform,
+            "message": result.get("message"),
+            "requires_manual_login": result.get("requires_manual_login", False),
+        }
+    except Exception as exc:
+        logger.exception("[social-session] central check failed %s", platform)
+        return {
+            "success": False,
+            "status": "session_check_error",
+            "platform": platform,
+            "error": str(exc)[:500],
+            "message": f"Verification {platform} impossible.",
+        }
 
 
 def ensure_platform_session(user_id: int, platform: str) -> dict:
@@ -562,10 +502,25 @@ def ensure_platform_session(user_id: int, platform: str) -> dict:
     Used by scrapers/senders. Never opens a login window and never waits for
     user input; it only checks the shared persistent session.
     """
-    result = check_social_session(user_id, platform)
+    try:
+        user = user_from_id(user_id)
+        central = SocialSessionService.has_valid_session(user, platform)
+        result = {
+            "success": central.get("ok", False),
+            "status": "connected" if central.get("status") == "connected" else central.get("status"),
+            "platform": platform,
+            "message": central.get("message"),
+            "requires_manual_login": central.get("requires_manual_login", False),
+        }
+    except Exception as exc:
+        result = {
+            "success": False,
+            "status": "session_check_error",
+            "platform": platform,
+            "message": str(exc)[:500],
+        }
     logger.warning("[ensure-session] user_id=%s platform=%s result=%s", user_id, platform, result)
     return result
-
 
 def reset_social_session(user_id: int, platform: str) -> dict:
     platform = normalize_platform(platform)
@@ -582,12 +537,9 @@ def reset_social_session(user_id: int, platform: str) -> dict:
     with lock:
         close_open_social_window(user_id, platform)
 
-        profile_dir = get_profile_dir(platform, user_id)
-
         try:
-            if profile_dir.exists():
-                shutil.rmtree(profile_dir)
-            profile_dir.mkdir(parents=True, exist_ok=True)
+            user = user_from_id(user_id)
+            SocialSessionService.delete_session(user, platform)
 
             return {
                 "success": True,

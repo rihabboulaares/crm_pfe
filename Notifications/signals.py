@@ -14,6 +14,8 @@ Visibilité :
   MANAGER    → actions de son équipe
   COMMERCIAL → seulement ce qui le concerne directement
 """
+import logging
+
 from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver, Signal
 from django.contrib.auth import get_user_model
@@ -23,6 +25,7 @@ from .utils import get_user_display_name
 from .middleware import get_current_user   # ✅ Import du middleware
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 entity_assigned = Signal()
 

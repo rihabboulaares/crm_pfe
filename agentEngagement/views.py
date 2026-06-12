@@ -612,7 +612,7 @@ class AnalyzeSocialProfileView(APIView):
             return unauthorized_prospect_response(request, prospect_id)
 
         channel = request.data.get("channel") or prospect.last_engagement_channel
-        result = enrich_prospect_with_social_analysis(prospect, channel=channel, force=True)
+        result = enrich_prospect_with_social_analysis(prospect, channel=channel, force=True, user=request.user)
         prospect.refresh_from_db()
 
         return Response(
