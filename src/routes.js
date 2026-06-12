@@ -40,6 +40,7 @@ import SuperAdminMonitoring from "./pages/superadmin/SuperAdminMonitoring";
 import SuperAdminAuditLogs from "./pages/superadmin/SuperAdminAuditLogs";
 import AgentChat from "./pages/Agentchat"; // adapte le chemin selon où tu mets le composant
 import ProspectSearch from "./pages/ProspectSearch";
+import SocialConnections from "./pages/SocialConnections";
 
 const sa = (component) => <SuperAdminRoute>{component}</SuperAdminRoute>;
 
@@ -188,6 +189,14 @@ const routes = [
     icon: <Icon fontSize="small">mark_email_read</Icon>,
     route: "/engagement",
     component: <EngagementDashboard />,
+  },
+  {
+    type: "collapse",
+    name: "Connexions sociales",
+    key: "social-connections",
+    icon: <Icon fontSize="small">hub</Icon>,
+    route: "/social-connections",
+    component: <SocialConnections />,
   },
 
   {
