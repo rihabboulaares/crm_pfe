@@ -32,7 +32,7 @@ import {
   Campaign as CampaignIcon,
 } from "@mui/icons-material";
 
-const API = "http://127.0.0.1:8000/api/superadmin";
+const API = "/api/superadmin";
 const RED = "#d32f2f";
 
 // ══════════════════════════════════════════════════════════════

@@ -197,12 +197,12 @@ const StyledChip = styled(Chip)(({ role }) => ({
 // CONFIGURATION API
 // ==============================
 const api = (url) =>
-  axios.get(`http://127.0.0.1:8000${url}`, {
+  axios.get(`/${url}`, {
     headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
   });
 
 const apiPost = (url, data) =>
-  axios.post(`http://127.0.0.1:8000${url}`, data, {
+  axios.post(`/${url}`, data, {
     headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
   });
 

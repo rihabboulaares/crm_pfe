@@ -242,7 +242,7 @@ const InviteMember = () => {
     const fetchUser = async () => {
       try {
         setLoading(true);
-        const res = await fetch("http://127.0.0.1:8000/api/users/me/", {
+        const res = await fetch("/api/users/me/", {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
@@ -294,7 +294,7 @@ const InviteMember = () => {
 
     setLoading(true);
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/users/invite-member/", {
+      const response = await fetch("/api/users/invite-member/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

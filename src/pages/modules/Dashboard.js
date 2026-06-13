@@ -18,7 +18,7 @@ import ManagerDashboard from "pages/modules/ManagerDashboard";
 import CommercialDashboard from "pages/modules/CommercialDashboard";
 
 // Constantes de configuration
-const API = "http://127.0.0.1:8000";
+const API = "";
 const RED_SHADES = {
   primary: "#dc2626",
   secondary: "#b91c1c",

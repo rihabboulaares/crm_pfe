@@ -64,7 +64,7 @@ import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 
 // ─── CONFIG ──────────────────────────────────────────────────────
-const API_BASE = "http://127.0.0.1:8000/api/sales";
+const API_BASE = "/api/sales";
 const api = axios.create({ baseURL: API_BASE });
 api.interceptors.request.use((cfg) => {
   const t = localStorage.getItem("token");

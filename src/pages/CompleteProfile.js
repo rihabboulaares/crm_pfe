@@ -360,7 +360,7 @@ function CompleteProfile() {
         submitData.append("logo", formData.companyLogo);
       }
 
-      await axios.put("http://127.0.0.1:8000/api/users/complete-profile/", submitData, {
+      await axios.put("/api/users/complete-profile/", submitData, {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "multipart/form-data",

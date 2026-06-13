@@ -64,8 +64,8 @@ import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 import { useTrackActivity } from "../pages/superadmin/Marketingwidgets";
 
-const MEDIA_URL = "http://127.0.0.1:8000";
-const API_BASE = "http://127.0.0.1:8000/api/users";
+const MEDIA_URL = "/";
+const API_BASE = "/api/users";
 
 // â”TNDâ”TNDâ”TND PALETTE â”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TND
 const R = {
@@ -358,7 +358,7 @@ function buildTabs(role) {
   const t = [{ id: "info", label: "Profil", icon: <PersonIcon /> }];
   if (role === "ADMIN") {
     t.push({ id: "company", label: "Entreprise", icon: <BusinessIcon /> });
-    t.push({ id: "teams", label: "Ã‰quipes", icon: <GroupIcon /> });
+    t.push({ id: "teams", label: "Equipes", icon: <GroupIcon /> });
   } else {
     t.push({ id: "teams", label: "Mon équipe", icon: <GroupIcon /> });
   }
@@ -560,7 +560,7 @@ export default function Profile() {
       );
       setTeams([...teams, data]);
       setSelectedTeam(data);
-      show("Ã‰quipe créée !");
+      show("Equipe créée !");
       setOpenCreateTeam(false);
       setTeamForm({ name: "" });
     } catch {
@@ -579,7 +579,7 @@ export default function Profile() {
         { email: inviteForm.email, team_id: selectedTeam.id, role: inviteForm.role },
         auth
       );
-      setInvitationLink(`http://localhost:3000/accept-invite/${data.token}`);
+      setInvitationLink(`${window.location.origin}/accept-invite/${data.token}`);
       show("Invitation envoyée !");
       setOpenInviteMember(false);
       setInviteForm({ email: "", role: "COMMERCIAL", team_id: null });
@@ -683,7 +683,7 @@ export default function Profile() {
                   mt: 0.4,
                 }}
               >
-                Ã‰quipes
+                Equipes
               </Typography>
             </StatPill>
             <StatPill color="#2563eb">
@@ -861,7 +861,7 @@ export default function Profile() {
         </Box>
       );
 
-    // â•â• SÃ‰CURITÃ‰ â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // â•â• SECURITE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     if (activeTab === "security")
       return (
         <Box key="security" sx={{ animation: `${fadeUp} 0.22s ease`, maxWidth: 600 }}>
@@ -1254,7 +1254,7 @@ export default function Profile() {
         </Box>
       );
 
-    // â•â• Ã‰QUIPES â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // â•â• EQUIPES â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     if (activeTab === "teams")
       return (
         <Box key="teams" sx={{ animation: `${fadeUp} 0.22s ease` }}>
@@ -1283,11 +1283,11 @@ export default function Profile() {
           {teams.length > 1 && role === "ADMIN" && (
             <FormControl fullWidth size="small" sx={{ mb: 2.5 }}>
               <InputLabel sx={{ "&.Mui-focused": { color: R[600] } }}>
-                Ã‰quipe sélectionnée
+                Equipe sélectionnée
               </InputLabel>
               <Select
                 value={selectedTeam?.id || ""}
-                label="Ã‰quipe sélectionnée"
+                label="Equipe sélectionnée"
                 sx={{
                   borderRadius: 2,
                   "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: R[600] },
@@ -1657,7 +1657,7 @@ export default function Profile() {
               {/* Right: quick stats */}
               <Stack direction="row" spacing={1.5}>
                 {[
-                  { val: teams.length, lbl: "Ã‰quipes", color: "rgba(255,255,255,0.2)" },
+                  { val: teams.length, lbl: "Equipes", color: "rgba(255,255,255,0.2)" },
                   { val: members.length, lbl: "Collègues", color: "rgba(255,255,255,0.15)" },
                 ].map((s) => (
                   <Box
@@ -1874,7 +1874,7 @@ export default function Profile() {
                 value={teamForm.name}
                 size="small"
                 onChange={(e) => setTeamForm({ name: e.target.value })}
-                placeholder="Ex: Ã‰quipe Paris, Ã‰quipe Sud..."
+                placeholder="Ex: Equipe Paris, Equipe Sud..."
                 sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
               />
             </DialogContent>

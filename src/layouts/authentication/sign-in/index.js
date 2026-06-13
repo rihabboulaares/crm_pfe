@@ -105,7 +105,7 @@ function SignIn() {
     setMessage("");
 
     try {
-      const tokenRes = await axios.post("http://127.0.0.1:8000/api/users/login/", {
+      const tokenRes = await axios.post("/api/users/login/", {
         email,
         password,
       });
@@ -121,7 +121,7 @@ function SignIn() {
       localStorage.setItem("token", access);
       localStorage.setItem("refresh", refresh);
 
-      const profileRes = await axios.get("http://127.0.0.1:8000/api/users/me/", {
+      const profileRes = await axios.get("/api/users/me/", {
         headers: { Authorization: `Bearer ${access}` },
       });
 

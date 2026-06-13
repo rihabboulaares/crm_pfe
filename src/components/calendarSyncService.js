@@ -1,7 +1,7 @@
 // src/services/calendarSyncService.js
 import axios from "axios";
 
-const API_CALENDAR_URL = "http://localhost:8000/api/calendar-events/";
+const API_CALENDAR_URL = "/api/calendar-events/";
 
 const api = axios.create({ baseURL: API_CALENDAR_URL });
 api.interceptors.request.use((config) => {

@@ -83,8 +83,8 @@ import PaginationBar from "../../components/PaginationBar";
 // ==============================
 // CONFIG
 // ==============================
-const API_BASE_URL = "http://127.0.0.1:8000/api/sales";
-const API_USER = "http://127.0.0.1:8000/api/users/me/";
+const API_BASE_URL = "/api/sales";
+const API_USER = "/api/users/me/";
 
 const api = axios.create({ baseURL: API_BASE_URL });
 api.interceptors.request.use((config) => {

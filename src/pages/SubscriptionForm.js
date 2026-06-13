@@ -219,7 +219,7 @@ const comparisonRows = [
   ["Prospects max", "50", "500", "Illimité"],
 ];
 
-const API_BASE = "http://127.0.0.1:8000/api";
+const API_BASE = "/api";
 
 const SubscriptionForm = () => {
   const location = useLocation();

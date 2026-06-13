@@ -223,7 +223,7 @@ const StyledChip = styled(Chip)(({ status, evaluation }) => ({
 // CONFIGURATION API
 // ==============================
 const apiGet = (url) =>
-  axios.get(`http://127.0.0.1:8000${url}`, {
+  axios.get(`/${url}`, {
     headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
   });
 

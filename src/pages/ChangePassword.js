@@ -29,7 +29,7 @@ export default function ChangePassword() {
 
     try {
       const res = await axios.put(
-        "http://127.0.0.1:8000/api/users/change_password/",
+        "/api/users/change_password/",
         { old_password: oldPassword, new_password: newPassword },
         {
           headers: {

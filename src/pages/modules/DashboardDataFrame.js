@@ -7,7 +7,7 @@ import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 import Footer from "examples/Footer";
 import MDBox from "components/MDBox";
 
-const API = "http://127.0.0.1:8000";
+const API = "";
 
 const ENDPOINTS = {
   ADMIN: "/api/dashboard/admin/",

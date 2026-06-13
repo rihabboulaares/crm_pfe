@@ -3,7 +3,7 @@ import PropTypes from "prop-types";
 import ReactMarkdown from "react-markdown";
 
 // ─── Config API ───────────────────────────────────────────────────────────────
-const API_BASE = "http://localhost:8000";
+const API_BASE = "";
 
 const AGENT_THEME = {
   red: "#C8102E",

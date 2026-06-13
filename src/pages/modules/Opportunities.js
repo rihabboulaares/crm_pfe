@@ -125,9 +125,9 @@ import PaginationBar from "../../components/PaginationBar";
 // ──────────────────────────────────────────────────────────────
 // CONFIG
 // ──────────────────────────────────────────────────────────────
-const API_BASE_URL = "http://127.0.0.1:8000/api/sales";
-const API_USER_ME = "http://127.0.0.1:8000/api/users/me/";
-const API_ASSIGN = "http://127.0.0.1:8000/api/users/assignable-users/";
+const API_BASE_URL = "/api/sales";
+const API_USER_ME = "/api/users/me/";
+const API_ASSIGN = "/api/users/assignable-users/";
 
 const api = axios.create({ baseURL: API_BASE_URL });
 api.interceptors.request.use((cfg) => {

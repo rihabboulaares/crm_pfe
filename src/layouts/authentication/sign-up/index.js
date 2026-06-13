@@ -190,7 +190,7 @@ function SignUp() {
     }
 
     try {
-      const response = await axios.post("http://127.0.0.1:8000/api/users/register/", {
+      const response = await axios.post("/api/users/register/", {
         username: name.trim(),
         email: email.trim(),
         password: password,
@@ -221,7 +221,7 @@ function SignUp() {
     setMessage("");
 
     try {
-      const response = await axios.post("http://127.0.0.1:8000/api/users/verify-email/", {
+      const response = await axios.post("/api/users/verify-email/", {
         email,
         code,
       });

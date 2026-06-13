@@ -80,7 +80,7 @@ function DashboardNavbar({ absolute, light, isMini }) {
     if (!token) return;
 
     axios
-      .get("http://127.0.0.1:8000/api/subscriptions/current/", {
+      .get("/api/subscriptions/current/", {
         headers: { Authorization: `Bearer ${token}` },
       })
       .then((response) => setSubscription(response.data))

@@ -28,7 +28,7 @@ import {
   setWhiteSidenav,
 } from "context";
 
-const API_BASE = "http://127.0.0.1:8000/api";
+const API_BASE = "/api";
 
 // Couleur principale - uniquement le rouge
 const PRIMARY_COLOR = "#C1121F";

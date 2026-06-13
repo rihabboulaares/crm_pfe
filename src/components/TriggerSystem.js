@@ -50,7 +50,7 @@ import {
   EscalatorWarning as EscalateIcon,
 } from "@mui/icons-material";
 
-const API_BASE_URL = "http://127.0.0.1:8000/api/sales";
+const API_BASE_URL = "/api/sales";
 const api = axios.create({ baseURL: API_BASE_URL });
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");

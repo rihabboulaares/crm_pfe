@@ -16,7 +16,7 @@ export const AuthProvider = ({ children }) => {
   // Charger l'utilisateur depuis le backend
   const loadUser = async (accessToken) => {
     try {
-      const res = await axios.get("http://127.0.0.1:8000/api/users/me/", {
+      const res = await axios.get("/api/users/me/", {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       setUser(res.data);
@@ -41,7 +41,7 @@ export const AuthProvider = ({ children }) => {
   // Fonction login
   const login = async (email, password) => {
     try {
-      const res = await axios.post("http://127.0.0.1:8000/api/users/login/", {
+      const res = await axios.post("/api/users/login/", {
         email,
         password,
       });

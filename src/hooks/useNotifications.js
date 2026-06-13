@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 
-const API = "http://127.0.0.1:8000/api/notifications";
+const API = "/api/notifications";
 
 const authHeader = () => ({
   headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },

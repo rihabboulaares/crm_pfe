@@ -184,17 +184,17 @@ const PLAN_ICONS = {
 
 // ===== API =====
 const api = (url) =>
-  axios.get(`http://127.0.0.1:8000${url}`, {
+  axios.get(`/${url}`, {
     headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
   });
 
 const apiMut = (method, url, data) =>
-  axios[method](`http://127.0.0.1:8000${url}`, data, {
+  axios[method](`/${url}`, data, {
     headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
   });
 
 const apiDel = (url) =>
-  axios.delete(`http://127.0.0.1:8000${url}`, {
+  axios.delete(`/${url}`, {
     headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
   });
 

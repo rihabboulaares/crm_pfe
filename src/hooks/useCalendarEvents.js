@@ -11,17 +11,17 @@ authAxios.interceptors.request.use((config) => {
 });
 
 // ── Endpoints ─────────────────────────────────────────────────────────────────
-const API = "http://localhost:8000/api/calendar-events/";
-const CALENDAR_TASKS_API = "http://localhost:8000/api/calendar/tasks/";
+const API = "/api/calendar-events/";
+const CALENDAR_TASKS_API = "/api/calendar/tasks/";
 
 const SALES_API = {
-  pipelines: "http://localhost:8000/api/sales/pipelines/",
-  pipelineStages: "http://localhost:8000/api/sales/pipeline-stages/",
-  tasks: "http://localhost:8000/api/sales/tasks/",
-  opportunities: "http://localhost:8000/api/sales/opportunities/",
+  pipelines: "/api/sales/pipelines/",
+  pipelineStages: "/api/sales/pipeline-stages/",
+  tasks: "/api/sales/tasks/",
+  opportunities: "/api/sales/opportunities/",
 };
 const USERS_API = {
-  assignable: "http://localhost:8000/api/users/assignable-users/",
+  assignable: "/api/users/assignable-users/",
 };
 
 // ── Couleurs par priorité ─────────────────────────────────────────────────────

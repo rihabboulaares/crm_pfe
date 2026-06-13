@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 
-const API_BASE = "http://127.0.0.1:8000/api/sales";
+const API_BASE = "/api/sales";
 
 const api = axios.create({ baseURL: API_BASE });
 api.interceptors.request.use((config) => {

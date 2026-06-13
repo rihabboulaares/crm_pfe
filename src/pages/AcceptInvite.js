@@ -213,7 +213,7 @@ function AcceptInvite() {
     setLoading(true);
 
     try {
-      const response = await axios.post(`http://127.0.0.1:8000/api/users/accept-invite/${token}/`, {
+      const response = await axios.post(`/api/users/accept-invite/${token}/`, {
         username,
         password,
       });
@@ -268,7 +268,7 @@ function AcceptInvite() {
     setLoading(true);
 
     try {
-      await axios.post("http://127.0.0.1:8000/api/users/verify-email/", {
+      await axios.post("/api/users/verify-email/", {
         email,
         code,
       });
@@ -301,7 +301,7 @@ function AcceptInvite() {
 
     setLoading(true);
     try {
-      await axios.post("http://127.0.0.1:8000/api/users/resend-verification/", {
+      await axios.post("/api/users/resend-verification/", {
         email,
       });
       setMessage({ text: "Nouveau code envoye !", type: "success" });
