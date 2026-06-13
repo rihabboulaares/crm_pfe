@@ -219,6 +219,8 @@ const comparisonRows = [
   ["Prospects max", "50", "500", "Illimité"],
 ];
 
+const API_BASE = "http://127.0.0.1:8000/api";
+
 const SubscriptionForm = () => {
   const location = useLocation();
 
@@ -235,11 +237,26 @@ const SubscriptionForm = () => {
 
   const token = localStorage.getItem("token");
 
-  const api = axios.create({
-    baseURL: "http://127.0.0.1:8000/api",
+  const publicApi = axios.create({
+    baseURL: API_BASE,
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
+    },
+  });
+
+  publicApi.interceptors.request.use((config) => {
+    if (config.headers) {
+      delete config.headers.Authorization;
+      delete config.headers.authorization;
+    }
+    return config;
+  });
+
+  const api = axios.create({
+    baseURL: API_BASE,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
 
@@ -267,7 +284,7 @@ const SubscriptionForm = () => {
     setLoading(true);
     try {
       const [plansRes, currentRes] = await Promise.all([
-        api.get("/subscriptions/plans/"),
+        publicApi.get("/subscriptions/plans/"),
         api.get("/subscriptions/current/").catch(() => ({ data: null })),
       ]);
       setPlans(plansRes.data);

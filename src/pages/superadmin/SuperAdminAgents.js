@@ -25,7 +25,9 @@ import {
   colorForStatus,
   formatDateTime,
   formatNumber,
-  safeArray,
+  getApiErrorMessage,
+  getListCount,
+  getListPayload,
   SA_ENDPOINTS,
   T,
 } from "./saUtils";
@@ -54,21 +56,21 @@ function KpiCard({ icon, label, value, color }) {
 export default function SuperAdminAgents() {
   const [stats, setStats] = useState(null);
   const [runs, setRuns] = useState([]);
+  const [totalRuns, setTotalRuns] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([
-      apiGet(SA_ENDPOINTS.aiAgentStats),
-      apiGet(`${SA_ENDPOINTS.aiAgents}?page_size=${pageSize}`),
-    ])
-      .then(([statsRes, runsRes]) => {
-        setStats(statsRes.data);
-        setRuns(safeArray(runsRes.data.results || runsRes.data));
+    apiGet(`${SA_ENDPOINTS.agents}?page_size=${pageSize}`)
+      .then((res) => {
+        setStats(res.data.stats || {});
+        setRuns(getListPayload(res.data.runs || res.data.results || res.data));
+        setTotalRuns(getListCount(res.data));
+        setError("");
       })
       .catch((err) => {
         console.error(err);
-        setError("Impossible de charger les agents IA.");
+        setError(getApiErrorMessage(err, "Impossible de charger les agents IA."));
       })
       .finally(() => setLoading(false));
   }, []);
@@ -81,7 +83,9 @@ export default function SuperAdminAgents() {
             Supervision des agents IA
           </Typography>
           <Typography variant="body2" sx={{ color: T.n500 }}>
-            Exécutions réelles, volumes générés et erreurs par entreprise.
+            {totalRuns
+              ? `${formatNumber(totalRuns)} exécution(s) enregistrée(s).`
+              : "Exécutions réelles, volumes générés et erreurs par entreprise."}
           </Typography>
         </Box>
         <Avatar sx={{ bgcolor: alpha(T.red, 0.1), color: T.red, width: 48, height: 48 }}>
@@ -145,7 +149,7 @@ export default function SuperAdminAgents() {
                   {!runs.length && (
                     <TableRow>
                       <TableCell colSpan={7} align="center" sx={{ py: 4, color: T.n500 }}>
-                        Aucun run IA enregistré.
+                        Aucun run IA enregistré dans la base pour le moment.
                       </TableCell>
                     </TableRow>
                   )}

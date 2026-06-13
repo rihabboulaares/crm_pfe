@@ -119,6 +119,7 @@ import { usePaginatedList } from "../../hooks/usePaginatedList";
 import PaginationBar from "../../components/PaginationBar";
 import SocialConnectionBox, { isSessionReady } from "../../components/social/SocialConnectionBox";
 import { runProspectionAgent } from "../../services/prospectAgentApi";
+import { getSocialSessions } from "../../services/socialSessionsApi";
 
 const SOURCE_CONFIG = {
   google_maps: { label: "Google Maps", color: "#d32f2f" },
@@ -155,6 +156,41 @@ const TASK_TYPE_OPTIONS = [
 
 const getProspectDisplayName = (prospect) =>
   [prospect?.first_name, prospect?.last_name].filter(Boolean).join(" ").trim() || "Sans nom";
+
+const SOCIAL_PLATFORMS = ["linkedin", "facebook", "instagram"];
+
+const normalizePlatformName = (platform) => String(platform || "").trim().toLowerCase();
+
+const normalizeSocialSessions = (payload) => {
+  const rows = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.results)
+    ? payload.results
+    : payload && typeof payload === "object"
+    ? Object.entries(payload).map(([platform, session]) => ({
+        ...(session || {}),
+        platform: session?.platform || platform,
+      }))
+    : [];
+
+  return rows.reduce((acc, item) => {
+    const platform = normalizePlatformName(item?.platform);
+    if (SOCIAL_PLATFORMS.includes(platform)) {
+      acc[platform] = {
+        ...item,
+        platform,
+        success: item?.success === true || item?.ok === true || item?.status === "connected",
+        status: item?.status === "session_ready" ? "connected" : item?.status,
+      };
+    }
+    return acc;
+  }, {});
+};
+
+const getRequiredPlatformsFromAgentQuery = (value) => {
+  const query = String(value || "").toLowerCase();
+  return SOCIAL_PLATFORMS.filter((platform) => query.includes(platform));
+};
 
 const getProspectInitials = (prospect) => {
   const name = getProspectDisplayName(prospect);
@@ -3767,6 +3803,7 @@ export default function Prospects() {
   const [agentError, setAgentError] = useState("");
   const [agentOpen, setAgentOpen] = useState(false);
   const [socialSessions, setSocialSessions] = useState({});
+  const [socialSessionsLoading, setSocialSessionsLoading] = useState(false);
 
   const [showForm, setShowForm] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -3922,6 +3959,30 @@ export default function Prospects() {
   const showSnackbar = (msg, sev = "success") =>
     setSnackbar({ open: true, message: msg, severity: sev });
 
+  const refreshSocialSessions = useCallback(async ({ silent = false } = {}) => {
+    setSocialSessionsLoading(true);
+    try {
+      const response = await getSocialSessions();
+      const next = normalizeSocialSessions(response.data);
+      console.log("[prospects-agent] social sessions", next);
+      setSocialSessions(next);
+      if (!silent) showSnackbar("Sessions sociales rafraichies", "success");
+      return next;
+    } catch (error) {
+      console.error("[prospects-agent] social sessions error", error);
+      if (!silent) showSnackbar("Impossible de rafraichir les sessions sociales", "error");
+      return {};
+    } finally {
+      setSocialSessionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (agentOpen) {
+      refreshSocialSessions({ silent: true });
+    }
+  }, [agentOpen, refreshSocialSessions]);
+
   // ── Stats ──
   const loginRequired = Boolean(
     agentResult?.logs?.some((item) => item.step === "login_required") ||
@@ -3942,18 +4003,18 @@ export default function Prospects() {
   ];
 
   const requiredAgentPlatforms = useMemo(() => {
-    const query = agentQuery.toLowerCase();
-    const required = [];
-    if (query.includes("linkedin")) required.push("linkedin");
-    if (query.includes("facebook")) required.push("facebook");
-    if (query.includes("instagram")) required.push("instagram");
-    return required.length ? required : ["linkedin"];
+    return getRequiredPlatformsFromAgentQuery(agentQuery);
   }, [agentQuery]);
 
   const missingRequiredAgentPlatforms = useMemo(
     () => requiredAgentPlatforms.filter((platform) => !isSessionReady(socialSessions?.[platform])),
     [requiredAgentPlatforms, socialSessions]
   );
+
+  useEffect(() => {
+    console.log("[prospects-agent] required platforms", requiredAgentPlatforms);
+    console.log("[prospects-agent] missing platforms", missingRequiredAgentPlatforms);
+  }, [requiredAgentPlatforms, missingRequiredAgentPlatforms]);
 
   const canLaunchProspecting = missingRequiredAgentPlatforms.length === 0;
 
@@ -4420,10 +4481,15 @@ export default function Prospects() {
                 </Box>
 
                 <SocialConnectionBox
+                  sessions={socialSessions}
                   title="Connexions sociales pour la prospection"
                   compact
                   requiredPlatforms={requiredAgentPlatforms}
-                  onStatusChange={setSocialSessions}
+                  onStatusChange={(sessions) => {
+                    const next = normalizeSocialSessions(sessions);
+                    console.log("[prospects-agent] social sessions", next);
+                    setSocialSessions(next);
+                  }}
                 />
 
                 {missingRequiredAgentPlatforms.length > 0 && (
@@ -4444,6 +4510,17 @@ export default function Prospects() {
                 />
 
                 <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                  <Button
+                    variant="outlined"
+                    startIcon={
+                      socialSessionsLoading ? <CircularProgress size={16} /> : <RefreshIcon />
+                    }
+                    onClick={() => refreshSocialSessions()}
+                    disabled={socialSessionsLoading || agentLoading}
+                    sx={{ textTransform: "none", borderRadius: 2 }}
+                  >
+                    Rafraichir les sessions
+                  </Button>
                   <GradientButton
                     startIcon={
                       agentLoading ? <CircularProgress size={16} color="inherit" /> : <SendIcon />

@@ -32,25 +32,29 @@ import {
   AttachMoney,
   CheckCircle,
   SmartToy,
-  MonitorHeart,
   FactCheck,
-  BarChart,
 } from "@mui/icons-material";
-import { alpha } from "@mui/material/styles";
 
 const DRAWER_WIDTH = 260;
+const COLLAPSED_WIDTH = 96;
 const RED = "#C1121F";
-const SIDEBAR_BG = "#1F2937";
-const SIDEBAR_BORDER = "rgba(255,255,255,0.14)";
+const SIDEBAR_BG =
+  "linear-gradient(180deg, #5A0002 0%, #780000 44%, #9B0008 100%)";
+const SIDEBAR_BORDER = "rgba(255,255,255,0.12)";
 const SIDEBAR_TEXT = "#ffffff";
-const SIDEBAR_MUTED = "rgba(255,255,255,0.68)";
+const SIDEBAR_MUTED = "rgba(255,255,255,0.84)";
+const ACTIVE_BG = "rgba(255,255,255,0.94)";
+const HOVER_BG = "rgba(255,255,255,0.12)";
+const ICON_BG = "rgba(255,255,255,0.08)";
+const ICON_HOVER_BG = "rgba(255,255,255,0.14)";
+const ICON_ACTIVE_BG = "rgba(193,18,31,0.10)";
 
 const NAV_SECTIONS = [
   {
     title: "PRINCIPAL",
     items: [
       {
-        label: "Tableau de bord",
+        label: "Dashboard",
         icon: <Dashboard />,
         path: "/superadmin/dashboard",
       },
@@ -126,19 +130,9 @@ const NAV_SECTIONS = [
         path: "/superadmin/agents",
       },
       {
-        label: "Monitoring",
-        icon: <MonitorHeart />,
-        path: "/superadmin/monitoring",
-      },
-      {
         label: "Audit Logs",
         icon: <FactCheck />,
         path: "/superadmin/logs",
-      },
-      {
-        label: "Statistiques",
-        icon: <BarChart />,
-        path: "/superadmin/stats",
       },
     ],
   },
@@ -153,25 +147,39 @@ function NavItem({ item, collapsed, active }) {
         button
         onClick={() => navigate(item.path)}
         sx={{
-          borderRadius: "10px",
-          mb: 0.5,
-          mx: collapsed ? 1 : 1.5,
-          px: collapsed ? 1.5 : 2,
-          py: 1,
+          borderRadius: "14px",
+          mb: "3px",
+          mx: "12px",
+          px: "12px",
+          py: "11px",
           justifyContent: collapsed ? "center" : "flex-start",
-          bgcolor: active ? "rgba(255,255,255,0.12)" : "transparent",
-          border: active ? `1px solid ${SIDEBAR_BORDER}` : "1px solid transparent",
+          bgcolor: active ? ACTIVE_BG : "transparent",
+          color: active ? RED : SIDEBAR_MUTED,
+          border: active ? "1px solid rgba(255,255,255,0.95)" : "1px solid transparent",
+          boxShadow: active ? "0 12px 24px rgba(0,0,0,0.16)" : "none",
           "&:hover": {
-            bgcolor: "rgba(255,255,255,0.10)",
-            border: `1px solid ${SIDEBAR_BORDER}`,
+            bgcolor: active ? ACTIVE_BG : HOVER_BG,
+            color: active ? RED : "#fff",
+            transform: "translateX(2px)",
+            "& .MuiListItemIcon-root": {
+              color: active ? RED : "#fff",
+              bgcolor: active ? ICON_ACTIVE_BG : ICON_HOVER_BG,
+            },
           },
           transition: "all 0.2s ease",
         }}
       >
         <ListItemIcon
           sx={{
-            color: active ? "#ffffff" : SIDEBAR_MUTED,
-            minWidth: collapsed ? 0 : 36,
+            color: active ? RED : "rgba(255,255,255,0.72)",
+            bgcolor: active ? ICON_ACTIVE_BG : ICON_BG,
+            borderRadius: "8px",
+            width: 32,
+            height: 32,
+            display: "grid",
+            placeItems: "center",
+            minWidth: collapsed ? 32 : 32,
+            mr: collapsed ? 0 : 1,
             "& svg": { fontSize: 20 },
           }}
         >
@@ -185,7 +193,8 @@ function NavItem({ item, collapsed, active }) {
                 sx={{
                   fontSize: 14,
                   fontWeight: active ? 600 : 500,
-                  color: active ? SIDEBAR_TEXT : SIDEBAR_MUTED,
+                  color: active ? RED : "rgba(255,255,255,0.84)",
+                  lineHeight: 1.2,
                 }}
               >
                 {item.label}
@@ -214,7 +223,7 @@ function SuperAdminLayout({ children }) {
     navigate("/authentication/sign-in", { replace: true });
   };
 
-  const drawerWidth = collapsed ? 72 : DRAWER_WIDTH;
+  const drawerWidth = collapsed ? COLLAPSED_WIDTH : DRAWER_WIDTH;
 
   return (
     <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "#F8F9FA" }}>
@@ -225,16 +234,19 @@ function SuperAdminLayout({ children }) {
           flexShrink: 0,
           "& .MuiDrawer-paper": {
             width: drawerWidth,
-            bgcolor: SIDEBAR_BG,
-            borderRight: `1px solid ${SIDEBAR_BORDER}`,
-            boxShadow: "0 18px 36px rgba(15,23,42,0.24)",
+            color: SIDEBAR_TEXT,
+            backgroundColor: "#780000",
+            backgroundImage: SIDEBAR_BG,
+            borderRight: "none",
+            boxShadow: "18px 0 42px rgba(90,0,2,0.22)",
             transition: "width 0.25s ease",
             overflowX: "hidden",
+            overflowY: "hidden",
           },
         }}
       >
         {/* Logo et header */}
-        <Box sx={{ p: collapsed ? 2 : 2.5 }}>
+        <Box sx={{ px: collapsed ? 2 : 3, pt: 3, pb: 2 }}>
           <Stack direction="row" alignItems="center" justifyContent="space-between">
             {!collapsed ? (
               <>
@@ -261,13 +273,14 @@ function SuperAdminLayout({ children }) {
                         fontSize: 16,
                       }}
                     >
-                      viewisecrm
+                      ViewiseCRM
                     </Typography>
                     <Typography
                       variant="caption"
                       sx={{
                         color: SIDEBAR_MUTED,
-                        fontSize: 10,
+                        fontSize: 10.5,
+                        fontWeight: 600,
                       }}
                     >
                       Super Admin
@@ -306,7 +319,7 @@ function SuperAdminLayout({ children }) {
                 >
                   V
                 </Avatar>
-                <IconButton onClick={() => setCollapsed(false)} sx={{ color: SIDEBAR_MUTED, p: 0.5, "&:hover": { color: "#fff" } }}>
+                <IconButton onClick={() => setCollapsed(false)} sx={{ color: SIDEBAR_MUTED, p: 0.5, "&:hover": { color: "#fff", bgcolor: HOVER_BG } }}>
                   <Menu fontSize="small" />
                 </IconButton>
               </Box>
@@ -317,19 +330,34 @@ function SuperAdminLayout({ children }) {
         <Divider sx={{ borderColor: SIDEBAR_BORDER, mx: 2 }} />
 
         {/* Navigation */}
-        <Box sx={{ flex: 1, overflowY: "auto", overflowX: "hidden", py: 2 }}>
+        <Box
+          sx={{
+            flex: 1,
+            overflowY: "auto",
+            overflowX: "hidden",
+            py: 1,
+            scrollbarWidth: "thin",
+            scrollbarColor: "rgba(255,255,255,0.30) transparent",
+            "&::-webkit-scrollbar": { width: 6 },
+            "&::-webkit-scrollbar-thumb": {
+              backgroundColor: "rgba(255,255,255,0.30)",
+              borderRadius: 8,
+            },
+            "&::-webkit-scrollbar-track": { background: "transparent" },
+          }}
+        >
           {NAV_SECTIONS.map((section) => (
             <Box key={section.title}>
               {!collapsed && (
-                <Box sx={{ px: 2.5, py: 1 }}>
+                <Box sx={{ px: 3, pt: 1.5, pb: 0.75 }}>
                   <Typography
                     variant="caption"
                     sx={{
-                      color: "rgba(255,255,255,0.46)",
+                      color: "rgba(255,255,255,0.50)",
                       fontWeight: 600,
                       textTransform: "uppercase",
-                      letterSpacing: 0.8,
-                      fontSize: 11,
+                      letterSpacing: "0.08em",
+                      fontSize: 10.5,
                     }}
                   >
                     {section.title}
@@ -359,19 +387,27 @@ function SuperAdminLayout({ children }) {
               button
               onClick={handleLogout}
               sx={{
-                borderRadius: "10px",
-                px: collapsed ? 1.5 : 2,
-                py: 1,
+                borderRadius: "14px",
+                px: "12px",
+                py: "11px",
                 justifyContent: collapsed ? "center" : "flex-start",
-                bgcolor: "rgba(255,255,255,0.10)",
+                bgcolor: HOVER_BG,
                 border: `1px solid ${SIDEBAR_BORDER}`,
-                "&:hover": { bgcolor: "rgba(255,255,255,0.16)" },
+                transition: "all 0.2s ease",
+                "&:hover": { bgcolor: "rgba(255,255,255,0.18)", transform: "translateY(-1px)" },
               }}
             >
               <ListItemIcon
                 sx={{
                   color: "#fff",
-                  minWidth: collapsed ? 0 : 36,
+                  bgcolor: ICON_BG,
+                  borderRadius: "8px",
+                  width: 32,
+                  height: 32,
+                  display: "grid",
+                  placeItems: "center",
+                  minWidth: collapsed ? 32 : 32,
+                  mr: collapsed ? 0 : 1,
                 }}
               >
                 <Logout sx={{ fontSize: 20 }} />

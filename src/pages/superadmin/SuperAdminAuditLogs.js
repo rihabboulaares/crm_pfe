@@ -21,11 +21,12 @@ import {
 } from "@mui/material";
 import { FactCheck, Search } from "@mui/icons-material";
 import { alpha } from "@mui/material/styles";
-import { apiGet, formatDateTime, safeArray, SA_ENDPOINTS, T } from "./saUtils";
+import { apiGet, formatDateTime, getApiErrorMessage, getListCount, getListPayload, SA_ENDPOINTS, T } from "./saUtils";
 import SuperAdminLayout from "./SuperAdminLayout";
 
 export default function SuperAdminAuditLogs() {
   const [logs, setLogs] = useState([]);
+  const [totalLogs, setTotalLogs] = useState(0);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -35,12 +36,13 @@ export default function SuperAdminAuditLogs() {
       setLoading(true);
       apiGet(`${SA_ENDPOINTS.auditLogs}?page_size=25${search ? `&search=${encodeURIComponent(search)}` : ""}`)
         .then((res) => {
-          setLogs(safeArray(res.data.results || res.data));
+          setLogs(getListPayload(res.data));
+          setTotalLogs(getListCount(res.data));
           setError("");
         })
         .catch((err) => {
           console.error(err);
-          setError("Impossible de charger les journaux d'audit.");
+          setError(getApiErrorMessage(err, "Impossible de charger les journaux d'audit."));
         })
         .finally(() => setLoading(false));
     }, 250);
@@ -55,7 +57,9 @@ export default function SuperAdminAuditLogs() {
             Audit Logs
           </Typography>
           <Typography variant="body2" sx={{ color: T.n500 }}>
-            Historique des actions SuperAdmin et des changements critiques.
+            {totalLogs
+              ? `${totalLogs.toLocaleString("fr-FR")} action(s) critique(s) enregistrée(s).`
+              : "Historique des actions SuperAdmin et des changements critiques."}
           </Typography>
         </Box>
         <Avatar sx={{ bgcolor: alpha(T.red, 0.1), color: T.red, width: 48, height: 48 }}>
@@ -117,7 +121,7 @@ export default function SuperAdminAuditLogs() {
                 {!logs.length && (
                   <TableRow>
                     <TableCell colSpan={7} align="center" sx={{ py: 4, color: T.n500 }}>
-                      Aucun log d&apos;audit trouvé.
+                      Aucun log d&apos;audit enregistré dans la base pour le moment.
                     </TableCell>
                   </TableRow>
                 )}

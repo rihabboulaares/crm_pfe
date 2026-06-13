@@ -6,8 +6,14 @@ export const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || "http://127.0.
 
 export const api = axios.create({ baseURL: API_BASE_URL });
 
+export const getAuthToken = () =>
+  localStorage.getItem("token") ||
+  localStorage.getItem("access") ||
+  localStorage.getItem("access_token") ||
+  localStorage.getItem("accessToken");
+
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
+  const token = getAuthToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -31,9 +37,11 @@ export const SA_ENDPOINTS = {
   contactsStats: "/api/superadmin/contacts/stats/",
   teamsStats: "/api/superadmin/teams/stats/",
   invitationsStats: "/api/superadmin/invitations/stats/",
-  aiAgents: "/api/superadmin/ai-agents/",
+  agents: "/api/superadmin/agents/",
+  aiAgents: "/api/superadmin/agents/",
   aiAgentStats: "/api/superadmin/ai-agents/stats/",
-  auditLogs: "/api/superadmin/audit-logs/",
+  logs: "/api/superadmin/logs/",
+  auditLogs: "/api/superadmin/logs/",
   systemHealth: "/api/superadmin/system-health/",
   marketingDashboard: "/api/superadmin/marketing-dashboard/",
   feedback: (id) => `/api/superadmin/feedbacks/${id}/`,
@@ -54,6 +62,13 @@ export const T = {
 };
 
 export const safeArray = (value) => (Array.isArray(value) ? value : []);
+export const getListPayload = (data) => safeArray(data?.results || data);
+export const getListCount = (data) => Number(data?.count ?? getListPayload(data).length ?? 0);
+export const getApiErrorMessage = (error, fallback = "Impossible de charger les donnees.") =>
+  error?.response?.data?.detail ||
+  error?.response?.data?.error ||
+  error?.response?.data?.message ||
+  fallback;
 export const formatNumber = (value) => Number(value || 0).toLocaleString("fr-FR");
 export const formatCurrency = (value) =>
   `${Number(value || 0).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} TND`;

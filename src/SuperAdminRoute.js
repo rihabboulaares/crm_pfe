@@ -10,7 +10,7 @@ function SuperAdminRoute({ children }) {
     return <Navigate to="/authentication/sign-in" replace />;
   }
 
-  if (user.role !== "SUPERADMIN") {
+  if (user.role !== "SUPERADMIN" && !user.is_superuser) {
     return <Navigate to="/dashboard" replace />;
   }
 

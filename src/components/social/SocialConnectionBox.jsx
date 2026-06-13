@@ -66,10 +66,15 @@ function statusColor(status) {
 }
 
 export function isSessionReady(session) {
-  return session?.success === true && session?.status === "session_ready";
+  return (
+    session?.status === "connected" ||
+    (session?.success === true && ["connected", "session_ready"].includes(session?.status)) ||
+    (session?.ok === true && session?.status === "connected")
+  );
 }
 
 export default function SocialConnectionBox({
+  sessions: externalSessions,
   requiredPlatforms,
   title,
   compact,
@@ -207,7 +212,7 @@ export default function SocialConnectionBox({
         </Stack>
 
         {visiblePlatforms.map((platform) => {
-          const result = sessions[platform.key];
+          const result = externalSessions?.[platform.key] || sessions[platform.key];
           const loadingState = loading[platform.key];
           const computedStatus = loadingState || normalizeStatus(result);
           const color = statusColor(computedStatus);
@@ -297,6 +302,7 @@ export default function SocialConnectionBox({
 }
 
 SocialConnectionBox.propTypes = {
+  sessions: PropTypes.objectOf(PropTypes.object),
   requiredPlatforms: PropTypes.arrayOf(PropTypes.oneOf(["linkedin", "facebook", "instagram"])),
   title: PropTypes.string,
   compact: PropTypes.bool,
@@ -306,6 +312,7 @@ SocialConnectionBox.propTypes = {
 };
 
 SocialConnectionBox.defaultProps = {
+  sessions: null,
   requiredPlatforms: [],
   title: "Connexions sociales",
   compact: false,
