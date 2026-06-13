@@ -22,6 +22,7 @@ def is_company_admin(user):
 
 
 class SubscriptionPlansView(APIView):
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def get(self, request):

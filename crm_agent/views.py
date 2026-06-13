@@ -4,7 +4,9 @@ views.py — Endpoints Django REST Framework pour l'agent CRM MCP.
 import asyncio
 import traceback
 import base64
+from time import perf_counter
 
+from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,6 +14,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 from .agent import chat_with_memory, reset_memory
 from .memory import REDIS_AVAILABLE
+from superadmin.audit import create_ai_agent_run, create_audit_log, finish_ai_agent_run
 
 
 class AgentChatView(APIView):
@@ -27,6 +30,26 @@ class AgentChatView(APIView):
             user_id = f"user_{user.id}"
             username = user.username
             company_id = getattr(user, "company_id", 1) or 1
+            company = getattr(user, "company", None)
+            started = perf_counter()
+            run_log = create_ai_agent_run(
+                agent_type="crm",
+                company=company,
+                launched_by=user,
+                query=message,
+                status="running",
+                started_at=timezone.now(),
+            )
+            create_audit_log(
+                actor=user,
+                company=company,
+                action="launch_agent",
+                module="ai_agents",
+                object_id=getattr(run_log, "id", None),
+                object_repr="Agent CRM",
+                description="Message envoye a l'agent CRM",
+                metadata={"message_preview": message[:300]},
+            )
 
             print(f"[AGENT] user={username} | company={company_id} | msg={message}")
 
@@ -39,6 +62,13 @@ class AgentChatView(APIView):
                 )
             )
 
+            finish_ai_agent_run(
+                run_log,
+                status="success",
+                messages_generated=1,
+                duration_seconds=round(perf_counter() - started, 2),
+                metadata={"response_preview": str(response)[:500]},
+            )
             print(f"[AGENT] réponse OK")
             return Response({
                 "response": response,
@@ -47,6 +77,22 @@ class AgentChatView(APIView):
             })
 
         except Exception as e:
+            if "run_log" in locals():
+                finish_ai_agent_run(
+                    run_log,
+                    status="failed",
+                    error_message=str(e),
+                    duration_seconds=round(perf_counter() - started, 2) if "started" in locals() else 0,
+                )
+            create_audit_log(
+                actor=getattr(request, "user", None),
+                company=getattr(getattr(request, "user", None), "company", None),
+                action="system_error",
+                module="ai_agents",
+                object_repr="Agent CRM",
+                description="Erreur agent CRM",
+                metadata={"error": str(e)[:500]},
+            )
             print(f"[AGENT ERROR] {traceback.format_exc()}")
             return Response({"error": str(e)}, status=500)
 
@@ -91,6 +137,27 @@ class AgentFileView(APIView):
             user_id = f"user_{user.id}"
             username = user.username
             company_id = getattr(user, "company_id", 1) or 1
+            company = getattr(user, "company", None)
+            started = perf_counter()
+            run_log = create_ai_agent_run(
+                agent_type="crm",
+                company=company,
+                launched_by=user,
+                query=f"file={file.name}; message={message[:200]}",
+                status="running",
+                started_at=timezone.now(),
+                metadata={"file": file.name},
+            )
+            create_audit_log(
+                actor=user,
+                company=company,
+                action="launch_agent",
+                module="ai_agents",
+                object_id=getattr(run_log, "id", None),
+                object_repr="Agent CRM fichier",
+                description="Fichier envoye a l'agent CRM",
+                metadata={"file": file.name},
+            )
 
             print(f"[AGENT FILE] user={username} | fichier={file.name} | taille={len(content)} bytes")
 
@@ -103,6 +170,13 @@ class AgentFileView(APIView):
                 )
             )
 
+            finish_ai_agent_run(
+                run_log,
+                status="success",
+                messages_generated=1,
+                duration_seconds=round(perf_counter() - started, 2),
+                metadata={"file": file.name, "response_preview": str(response)[:500]},
+            )
             return Response({
                 "response": response,
                 "file": file.name,
@@ -110,6 +184,22 @@ class AgentFileView(APIView):
             })
 
         except Exception as e:
+            if "run_log" in locals():
+                finish_ai_agent_run(
+                    run_log,
+                    status="failed",
+                    error_message=str(e),
+                    duration_seconds=round(perf_counter() - started, 2) if "started" in locals() else 0,
+                )
+            create_audit_log(
+                actor=getattr(request, "user", None),
+                company=getattr(getattr(request, "user", None), "company", None),
+                action="system_error",
+                module="ai_agents",
+                object_repr="Agent CRM fichier",
+                description="Erreur agent CRM fichier",
+                metadata={"error": str(e)[:500]},
+            )
             print(f"[AGENT FILE ERROR] {traceback.format_exc()}")
             return Response({"error": str(e)}, status=500)
 

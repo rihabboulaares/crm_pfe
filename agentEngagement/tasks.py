@@ -11,7 +11,7 @@ from .runner import launch_engagement_agent
 if shared_task:
 
     @shared_task(bind=True, max_retries=2)
-    def launch_engagement_agent_task(self, company_id, user_id, limit=25, scrape=True, auto_send=False):
+    def launch_engagement_agent_task(self, company_id, user_id, limit=25, scrape=True, auto_send=False, run_log_id=None):
         user = User.objects.get(pk=user_id)
         company = Company.objects.get(pk=company_id)
         return launch_engagement_agent(
@@ -20,6 +20,7 @@ if shared_task:
             limit=limit,
             scrape=scrape,
             auto_send=auto_send,
+            run_log_id=run_log_id,
         )
 
 else:

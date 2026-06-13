@@ -126,6 +126,7 @@ class SuperAdminAuditLog(models.Model):
         ("subscription_change", "Subscription change"),
         ("toggle_user", "Toggle user"),
         ("toggle_company", "Toggle company"),
+        ("system_error", "System error"),
     ]
 
     actor = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="superadmin_audit_logs")
@@ -135,6 +136,7 @@ class SuperAdminAuditLog(models.Model):
     object_id = models.CharField(max_length=120, null=True, blank=True)
     object_repr = models.CharField(max_length=255, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -152,7 +154,7 @@ class SuperAdminAuditLog(models.Model):
 
 
 class AIAgentRun(models.Model):
-    AGENT_TYPE_CHOICES = [("prospection", "Prospection"), ("engagement", "Engagement")]
+    AGENT_TYPE_CHOICES = [("prospection", "Prospection"), ("engagement", "Engagement"), ("crm", "CRM")]
     STATUS_CHOICES = [("running", "Running"), ("success", "Success"), ("failed", "Failed"), ("partial", "Partial")]
 
     company = models.ForeignKey(Company, on_delete=models.SET_NULL, null=True, blank=True, related_name="ai_agent_runs")

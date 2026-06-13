@@ -36,6 +36,7 @@ from .views import (
     SuperAdminContactStatsView,
     SuperAdminTeamStatsView,
     SuperAdminInvitationStatsView,
+    SuperAdminAgentExecutionView,
     SuperAdminAIAgentRunListView,
     SuperAdminAIAgentStatsView,
     SuperAdminAuditLogListView,
@@ -65,8 +66,10 @@ urlpatterns = [
     path("contacts/stats/",                 SuperAdminContactStatsView.as_view(),       name="sa-contacts-stats"),
     path("teams/stats/",                    SuperAdminTeamStatsView.as_view(),          name="sa-teams-stats"),
     path("invitations/stats/",              SuperAdminInvitationStatsView.as_view(),    name="sa-invitations-stats"),
+    path("agents/",                         SuperAdminAgentExecutionView.as_view(),     name="sa-agents"),
     path("ai-agents/",                      SuperAdminAIAgentRunListView.as_view(),     name="sa-ai-agents"),
     path("ai-agents/stats/",                SuperAdminAIAgentStatsView.as_view(),       name="sa-ai-agent-stats"),
+    path("logs/",                           SuperAdminAuditLogListView.as_view(),       name="sa-logs"),
     path("audit-logs/",                     SuperAdminAuditLogListView.as_view(),       name="sa-audit-logs"),
     path("system-health/",                  SuperAdminSystemHealthView.as_view(),       name="sa-system-health"),
 

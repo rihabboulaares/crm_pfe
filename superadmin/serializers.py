@@ -430,6 +430,9 @@ class SuperAdminStatsSerializer(serializers.Serializer):
 class AIAgentRunSerializer(serializers.ModelSerializer):
     company_name = serializers.CharField(source="company.name", read_only=True, default=None)
     launched_by_username = serializers.CharField(source="launched_by.username", read_only=True, default=None)
+    user = serializers.CharField(source="launched_by.username", read_only=True, default=None)
+    ended_at = serializers.DateTimeField(source="finished_at", read_only=True)
+    error = serializers.CharField(source="error_message", read_only=True, default="")
 
     class Meta:
         model = AIAgentRun
@@ -440,6 +443,9 @@ class SuperAdminAuditLogSerializer(serializers.ModelSerializer):
     actor_username = serializers.CharField(source="actor.username", read_only=True, default=None)
     actor_email = serializers.CharField(source="actor.email", read_only=True, default=None)
     company_name = serializers.CharField(source="company.name", read_only=True, default=None)
+    object_type = serializers.CharField(source="module", read_only=True)
+    object_label = serializers.CharField(source="object_repr", read_only=True, default=None)
+    detail = serializers.CharField(source="description", read_only=True, default=None)
 
     class Meta:
         model = SuperAdminAuditLog

@@ -1,4 +1,5 @@
 import logging
+from time import perf_counter
 
 from django.db.models import Q
 from django.utils import timezone
@@ -19,6 +20,8 @@ from .social.social_profile_scraper import (
     scrape_prospect_social_profiles,
     scrape_social_profile,
 )
+from superadmin.audit import create_ai_agent_run, create_audit_log, finish_ai_agent_run
+from superadmin.models import AIAgentRun
 
 logger = logging.getLogger("agentEngagement.runner")
 
@@ -533,8 +536,38 @@ def send_prepared_engagement(prospect, user) -> dict:
         }
 
 
-def launch_engagement_agent(company, user, limit=25, scrape=True, auto_send=False):
+def launch_engagement_agent(company, user, limit=25, scrape=True, auto_send=False, run_log_id=None):
     from .permissions import get_engagement_queryset_for_user
+
+    started_at = timezone.now()
+    started_timer = perf_counter()
+    run_log = None
+    if run_log_id:
+        try:
+            run_log = AIAgentRun.objects.get(pk=run_log_id)
+            started_at = run_log.started_at or started_at
+        except AIAgentRun.DoesNotExist:
+            run_log = None
+
+    if run_log is None:
+        run_log = create_ai_agent_run(
+            agent_type="engagement",
+            company=company,
+            launched_by=user,
+            query=f"limit={limit}; scrape={scrape}; auto_send={auto_send}",
+            status="running",
+            started_at=started_at,
+        )
+        create_audit_log(
+            actor=user,
+            company=company,
+            action="launch_agent",
+            module="ai_agents",
+            object_id=getattr(run_log, "id", None),
+            object_repr="Agent engagement",
+            description="Lancement agent IA d'engagement",
+            metadata={"limit": limit, "scrape": scrape, "auto_send": auto_send},
+        )
 
     qs = get_engagement_queryset_for_user(user).filter(
         Q(engagement_status__isnull=True)
@@ -548,54 +581,75 @@ def launch_engagement_agent(company, user, limit=25, scrape=True, auto_send=Fals
 
     results = []
 
-    for prospect in qs:
-        try:
-            logger.warning(
-                "[ENGAGEMENT AGENT] prospect=%s status=%s channel=%s",
-                prospect.pk,
-                prospect.engagement_status,
-                prospect.last_engagement_channel,
-            )
-            result = prepare_engagement(
-                prospect=prospect,
-                user=user,
-                scrape=scrape,
-            )
+    try:
+        for prospect in qs:
+            try:
+                logger.warning(
+                    "[ENGAGEMENT AGENT] prospect=%s status=%s channel=%s",
+                    prospect.pk,
+                    prospect.engagement_status,
+                    prospect.last_engagement_channel,
+                )
+                result = prepare_engagement(
+                    prospect=prospect,
+                    user=user,
+                    scrape=scrape,
+                )
 
-            prospect.refresh_from_db()
+                prospect.refresh_from_db()
 
-            if auto_send and result.get("success") and prospect.engagement_status == "pending_validation":
-                send_result = send_prepared_engagement(prospect, user)
+                if auto_send and result.get("success") and prospect.engagement_status == "pending_validation":
+                    send_result = send_prepared_engagement(prospect, user)
+                    results.append(
+                        {
+                            "prospect_id": prospect.pk,
+                            "status": send_result.get("status"),
+                            "sent": send_result.get("sent", False),
+                            "auto_sent": True,
+                        }
+                    )
+                else:
+                    results.append(
+                        {
+                            "prospect_id": prospect.pk,
+                            "status": result.get("status"),
+                            "success": result.get("success", False),
+                            "message_ready": result.get("status") == "pending_validation",
+                            "auto_sent": False,
+                        }
+                    )
+
+            except Exception as exc:
+                logger.exception("[runner] launch agent failed for Prospect #%s", prospect.pk)
+                mark_engagement_actor(prospect, user)
+                set_status(prospect, "message_failed", error=str(exc)[:500])
                 results.append(
                     {
                         "prospect_id": prospect.pk,
-                        "status": send_result.get("status"),
-                        "sent": send_result.get("sent", False),
-                        "auto_sent": True,
+                        "status": "error",
+                        "error": str(exc)[:500],
                     }
                 )
-            else:
-                results.append(
-                    {
-                        "prospect_id": prospect.pk,
-                        "status": result.get("status"),
-                        "success": result.get("success", False),
-                        "message_ready": result.get("status") == "pending_validation",
-                        "auto_sent": False,
-                    }
-                )
+    finally:
+        errors = [item for item in results if item.get("error") or item.get("status") == "error"]
+        successful = [item for item in results if item.get("success") or item.get("message_ready") or item.get("sent")]
+        if errors and successful:
+            run_status = "partial"
+        elif errors and not successful:
+            run_status = "failed"
+        else:
+            run_status = "success"
 
-        except Exception as exc:
-            logger.exception("[runner] launch agent failed for Prospect #%s", prospect.pk)
-            mark_engagement_actor(prospect, user)
-            set_status(prospect, "message_failed", error=str(exc)[:500])
-            results.append(
-                {
-                    "prospect_id": prospect.pk,
-                    "status": "error",
-                    "error": str(exc)[:500],
-                }
-            )
+        finish_ai_agent_run(
+            run_log,
+            status=run_status,
+            prospects_found=len(results),
+            messages_generated=sum(1 for item in results if item.get("message_ready") or item.get("sent")),
+            messages_sent=sum(1 for item in results if item.get("sent")),
+            duration_seconds=round(perf_counter() - started_timer, 2),
+            error_message="; ".join(str(item.get("error")) for item in errors[:3] if item.get("error")) or None,
+            metadata={"limit": limit, "scrape": scrape, "auto_send": auto_send, "results": results[:50]},
+        )
 
     return {
         "success": True,

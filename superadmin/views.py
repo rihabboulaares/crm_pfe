@@ -40,6 +40,7 @@ from sales.models import (
 )
 
 from .permissions import IsSuperAdmin
+from .audit import backfill_agent_runs_from_existing_activity, backfill_audit_logs_from_existing_activity, create_audit_log
 from .serializers import (
     SuperAdminPlanSerializer,
     SuperAdminSubscriptionSerializer,
@@ -67,19 +68,6 @@ class SuperAdminPagination(PageNumberPagination):
     page_size = 15
     page_size_query_param = "page_size"
     max_page_size = 100
-
-
-def create_audit_log(actor=None, company=None, action="update", module="", object_id=None, object_repr=None, description=None, metadata=None):
-    return SuperAdminAuditLog.objects.create(
-        actor=actor if getattr(actor, "is_authenticated", False) else None,
-        company=company,
-        action=action,
-        module=module or "superadmin",
-        object_id=str(object_id) if object_id is not None else None,
-        object_repr=str(object_repr)[:255] if object_repr else None,
-        description=description,
-        metadata=metadata or {},
-    )
 
 
 # =====================================================
@@ -241,10 +229,14 @@ class SuperAdminCompanyDetailView(APIView):
             company = Company.objects.get(pk=pk)
         except Company.DoesNotExist:
             return Response({"error": "Entreprise introuvable"}, status=404)
+        changed = {}
         for field in ["name", "industry", "country", "city", "phone_number", "number_of_employees", "founded_year"]:
             if field in request.data:
+                changed[field] = {"old": getattr(company, field, None), "new": request.data[field]}
                 setattr(company, field, request.data[field])
         company.save()
+        if changed:
+            create_audit_log(request.user, company, "update", "companies", company.id, company.name, "Entreprise modifiee", changed)
         return Response(SuperAdminCompanyDetailSerializer(company).data)
 
 
@@ -349,6 +341,7 @@ class SuperAdminUserDetailView(APIView):
             if field in request.data:
                 setattr(user, field, request.data[field])
         user.save()
+        create_audit_log(request.user, user.company, "update", "users", user.id, user.email, "Utilisateur modifie", request.data)
         return Response(SuperAdminUserSerializer(user).data)
 
 
@@ -1146,6 +1139,69 @@ class SuperAdminAIAgentRunListView(ListAPIView):
         return qs
 
 
+def _agent_stats_payload(qs):
+    return {
+        "total_runs": qs.count(),
+        "success_runs": qs.filter(status="success").count(),
+        "failed_runs": qs.filter(status="failed").count(),
+        "partial_runs": qs.filter(status="partial").count(),
+        "prospects_found": _sum(qs, "prospects_found"),
+        "prospects_imported": _sum(qs, "prospects_imported"),
+        "messages_generated": _sum(qs, "messages_generated"),
+        "messages_sent": _sum(qs, "messages_sent"),
+        "replies_detected": _sum(qs, "replies_detected"),
+        "avg_duration_seconds": round(qs.aggregate(v=Avg("duration_seconds"))["v"] or 0, 2),
+        "avg_duration": round(qs.aggregate(v=Avg("duration_seconds"))["v"] or 0, 2),
+        "by_agent": list(qs.values("agent_type").annotate(count=Count("id")).order_by("-count")),
+        "by_source": [
+            {"source": "Google Maps", "count": _sum(qs, "source_google_maps")},
+            {"source": "LinkedIn", "count": _sum(qs, "source_linkedin")},
+            {"source": "Facebook", "count": _sum(qs, "source_facebook")},
+            {"source": "Instagram", "count": _sum(qs, "source_instagram")},
+            {"source": "Website", "count": _sum(qs, "source_website")},
+        ],
+    }
+
+
+class SuperAdminAgentExecutionView(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def _queryset(self, request):
+        qs = AIAgentRun.objects.select_related("company", "launched_by").order_by("-started_at")
+        for param in ("agent_type", "status"):
+            if value := request.query_params.get(param):
+                qs = qs.filter(**{param: value})
+        if company_id := request.query_params.get("company_id"):
+            qs = qs.filter(company_id=company_id)
+        if search := request.query_params.get("search"):
+            qs = qs.filter(
+                Q(query__icontains=search)
+                | Q(company__name__icontains=search)
+                | Q(launched_by__username__icontains=search)
+                | Q(launched_by__email__icontains=search)
+                | Q(error_message__icontains=search)
+                | Q(agent_type__icontains=search)
+            )
+        if date_from := request.query_params.get("date_from"):
+            qs = qs.filter(started_at__date__gte=date_from)
+        if date_to := request.query_params.get("date_to"):
+            qs = qs.filter(started_at__date__lte=date_to)
+        return qs
+
+    def get(self, request):
+        backfill_agent_runs_from_existing_activity()
+        qs = self._queryset(request)
+        stats = _agent_stats_payload(qs)
+        paginator = SuperAdminPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        serializer = AIAgentRunSerializer(page, many=True)
+        response = paginator.get_paginated_response(serializer.data)
+        response.data["stats"] = stats
+        response.data["runs"] = response.data.get("results", [])
+        response.data["recent_runs"] = response.data.get("results", [])
+        return response
+
+
 class SuperAdminAIAgentStatsView(APIView):
     permission_classes = [IsSuperAdmin]
 
@@ -1159,27 +1215,10 @@ class SuperAdminAIAgentStatsView(APIView):
             .order_by("-day")[:30]
         )
         daily.reverse()
-        return Response({
-            "total_runs": total,
-            "success_runs": qs.filter(status="success").count(),
-            "failed_runs": qs.filter(status="failed").count(),
-            "partial_runs": qs.filter(status="partial").count(),
-            "prospects_found": _sum(qs, "prospects_found"),
-            "prospects_imported": _sum(qs, "prospects_imported"),
-            "messages_generated": _sum(qs, "messages_generated"),
-            "messages_sent": _sum(qs, "messages_sent"),
-            "replies_detected": _sum(qs, "replies_detected"),
-            "avg_duration_seconds": round(qs.aggregate(v=Avg("duration_seconds"))["v"] or 0, 2),
-            "by_agent": list(qs.values("agent_type").annotate(count=Count("id")).order_by("-count")),
-            "by_source": [
-                {"source": "Google Maps", "count": _sum(qs, "source_google_maps")},
-                {"source": "LinkedIn", "count": _sum(qs, "source_linkedin")},
-                {"source": "Facebook", "count": _sum(qs, "source_facebook")},
-                {"source": "Instagram", "count": _sum(qs, "source_instagram")},
-                {"source": "Website", "count": _sum(qs, "source_website")},
-            ],
-            "daily_activity": [{"date": row["day"], "count": row["count"]} for row in daily],
-        })
+        payload = _agent_stats_payload(qs)
+        payload["total_runs"] = total
+        payload["daily_activity"] = [{"date": row["day"], "count": row["count"]} for row in daily]
+        return Response(payload)
 
 
 class SuperAdminAuditLogListView(ListAPIView):
@@ -1187,10 +1226,11 @@ class SuperAdminAuditLogListView(ListAPIView):
     serializer_class = SuperAdminAuditLogSerializer
     pagination_class = SuperAdminPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ["module", "action", "object_repr", "description", "actor__email", "company__name"]
+    search_fields = ["module", "action", "object_repr", "description", "actor__email", "actor__username", "company__name"]
     ordering = ["-created_at"]
 
     def get_queryset(self):
+        backfill_audit_logs_from_existing_activity()
         qs = SuperAdminAuditLog.objects.select_related("actor", "company")
         for param in ("action", "module", "company_id", "actor_id"):
             if value := self.request.query_params.get(param):

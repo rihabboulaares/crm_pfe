@@ -18,6 +18,7 @@ from sales.engagement_tasks import (
     mark_channel_task_ready,
     upsert_prospect_task,
 )
+from superadmin.audit import create_ai_agent_run, create_audit_log
 
 from .models import EngagementCampaign, EngagementLog
 from .permissions import (
@@ -423,12 +424,30 @@ class LaunchEngagementAgentView(APIView):
             launch_engagement_agent_task = None
 
         if launch_engagement_agent_task is not None:
+            run_log = create_ai_agent_run(
+                agent_type="engagement",
+                company=request.user.company,
+                launched_by=request.user,
+                query=f"limit={limit}; scrape={scrape}; auto_send={auto_send}",
+                status="running",
+            )
+            create_audit_log(
+                actor=request.user,
+                company=request.user.company,
+                action="launch_agent",
+                module="ai_agents",
+                object_id=getattr(run_log, "id", None),
+                object_repr="Agent engagement",
+                description="Lancement agent IA d'engagement",
+                metadata={"limit": limit, "scrape": scrape, "auto_send": auto_send, "queued": True},
+            )
             task = launch_engagement_agent_task.delay(
                 request.user.company_id,
                 request.user.id,
                 limit,
                 scrape,
                 auto_send,
+                getattr(run_log, "id", None),
             )
             return Response({"success": True, "status": "queued", "task_id": task.id})
 
@@ -564,6 +583,16 @@ class SendPreparedEngagementView(APIView):
                 ]
             )
             log = create_log(prospect, request.user, "message_sent", "message_sent", channel, message, sent_at=sent_at)
+            create_audit_log(
+                actor=request.user,
+                company=getattr(request.user, "company", None),
+                action="send_message",
+                module="ai_agents",
+                object_id=prospect.pk,
+                object_repr=f"{prospect.first_name} {prospect.last_name}".strip(),
+                description=f"Message {channel} envoye par l'agent d'engagement",
+                metadata={"channel": channel, "prospect_id": prospect.pk},
+            )
             complete_channel_task_and_follow_up(prospect, channel, user=request.user, engagement_log=log)
             return Response({"success": True, "status": "waiting_reply", "sent": True, "prospect": serialize_prospect(prospect, request)})
 
@@ -585,6 +614,16 @@ class SendPreparedEngagementView(APIView):
         prospect.engagement_error = error
         prospect.save(update_fields=["engagement_status", "engagement_error"])
         create_log(prospect, request.user, "send_error", "message_failed", channel, message, error=error)
+        create_audit_log(
+            actor=request.user,
+            company=getattr(request.user, "company", None),
+            action="system_error",
+            module="ai_agents",
+            object_id=prospect.pk,
+            object_repr=f"{prospect.first_name} {prospect.last_name}".strip(),
+            description="Erreur d'envoi agent engagement",
+            metadata={"channel": channel, "prospect_id": prospect.pk, "error": error},
+        )
         notify(request.user, f"Erreur {channel} pour {prospect.first_name} {prospect.last_name}", error, "error", prospect)
         return Response({"success": False, "status": "message_failed", "error": error, "prospect": serialize_prospect(prospect, request)})
 

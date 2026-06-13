@@ -35,7 +35,7 @@ INSTALLED_APPS = [
     'users',
     'sales.apps.SalesConfig',
     'subscriptions.apps.SubscriptionsConfig',  # ← avec apps.py pour charger signals.py
-    'superadmin',
+    'superadmin.apps.SuperadminConfig',
     'Notifications',
     'social_sessions',
     'calendar_module',
