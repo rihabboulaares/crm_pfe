@@ -52,3 +52,4 @@ chroma_db/
 commit.shpublic/tools/CRM-Social-Connector.exe
 public/tools/CRM-Social-Connector.exe
 public/tools/CRM-Social-Connector.exe
+.sonar/
