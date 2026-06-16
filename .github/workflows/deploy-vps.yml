@@ -41,9 +41,24 @@ jobs:
             echo "=== COLLECT STATIC ==="
             docker compose exec -T backend python manage.py collectstatic --noinput
 
-            echo "=== CHECK APP ==="
-            curl -I http://127.0.0.1:8080
-            curl -I http://127.0.0.1:8080/api/ || true
+            echo "=== HEALTHCHECK ==="
+            FRONT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080)
+            API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/api/)
+
+            echo "Frontend status: $FRONT_STATUS"
+            echo "API status: $API_STATUS"
+
+            if [ "$FRONT_STATUS" != "200" ]; then
+              echo "Frontend healthcheck failed"
+              exit 1
+            fi
+
+            if [ "$API_STATUS" != "200" ] && [ "$API_STATUS" != "401" ]; then
+              echo "API healthcheck failed"
+              exit 1
+            fi
+
+            echo "Healthcheck passed"
 
             echo "=== CHECK CONTAINERS ==="
             docker compose ps
