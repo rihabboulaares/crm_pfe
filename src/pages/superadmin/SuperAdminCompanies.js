@@ -219,7 +219,7 @@ const StyledChip = styled(Chip)(({ plan, status }) => ({
 // CONFIGURATION API
 // ==============================
 const api = (url) =>
-  axios.get(`/${url}`, {
+  axios.get(url, {
     headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
   });
 
