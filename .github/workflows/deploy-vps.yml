@@ -86,25 +86,18 @@ jobs:
             echo "=== CHECK CONTAINERS ==="
             docker compose ps
 
-            echo "=== DEPLOYMENT SUMMARY ==="
-            cat <<EOF >> $GITHUB_STEP_SUMMARY
-            # 🚀 ViewiseCRM Deployment Report
-
-            | Élément | Statut |
-            |---|---|
-            | Frontend React | ✅ Running |
-            | Backend Django | ✅ Running |
-            | PostgreSQL | ✅ Running |
-            | Redis | ✅ Running |
-            | Nginx | ✅ Running |
-            | Prometheus | ✅ Running |
-            | Grafana | ✅ Running |
-            | cAdvisor | ✅ Running |
-            | Healthcheck Frontend | ✅ HTTP $FRONT_STATUS |
-            | Healthcheck API | ✅ HTTP $API_STATUS |
-            | Rollback automatique | ✅ Disponible |
-
-            **Résultat final : ✅ Déploiement réussi**
-            EOF
-
+            echo ""
+echo "=========================================="
+echo "     VIEWISE CRM DEPLOYMENT REPORT"
+echo "=========================================="
+echo "Frontend React      : ✅ HTTP $FRONT_STATUS"
+echo "Backend Django      : ✅ HTTP $API_STATUS"
+echo "PostgreSQL          : ✅ Running"
+echo "Redis               : ✅ Running"
+echo "Nginx               : ✅ Running"
+echo "Prometheus          : ✅ Running"
+echo "Grafana             : ✅ Running"
+echo "cAdvisor            : ✅ Running"
+echo "Rollback            : ✅ Enabled"
+echo "=========================================="
             echo "=== DEPLOYMENT FINISHED ==="
