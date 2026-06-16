@@ -23,15 +23,10 @@ jobs:
 
             rollback() {
               echo "=== ROLLBACK STARTED ==="
-
               cd /opt/viewisecrm-devops
-
               docker tag viewisecrm-backend-last-success:backup viewisecrm-devops-backend:latest
               docker tag viewisecrm-frontend-last-success:backup viewisecrm-devops-frontend:latest
-              docker tag viewisecrm-nginx-last-success:backup nginx:alpine
-
               docker compose up -d backend frontend nginx
-
               echo "=== ROLLBACK FINISHED ==="
             }
 
@@ -87,17 +82,20 @@ jobs:
             docker compose ps
 
             echo ""
-echo "=========================================="
-echo "     VIEWISE CRM DEPLOYMENT REPORT"
-echo "=========================================="
-echo "Frontend React      : ✅ HTTP $FRONT_STATUS"
-echo "Backend Django      : ✅ HTTP $API_STATUS"
-echo "PostgreSQL          : ✅ Running"
-echo "Redis               : ✅ Running"
-echo "Nginx               : ✅ Running"
-echo "Prometheus          : ✅ Running"
-echo "Grafana             : ✅ Running"
-echo "cAdvisor            : ✅ Running"
-echo "Rollback            : ✅ Enabled"
-echo "=========================================="
+            echo "=========================================="
+            echo "     VIEWISE CRM DEPLOYMENT REPORT"
+            echo "=========================================="
+            echo "Frontend React      : OK - HTTP $FRONT_STATUS"
+            echo "Backend Django      : OK - HTTP $API_STATUS"
+            echo "Docker Compose      : OK"
+            echo "PostgreSQL          : Running"
+            echo "Redis               : Running"
+            echo "Nginx               : Running"
+            echo "Prometheus          : Running"
+            echo "Grafana             : Running"
+            echo "cAdvisor            : Running"
+            echo "Rollback            : Enabled"
+            echo "Final Result        : Deployment successful"
+            echo "=========================================="
+
             echo "=== DEPLOYMENT FINISHED ==="
