@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to VPS
+      - name: Deploy to VPS with Docker Compose
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -21,29 +21,31 @@ jobs:
           script: |
             set -e
 
-            echo "=== FRONTEND DEPLOY ==="
+            echo "=== UPDATE FRONTEND CODE ==="
             cd /opt/crm-frontend
             git fetch origin frontend
             git reset --hard origin/frontend
-            npm install
-            npm run build
 
-            echo "=== BACKEND DEPLOY ==="
+            echo "=== UPDATE BACKEND CODE ==="
             cd /opt/crm-pfe
             git fetch origin clean-backend
             git reset --hard origin/clean-backend
 
-            source venv/bin/activate
-            pip install -r requirements.txt
-            python manage.py migrate --noinput
-            python manage.py collectstatic --noinput
+            echo "=== REBUILD DOCKER SERVICES ==="
+            cd /opt/viewisecrm-devops
+            docker compose up -d --build backend frontend nginx
 
-            echo "=== RESTART GUNICORN ==="
-            pkill -f "gunicorn config.wsgi:application" || true
-            nohup gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 2 --timeout 180 > gunicorn.log 2>&1 &
+            echo "=== APPLY MIGRATIONS ==="
+            docker compose exec -T backend python manage.py migrate --noinput
 
-            echo "=== RELOAD NGINX ==="
-            nginx -t
-            systemctl reload nginx
+            echo "=== COLLECT STATIC ==="
+            docker compose exec -T backend python manage.py collectstatic --noinput
+
+            echo "=== CHECK APP ==="
+            curl -I http://127.0.0.1:8080
+            curl -I http://127.0.0.1:8080/api/ || true
+
+            echo "=== CHECK CONTAINERS ==="
+            docker compose ps
 
             echo "=== DEPLOYMENT FINISHED ==="
