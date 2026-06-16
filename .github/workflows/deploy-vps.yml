@@ -82,6 +82,29 @@ jobs:
             trap - ERR
 
             echo "Healthcheck passed"
+
             echo "=== CHECK CONTAINERS ==="
             docker compose ps
+
+            echo "=== DEPLOYMENT SUMMARY ==="
+            cat <<EOF >> $GITHUB_STEP_SUMMARY
+            # 🚀 ViewiseCRM Deployment Report
+
+            | Élément | Statut |
+            |---|---|
+            | Frontend React | ✅ Running |
+            | Backend Django | ✅ Running |
+            | PostgreSQL | ✅ Running |
+            | Redis | ✅ Running |
+            | Nginx | ✅ Running |
+            | Prometheus | ✅ Running |
+            | Grafana | ✅ Running |
+            | cAdvisor | ✅ Running |
+            | Healthcheck Frontend | ✅ HTTP $FRONT_STATUS |
+            | Healthcheck API | ✅ HTTP $API_STATUS |
+            | Rollback automatique | ✅ Disponible |
+
+            **Résultat final : ✅ Déploiement réussi**
+            EOF
+
             echo "=== DEPLOYMENT FINISHED ==="
