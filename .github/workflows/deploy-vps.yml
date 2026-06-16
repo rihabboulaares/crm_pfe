@@ -11,15 +11,36 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to VPS with Docker Compose
+      - name: Deploy to VPS with Docker Compose and Rollback
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          command_timeout: 20m
+          command_timeout: 25m
           script: |
             set -e
+
+            rollback() {
+              echo "=== ROLLBACK STARTED ==="
+
+              cd /opt/viewisecrm-devops
+
+              docker tag viewisecrm-backend-last-success:backup viewisecrm-devops-backend:latest
+              docker tag viewisecrm-frontend-last-success:backup viewisecrm-devops-frontend:latest
+              docker tag viewisecrm-nginx-last-success:backup nginx:alpine
+
+              docker compose up -d backend frontend nginx
+
+              echo "=== ROLLBACK FINISHED ==="
+            }
+
+            trap 'rollback' ERR
+
+            echo "=== BACKUP CURRENT SUCCESSFUL IMAGES ==="
+            docker commit viewisecrm-backend viewisecrm-backend-last-success:backup
+            docker commit viewisecrm-frontend viewisecrm-frontend-last-success:backup
+            docker commit viewisecrm-nginx viewisecrm-nginx-last-success:backup
 
             echo "=== UPDATE FRONTEND CODE ==="
             cd /opt/crm-frontend
@@ -58,9 +79,9 @@ jobs:
               exit 1
             fi
 
-            echo "Healthcheck passed"
+            trap - ERR
 
+            echo "Healthcheck passed"
             echo "=== CHECK CONTAINERS ==="
             docker compose ps
-
             echo "=== DEPLOYMENT FINISHED ==="
