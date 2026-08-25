@@ -4,8 +4,11 @@ Chaque user_id a son propre historique de conversation.
 Si Redis n'est pas disponible, on tombe sur une mémoire en RAM.
 """
 import json
+import logging
 import os
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 try:
     import redis
@@ -17,10 +20,10 @@ try:
     )
     _redis_client.ping()
     REDIS_AVAILABLE = True
-    print("[Memory] Redis connecté ✅")
+    logger.info("CRM agent Redis memory connected")
 except Exception:
     REDIS_AVAILABLE = False
-    print("[Memory] Redis non disponible — mémoire RAM utilisée ⚠️")
+    logger.warning("CRM agent Redis unavailable; using in-memory fallback", exc_info=True)
 
 # Fallback en RAM si Redis absent
 _ram_store = {}

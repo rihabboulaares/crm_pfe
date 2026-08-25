@@ -3,29 +3,14 @@ import logging
 import shutil
 from pathlib import Path
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
+from .health_checker import SocialSessionHealthChecker
 from .models import SocialSession
-from .playwright_utils import detect_social_session_status
+from .services_constants import BASE_SESSION_DIR, CHROME_USER_AGENT, SUPPORTED_PLATFORMS, normalize_platform
 
 logger = logging.getLogger(__name__)
-
-SUPPORTED_PLATFORMS = {"linkedin", "facebook", "instagram"}
-BASE_SESSION_DIR = Path(settings.BASE_DIR) / "storage" / "social_sessions"
-CHROME_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
-)
-
-
-def normalize_platform(platform):
-    value = (platform or "").lower().strip()
-    if value not in SUPPORTED_PLATFORMS:
-        raise ValueError(f"Plateforme non supportee: {platform}")
-    return value
 
 
 def platform_label(platform):
@@ -104,16 +89,20 @@ class SocialSessionService:
         session_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
         session, _ = SocialSessionService.get_or_create_session(user, platform)
-        session.status = SocialSession.CONNECTED
+        health = SocialSessionHealthChecker().check(str(session_path), platform)
+        session.status = SocialSession.CONNECTED if health.ok else health.status
         session.session_path = str(session_path)
-        session.last_error = None
-        session.save(update_fields=["status", "session_path", "last_error", "updated_at"])
+        session.last_checked_at = timezone.now()
+        session.last_error = None if health.ok else health.message
+        session.save(update_fields=["status", "session_path", "last_error", "last_checked_at", "updated_at"])
 
         return {
-            "ok": True,
+            "ok": health.ok,
             "platform": platform,
             "status": session.status,
-            "message": "Session importee avec succes.",
+            "health_status": health.status,
+            "message": "Session importee avec succes." if health.ok else health.message,
+            "requires_manual_login": not health.ok,
         }
 
     @staticmethod
@@ -142,12 +131,15 @@ class SocialSessionService:
         session = SocialSessionService.get_session(user, platform)
         if not session:
             return social_session_required_response(platform, "not_connected")
-        if session.status != SocialSession.CONNECTED:
+        if session.status not in {SocialSession.CONNECTED, SocialSession.SESSION_READY}:
             return social_session_required_response(platform, session.status)
         if not session.session_path or not Path(session.session_path).exists():
             SocialSessionService.mark_expired(user, platform, "Fichier de session introuvable.")
             return social_session_required_response(platform, "not_connected")
-        return {"ok": True, "success": True, "status": "connected", "platform": platform, "message": f"Session {platform_label(platform)} connectee."}
+        health = SocialSessionService.check_session(user, platform)
+        if not health.get("ok"):
+            return social_session_required_response(platform, health.get("status") or "error")
+        return {"ok": True, "success": True, "status": SocialSession.SESSION_READY, "platform": platform, "message": f"Session {platform_label(platform)} prete."}
 
     @staticmethod
     def _notify_status(user, platform, status):
@@ -181,7 +173,7 @@ class SocialSessionService:
 
     @staticmethod
     def mark_connected(user, platform):
-        return SocialSessionService._set_status(user, platform, SocialSession.CONNECTED, None)
+        return SocialSessionService._set_status(user, platform, SocialSession.SESSION_READY, None)
 
     @staticmethod
     def mark_expired(user, platform, error=None):
@@ -239,55 +231,30 @@ class SocialSessionService:
             session.save(update_fields=["status", "session_path", "last_checked_at", "last_error", "updated_at"])
             return {"ok": False, "platform": platform, "status": session.status, "message": "Session non connectee.", "requires_manual_login": True}
 
-        result = SocialSessionService._check_session_with_playwright(str(path), platform)
+        result = SocialSessionHealthChecker().check(str(path), platform).as_dict()
 
         status = result["status"]
-        session.status = status
+        session.status = SocialSession.CONNECTED if status == SocialSession.SESSION_READY else status
         session.session_path = str(path)
         session.last_checked_at = timezone.now()
-        session.last_error = None if status == SocialSession.CONNECTED else result.get("message")
+        session.last_error = None if status == SocialSession.SESSION_READY else result.get("message")
         session.save(update_fields=["status", "session_path", "last_checked_at", "last_error", "updated_at"])
-        SocialSessionService._notify_status(user, platform, status)
+        SocialSessionService._notify_status(user, platform, session.status)
         return {
-            "ok": status == SocialSession.CONNECTED,
+            "ok": status == SocialSession.SESSION_READY,
             "platform": platform,
-            "status": status,
+            "status": session.status,
+            "health_status": status,
             "message": result.get("message"),
-            "debug_url": result.get("debug_url"),
-            "requires_manual_login": status != SocialSession.CONNECTED,
+            "final_url": result.get("final_url"),
+            "error_code": result.get("error_code"),
+            "browser_closed": result.get("browser_closed"),
+            "requires_manual_login": status != SocialSession.SESSION_READY,
         }
 
     @staticmethod
     def _check_session_with_playwright(session_path, platform):
-        from playwright.sync_api import sync_playwright
-
-        home_urls = {
-            "linkedin": "https://www.linkedin.com/feed/",
-            "facebook": "https://www.facebook.com/",
-            "instagram": "https://www.instagram.com/",
-        }
-        browser = context = page = None
-        try:
-            with sync_playwright() as playwright:
-                browser, context, page = SocialSessionService.launch_context_with_session_path(playwright, session_path, platform, headless=True)
-                page.goto(home_urls[platform], wait_until="domcontentloaded", timeout=90000)
-                page.wait_for_timeout(2500)
-                result = detect_social_session_status(page, platform)
-        except Exception as exc:
-            result = {
-                "status": SocialSession.ERROR,
-                "message": str(exc)[:500],
-                "debug_url": getattr(page, "url", "") if page else "",
-            }
-        finally:
-            for obj in (context, browser):
-                try:
-                    if obj:
-                        obj.close()
-                except Exception:
-                    pass
-
-        return result
+        return SocialSessionHealthChecker().check(session_path, platform).as_dict()
 
 
 def user_from_id(user_id):

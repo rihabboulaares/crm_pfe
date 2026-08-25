@@ -2,7 +2,7 @@
 
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import HistoryLog, Notification
+from .models import CRMEvent, HistoryLog, Notification
 from .utils import get_user_display_name
 
 User = get_user_model()
@@ -81,3 +81,38 @@ class NotificationSerializer(serializers.ModelSerializer):
             "entity_type", "entity_id", "entity_name",
             "is_read", "created_at", "history_log",
         ]
+
+
+class CRMEventSerializer(serializers.ModelSerializer):
+    user_display = serializers.SerializerMethodField()
+    prospect_display = serializers.SerializerMethodField()
+    company_display = serializers.SerializerMethodField()
+    event_type_display = serializers.CharField(source="get_event_type_display", read_only=True)
+    category_display = serializers.CharField(source="get_category_display", read_only=True)
+    severity_display = serializers.CharField(source="get_severity_display", read_only=True)
+
+    def get_user_display(self, obj):
+        return get_user_display_name(obj.user) if obj.user else None
+
+    def get_prospect_display(self, obj):
+        prospect = obj.prospect
+        if not prospect:
+            return None
+        name = f"{prospect.first_name or ''} {prospect.last_name or ''}".strip()
+        company = getattr(prospect, "prospect_company", None)
+        return name or getattr(company, "name", None) or prospect.email or f"Prospect #{prospect.id}"
+
+    def get_company_display(self, obj):
+        return getattr(obj.company, "name", None) if obj.company else None
+
+    class Meta:
+        model = CRMEvent
+        fields = [
+            "id", "event_type", "event_type_display", "category", "category_display",
+            "title", "description", "severity", "severity_display", "source_type",
+            "source_name", "source_id", "user", "user_display", "prospect",
+            "prospect_display", "company", "company_display", "agent_run",
+            "related_object_type", "related_object_id", "status", "channel",
+            "metadata", "created_at",
+        ]
+        read_only_fields = fields

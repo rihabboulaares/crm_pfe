@@ -4,6 +4,7 @@
 
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.exceptions import AuthenticationFailed
 
 
 class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -13,6 +14,17 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
     donc cette classe suffit sans rien d'autre.
     """
     username_field = "email"
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+
+        if not self.user.is_verified:
+            raise AuthenticationFailed(
+                "Compte non vérifié. Veuillez saisir le code de vérification envoyé par email.",
+                code="email_not_verified",
+            )
+
+        return data
 
 
 class EmailTokenObtainPairView(TokenObtainPairView):

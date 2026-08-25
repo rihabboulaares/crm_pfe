@@ -1,26 +1,5 @@
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlparse
-
-
-BLOCKED_URL_MARKERS = [
-    "annuaire",
-    "directory",
-    "pagesjaunes",
-    "emploi",
-    "jobs",
-    "/job/",
-    "/jobs/",
-    "career",
-    "careers",
-    "blog",
-    ".pdf",
-    "tiktok.com",
-    "scribd.com",
-    "youtube.com",
-    "youtu.be",
-    "threads.net",
-]
 
 
 @dataclass
@@ -33,255 +12,1017 @@ class AgentMemory:
     plan: dict[str, Any] | None = None
     decision: dict[str, Any] | None = None
 
+    brain_mode: str = "gemini"
+
     current_state: str = "init"
     current_phase: str = "init"
+
     iterations: int = 0
     stop_reason: str | None = None
+
+    # ========================================================
+    # HARD LIMITS
+    # ========================================================
+
     max_iterations: int = 12
     max_leads: int = 10
     max_urls: int = 20
     max_pages_per_domain: int = 4
-    gemini_decisions: list[dict[str, Any]] = field(default_factory=list)
 
-    tool_history: list[dict[str, Any]] = field(default_factory=list)
-    raw_results: list[dict[str, Any]] = field(default_factory=list)
+    # ========================================================
+    # AGENTIC DECISION BUDGET
+    # ========================================================
 
-    discovered_urls: list[dict[str, Any]] = field(default_factory=list)
-    crawl_queue: list[dict[str, Any]] = field(default_factory=list)
-    crawled_pages: list[dict[str, Any]] = field(default_factory=list)
-    scrape_debug_events: list[dict[str, Any]] = field(default_factory=list)
-    scraping_debug: dict[str, int] = field(default_factory=lambda: {
-        "crawled_pages": 0,
-        "successful_scrapes": 0,
-        "blocked_scrapes": 0,
-        "empty_pages": 0,
-        "failed_scrapes": 0,
-    })
+    # Nombre maximum d'appels Gemini utilisés uniquement
+    # pour les décisions stratégiques après l'intent.
+    #
+    # L'appel Gemini d'extraction d'intent n'est PAS inclus.
+    max_decision_calls: int = 2
 
-    companies: list[dict[str, Any]] = field(default_factory=list)
-    persons: list[dict[str, Any]] = field(default_factory=list)
-    prospects: list[dict[str, Any]] = field(default_factory=list)
+    # Nombre d'appels de décision réellement consommés.
+    decision_calls_used: int = 0
 
-    rejected_results: list[dict[str, Any]] = field(default_factory=list)
-    errors: list[dict[str, str]] = field(default_factory=list)
-    logs: list[dict[str, str]] = field(default_factory=list)
+    # ========================================================
+    # DECISIONS
+    # ========================================================
 
-    def set_phase(self, phase: str):
+    gemini_decisions: list[dict[str, Any]] = field(
+        default_factory=list
+    )
+
+    # ========================================================
+    # TOOL HISTORY
+    # ========================================================
+
+    tool_history: list[dict[str, Any]] = field(
+        default_factory=list
+    )
+
+    raw_results: list[dict[str, Any]] = field(
+        default_factory=list
+    )
+
+    # ========================================================
+    # PROSPECTS
+    # ========================================================
+
+    companies: list[dict[str, Any]] = field(
+        default_factory=list
+    )
+
+    persons: list[dict[str, Any]] = field(
+        default_factory=list
+    )
+
+    prospects: list[dict[str, Any]] = field(
+        default_factory=list
+    )
+
+    # ========================================================
+    # META ADS
+    # ========================================================
+
+    pending_verification: list[dict[str, Any]] = field(
+        default_factory=list
+    )
+
+    verification_history: list[dict[str, Any]] = field(
+        default_factory=list
+    )
+
+    # ========================================================
+    # DIAGNOSTICS
+    # ========================================================
+
+    rejected_results: list[dict[str, Any]] = field(
+        default_factory=list
+    )
+
+    errors: list[dict[str, str]] = field(
+        default_factory=list
+    )
+
+    logs: list[dict[str, Any]] = field(
+        default_factory=list
+    )
+
+    # ========================================================
+    # PHASE
+    # ========================================================
+
+    def set_phase(
+        self,
+        phase: str,
+    ):
         self.current_phase = phase
         self.current_state = phase
-        self.add_log("phase", phase)
 
-    def add_log(self, step: str, message: str, **extra):
-        self.logs.append({"step": step, "message": str(message), **extra})
+        self.add_log(
+            "phase",
+            phase,
+        )
 
-    def add_error(self, step: str, message: str):
-        self.errors.append({"step": step, "message": str(message)})
-        self.add_log("error", f"{step}: {message}")
+    # ========================================================
+    # LOG
+    # ========================================================
 
-    def add_tool_call(self, tool: str, query: str, decision: dict[str, Any] | None = None):
+    def add_log(
+        self,
+        step: str,
+        message: str,
+        **extra,
+    ):
+        self.logs.append(
+            {
+                "step": step,
+                "message": str(message),
+                **extra,
+            }
+        )
+
+    # ========================================================
+    # ERROR
+    # ========================================================
+
+    def add_error(
+        self,
+        step: str,
+        message: str,
+    ):
+        self.errors.append(
+            {
+                "step": step,
+                "message": str(message),
+            }
+        )
+
+        self.add_log(
+            "error",
+            f"{step}: {message}",
+        )
+
+    # ========================================================
+    # TOOL HISTORY
+    # ========================================================
+
+    def add_tool_call(
+        self,
+        tool: str,
+        query: str | dict,
+        decision: dict[str, Any] | None = None,
+    ):
         page = 1
-        if isinstance(query, dict):
-            page = int(query.get("page") or 1)
-            query_value = str(query.get("q") or query.get("query") or "")
+
+        if isinstance(
+            query,
+            dict,
+        ):
+            page = int(
+                query.get("page")
+                or 1
+            )
+
+            query_value = str(
+                query.get("q")
+                or query.get("query")
+                or ""
+            )
+
         else:
-            query_value = str(query)
+            query_value = str(
+                query
+            )
 
-        self.tool_history.append({
-            "tool": tool,
-            "query": query_value,
-            "page": page,
-            "decision": (decision or {}).get("decision"),
-            "reason": (decision or {}).get("reason"),
-        })
+        self.tool_history.append(
+            {
+                "tool": tool,
+                "query": query_value,
+                "page": page,
+                "decision": (
+                    decision or {}
+                ).get(
+                    "decision"
+                ),
+                "reason": (
+                    decision or {}
+                ).get(
+                    "reason"
+                ),
+                "decision_source": (
+                    decision or {}
+                ).get(
+                    "source"
+                ),
+                "decision_origin": (
+                    decision or {}
+                ).get(
+                    "origin"
+                ),
+            }
+        )
 
-    def already_used(self, tool: str, query: str) -> bool:
+    # ========================================================
+    # TOOL DUPLICATE
+    # ========================================================
+
+    def already_used(
+        self,
+        tool: str,
+        query: str | dict,
+    ) -> bool:
         page = 1
-        if isinstance(query, dict):
-            page = int(query.get("page") or 1)
-            query = query.get("q") or query.get("query") or ""
+
+        if isinstance(
+            query,
+            dict,
+        ):
+            page = int(
+                query.get("page")
+                or 1
+            )
+
+            query_value = str(
+                query.get("q")
+                or query.get("query")
+                or ""
+            )
+
+        else:
+            query_value = str(
+                query
+            )
 
         return any(
             item.get("tool") == tool
-            and item.get("query") == str(query)
-            and int(item.get("page") or 1) == page
+            and item.get("query") == query_value
+            and int(
+                item.get("page")
+                or 1
+            )
+            == page
             for item in self.tool_history
         )
 
-    def add_decision(self, decision: dict[str, Any]):
-        self.decision = decision
-        self.gemini_decisions.append(decision)
-        self.add_log("decision", decision.get("reason") or decision.get("decision") or "")
+    # ========================================================
+    # DECISION
+    # ========================================================
 
-    def is_blocked_url(self, url: str | None) -> bool:
-        value = str(url or "").strip().lower()
-        if not value:
-            return True
-        if any(marker in value for marker in BLOCKED_URL_MARKERS):
-            return True
-
-        parsed = urlparse(value)
-        host = parsed.netloc.replace("www.", "")
-        return host in {"tiktok.com", "scribd.com", "youtube.com", "youtu.be", "threads.net"}
-
-    def domain_crawl_count(self, url: str) -> int:
-        domain = urlparse(url).netloc.lower().replace("www.", "")
-        return sum(
-            1
-            for item in self.crawled_pages
-            if urlparse(str(item.get("raw_url") or item.get("website") or "")).netloc.lower().replace("www.", "") == domain
-        )
-
-    def add_url_candidate(
+    def add_decision(
         self,
-        url: str | None,
-        source: str,
-        entity_type: str = "unknown",
-        confidence: float = 0.5,
+        decision: dict[str, Any],
     ):
-        if not url:
-            return
+        """
+        Enregistre la décision stratégique prise pendant le run.
 
-        url = str(url).strip()
-        if not url.startswith(("http://", "https://")):
-            return
+        La décision peut venir :
+        - de Gemini ;
+        - d'un fallback déterministe ;
+        - d'un garde-fou de budget.
+        """
 
-        if self.is_blocked_url(url):
-            self.rejected_results.append({
-                "url": url,
-                "source": source,
-                "rejected_reason": "blocked_url",
-            })
-            return
-
-        for item in self.discovered_urls:
-            if item.get("url") == url:
-                return
-
-        candidate = {
-            "url": url,
-            "source": source,
-            "entity_type": entity_type,
-            "confidence": confidence,
-            "crawled": False,
-        }
-
-        self.discovered_urls.append(candidate)
-        self.crawl_queue.append(candidate)
-
-    def next_crawl_url(self) -> dict[str, Any] | None:
-        self.crawl_queue.sort(
-            key=lambda x: float(x.get("confidence", 0)),
-            reverse=True,
+        self.decision = dict(
+            decision or {}
         )
 
-        for item in self.crawl_queue:
-            if not item.get("crawled"):
-                item["crawled"] = True
-                return item
+        self.gemini_decisions.append(
+            self.decision
+        )
 
-        return None
+        self.add_log(
+            "decision",
+            (
+                self.decision.get("reason")
+                or self.decision.get("decision")
+                or ""
+            ),
+            decision=
+                self.decision.get(
+                    "decision"
+                ),
+            source=
+                self.decision.get(
+                    "source"
+                ),
+            confidence=
+                self.decision.get(
+                    "confidence"
+                ),
+            origin=
+                self.decision.get(
+                    "origin"
+                ),
+        )
 
-    def refresh_prospects(self):
-        self.prospects = self.companies + self.persons
+    # ========================================================
+    # DECISION BUDGET
+    # ========================================================
 
-    def add_scrape_debug(self, debug: dict[str, Any] | None):
-        if not debug:
-            return
+    def decision_budget_available(
+        self,
+    ) -> bool:
+        """
+        True s'il reste du budget pour un appel Gemini
+        de décision stratégique.
 
-        self.scrape_debug_events.append(debug)
-        self.scraping_debug["crawled_pages"] += 1
+        L'extraction initiale de l'intent est indépendante
+        de ce compteur.
+        """
 
-        if debug.get("error"):
-            self.scraping_debug["failed_scrapes"] += 1
-        elif debug.get("blocked"):
-            self.scraping_debug["blocked_scrapes"] += 1
-        elif not debug.get("scraping_success") or int(debug.get("text_length") or 0) == 0:
-            self.scraping_debug["empty_pages"] += 1
+        return (
+            self.decision_calls_used
+            < self.max_decision_calls
+        )
+
+    def register_decision_call(
+        self,
+    ):
+        """
+        Consomme exactement une unité du budget de décision.
+
+        Cette méthode doit être appelée uniquement lorsqu'un
+        vrai appel Gemini de décision va être effectué.
+        """
+
+        if not self.decision_budget_available():
+            raise RuntimeError(
+                "Budget Gemini de décision dépassé."
+            )
+
+        self.decision_calls_used += 1
+
+        self.add_log(
+            "decision_budget",
+            (
+                "Appel Gemini de décision consommé : "
+                f"{self.decision_calls_used}/"
+                f"{self.max_decision_calls}"
+            ),
+        )
+
+    # ========================================================
+    # DECISION CONTEXT
+    # ========================================================
+
+    def decision_context(
+        self,
+    ) -> str:
+        """
+        Résumé court de l'état réel du run envoyé à Gemini.
+
+        On ne transmet pas :
+        - les résultats bruts complets ;
+        - les données CRM ;
+        - les logs complets ;
+        - les secrets ;
+        - les tokens.
+
+        Gemini reçoit uniquement les informations utiles
+        pour choisir la prochaine stratégie.
+        """
+
+        companies, persons = (
+            self.crm_ready_entities()
+        )
+
+        valid_count = (
+            len(companies)
+            + len(persons)
+        )
+
+        target = int(
+            self.max_leads
+            or 0
+        )
+
+        # ----------------------------------------------------
+        # RAW RESULTS COUNT
+        # ----------------------------------------------------
+
+        raw_count = 0
+
+        for item in self.raw_results:
+            if not isinstance(
+                item,
+                dict,
+            ):
+                continue
+
+            results = (
+                item.get("results")
+                or []
+            )
+
+            if isinstance(
+                results,
+                list,
+            ):
+                raw_count += len(
+                    results
+                )
+
+        # ----------------------------------------------------
+        # SOURCES / TOOLS USED
+        # ----------------------------------------------------
+
+        tools_tried = []
+
+        for item in self.tool_history:
+            tool = str(
+                item.get("tool")
+                or ""
+            ).strip()
+
+            if (
+                tool
+                and tool not in tools_tried
+            ):
+                tools_tried.append(
+                    tool
+                )
+
+        # ----------------------------------------------------
+        # REJECTION REASONS
+        # ----------------------------------------------------
+
+        rejection_reasons: dict[
+            str,
+            int,
+        ] = {}
+
+        for item in (
+            self.rejected_results[-30:]
+        ):
+            if not isinstance(
+                item,
+                dict,
+            ):
+                continue
+
+            reason = str(
+                item.get(
+                    "rejection_reason"
+                )
+                or item.get(
+                    "rejected_reason"
+                )
+                or item.get(
+                    "reason"
+                )
+                or "raison inconnue"
+            ).strip()
+
+            if not reason:
+                reason = (
+                    "raison inconnue"
+                )
+
+            rejection_reasons[
+                reason
+            ] = (
+                rejection_reasons.get(
+                    reason,
+                    0,
+                )
+                + 1
+            )
+
+        top_rejections = sorted(
+            rejection_reasons.items(),
+            key=lambda pair: pair[1],
+            reverse=True,
+        )[:3]
+
+        rejections_text = (
+            ", ".join(
+                (
+                    f"{reason} "
+                    f"({count})"
+                )
+                for reason, count
+                in top_rejections
+            )
+            or "aucun rejet notable"
+        )
+
+        # ----------------------------------------------------
+        # INTENT
+        # ----------------------------------------------------
+
+        intent = (
+            self.intent
+            or {}
+        )
+
+        lead_types = (
+            intent.get(
+                "lead_types"
+            )
+            or []
+        )
+
+        industries = (
+            intent.get(
+                "industries"
+            )
+            or []
+        )
+
+        locations = (
+            intent.get(
+                "locations"
+            )
+            or []
+        )
+
+        roles = (
+            intent.get(
+                "target_roles"
+            )
+            or []
+        )
+
+        search_keywords = (
+            intent.get(
+                "search_keywords"
+            )
+            or []
+        )
+
+        # ----------------------------------------------------
+        # PLAN
+        # ----------------------------------------------------
+
+        planned_sources = []
+
+        for item in (
+            (self.plan or {})
+            .get(
+                "searches",
+                [],
+            )
+        ):
+            if not isinstance(
+                item,
+                dict,
+            ):
+                continue
+
+            source = str(
+                item.get(
+                    "source"
+                )
+                or ""
+            ).strip()
+
+            if (
+                source
+                and source
+                not in planned_sources
+            ):
+                planned_sources.append(
+                    source
+                )
+
+        # ----------------------------------------------------
+        # PENDING META
+        # ----------------------------------------------------
+
+        pending_meta = len(
+            self.pending_verification
+        )
+
+        # ----------------------------------------------------
+        # FINAL SHORT CONTEXT
+        # ----------------------------------------------------
+
+        lines = [
+            (
+                f"Objectif : {target} "
+                "prospects valides demandés."
+            ),
+
+            (
+                f"Actuellement : {valid_count} "
+                "prospects valides trouvés."
+            ),
+
+            (
+                f"Résultats bruts observés : "
+                f"{raw_count}."
+            ),
+
+            (
+                "Type recherché : "
+                f"{', '.join(lead_types) or 'non précisé'}."
+            ),
+
+            (
+                "Secteur : "
+                f"{', '.join(industries) or 'non précisé'}."
+            ),
+
+            (
+                "Rôle ciblé : "
+                f"{', '.join(roles) or 'aucun'}."
+            ),
+
+            (
+                "Localisation : "
+                f"{', '.join(locations) or 'Tunisie'}."
+            ),
+
+            (
+                "Mots-clés métier : "
+                f"{', '.join(search_keywords) or 'aucun'}."
+            ),
+
+            (
+                "Sources prévues : "
+                f"{', '.join(planned_sources) or 'aucune'}."
+            ),
+
+            (
+                "Outils déjà utilisés : "
+                f"{', '.join(tools_tried) or 'aucun'}."
+            ),
+
+            (
+                "Principaux motifs de rejet : "
+                f"{rejections_text}."
+            ),
+
+            (
+                "Candidats Meta Ads en attente "
+                f"de vérification : {pending_meta}."
+            ),
+
+            (
+                "Décisions Gemini déjà consommées : "
+                f"{self.decision_calls_used}/"
+                f"{self.max_decision_calls}."
+            ),
+        ]
+
+        return "\n".join(
+            lines
+        )
+
+    # ========================================================
+    # PROSPECTS
+    # ========================================================
+
+    def refresh_prospects(
+        self,
+    ):
+        self.prospects = (
+            self.companies
+            + self.persons
+        )
+
+    def add_lead(
+        self,
+        lead: dict[str, Any],
+    ):
+        if (
+            lead.get("lead_type")
+            == "person"
+        ):
+            self.persons.append(
+                lead
+            )
+
         else:
-            self.scraping_debug["successful_scrapes"] += 1
+            self.companies.append(
+                lead
+            )
 
-    def valid_companies(self) -> list[dict[str, Any]]:
+        self.refresh_prospects()
+
+    # ========================================================
+    # VALID ENTITIES
+    # ========================================================
+
+    def valid_companies(
+        self,
+    ) -> list[dict[str, Any]]:
         return [
-            item for item in self.companies
-            if item.get("crm_ready") or item.get("is_valid") is True
+            item
+            for item in self.companies
+            if (
+                item.get("crm_ready")
+                or item.get("is_valid")
+                is True
+            )
         ]
 
-    def valid_persons(self) -> list[dict[str, Any]]:
+    def valid_persons(
+        self,
+    ) -> list[dict[str, Any]]:
         return [
-            item for item in self.persons
-            if item.get("crm_ready") or item.get("is_valid") is True
+            item
+            for item in self.persons
+            if (
+                item.get("crm_ready")
+                or item.get("is_valid")
+                is True
+            )
         ]
 
-    def crm_ready_entities(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        companies = [item for item in self.companies if item.get("crm_ready")]
-        persons = [item for item in self.persons if item.get("crm_ready")]
+    def crm_ready_entities(
+        self,
+    ) -> tuple[
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+    ]:
+        companies = [
+            item
+            for item in self.companies
+            if item.get("crm_ready")
+        ]
 
-        return companies, persons
+        persons = [
+            item
+            for item in self.persons
+            if item.get("crm_ready")
+        ]
 
-    def to_summary(self) -> dict[str, Any]:
+        return (
+            companies,
+            persons,
+        )
+
+    # ========================================================
+    # META ADS PENDING
+    # ========================================================
+
+    def add_pending_verification(
+        self,
+        lead: dict[str, Any],
+    ):
+        self.pending_verification.append(
+            lead
+        )
+
+        self.add_log(
+            "verification_pending",
+            (
+                "Candidat en attente de vérification : "
+                f"{lead.get('company_name') or 'inconnu'}"
+            ),
+        )
+
+    # ========================================================
+    # SUMMARY
+    # ========================================================
+
+    def to_summary(
+        self,
+    ) -> dict[str, Any]:
         return {
-            "query": self.query,
-            "company_id": self.company_id,
-            "user_id": self.user_id,
-            "intent": self.intent,
-            "plan": self.plan,
-            "current_state": self.current_state,
-            "iterations": self.iterations,
-            "tools_used": self.tool_history[-12:],
-            "all_tools_used": self.tool_history,
+            "query":
+                self.query,
+
+            "company_id":
+                self.company_id,
+
+            "user_id":
+                self.user_id,
+
+            "intent":
+                self.intent,
+
+            "plan":
+                self.plan,
+
+            "brain_mode":
+                self.brain_mode,
+
+            "current_state":
+                self.current_state,
+
+            "current_phase":
+                self.current_phase,
+
+            "iterations":
+                self.iterations,
+
+            # =================================================
+            # AGENTIC DECISIONS
+            # =================================================
+
+            "decision_calls_used":
+                self.decision_calls_used,
+
+            "max_decision_calls":
+                self.max_decision_calls,
+
+            "decision_budget_available":
+                self.decision_budget_available(),
+
+            "decision_trace":
+                self.gemini_decisions,
+
+            # =================================================
+            # TOOLS
+            # =================================================
+
+            "tools_used":
+                self.tool_history[-12:],
+
+            "all_tools_used":
+                self.tool_history,
+
             "tool_call_counts": {
-                tool: sum(1 for item in self.tool_history if item.get("tool") == tool)
-                for tool in {item.get("tool") for item in self.tool_history if item.get("tool")}
+                tool: sum(
+                    1
+                    for item in self.tool_history
+                    if item.get("tool")
+                    == tool
+                )
+                for tool in {
+                    item.get("tool")
+                    for item in self.tool_history
+                    if item.get("tool")
+                }
             },
-            "query_variants_used": list(dict.fromkeys(
-                item.get("query") for item in self.tool_history if item.get("query")
-            )),
-            "urls_found": self.discovered_urls[-20:],
-            "pending_urls": [
-                item for item in self.discovered_urls
-                if not item.get("crawled")
-            ][:15],
-            "crawled_pages_count": len(self.crawled_pages),
-            "crawled_pages_sample": self.crawled_pages[-10:],
-            "scraping_debug": self.scraping_debug,
-            "scrape_debug_sample": self.scrape_debug_events[-5:],
-            "companies_count": len(self.companies),
-            "persons_count": len(self.persons),
-            "valid_leads_count": len(self.valid_companies()) + len(self.valid_persons()),
+
+            "query_variants_used":
+                list(
+                    dict.fromkeys(
+                        item.get("query")
+                        for item
+                        in self.tool_history
+                        if item.get("query")
+                    )
+                ),
+
+            # =================================================
+            # LEADS
+            # =================================================
+
+            "companies_count":
+                len(
+                    self.companies
+                ),
+
+            "persons_count":
+                len(
+                    self.persons
+                ),
+
+            "valid_leads_count":
+                (
+                    len(
+                        self.valid_companies()
+                    )
+                    +
+                    len(
+                        self.valid_persons()
+                    )
+                ),
+
+            "pending_verification_count":
+                len(
+                    self.pending_verification
+                ),
+
+            # =================================================
+            # LIMITS
+            # =================================================
+
             "limits": {
-                "max_iterations": self.max_iterations,
-                "max_leads": self.max_leads,
-                "max_urls": self.max_urls,
-                "max_pages_per_domain": self.max_pages_per_domain,
+                "max_iterations":
+                    self.max_iterations,
+
+                "max_leads":
+                    self.max_leads,
+
+                "max_urls":
+                    self.max_urls,
+
+                "max_pages_per_domain":
+                    self.max_pages_per_domain,
+
+                "max_decision_calls":
+                    self.max_decision_calls,
             },
-            "companies_sample": self.companies[-8:],
-            "persons_sample": self.persons[-8:],
-            "rejected_results_count": len(self.rejected_results),
-            "errors": self.errors[-8:],
+
+            "companies_sample":
+                self.companies[-8:],
+
+            "persons_sample":
+                self.persons[-8:],
+
+            "rejected_results_count":
+                len(
+                    self.rejected_results
+                ),
+
+            "errors":
+                self.errors[-8:],
         }
 
-    def to_dict(self):
+    # ========================================================
+    # DICT
+    # ========================================================
+
+    def to_dict(
+        self,
+    ):
         return {
-            "query": self.query,
-            "company_id": self.company_id,
-            "user_id": self.user_id,
-            "intent": self.intent,
-            "plan": self.plan,
-            "decision": self.decision,
-            "gemini_decisions": self.gemini_decisions,
-            "current_state": self.current_state,
-            "current_phase": self.current_phase,
-            "iterations": self.iterations,
-            "tool_history": self.tool_history,
-            "raw_results": self.raw_results[-20:],
-            "discovered_urls": self.discovered_urls[-30:],
-            "crawled_pages": self.crawled_pages[-20:],
-            "scraping_debug": self.scraping_debug,
-            "scrape_debug_events": self.scrape_debug_events[-20:],
-            "companies": self.companies,
-            "persons": self.persons,
-            "prospects": self.prospects,
-            "rejected_results": self.rejected_results[-20:],
-            "errors": self.errors,
-            "logs": self.logs,
+            "query":
+                self.query,
+
+            "company_id":
+                self.company_id,
+
+            "user_id":
+                self.user_id,
+
+            "intent":
+                self.intent,
+
+            "plan":
+                self.plan,
+
+            "decision":
+                self.decision,
+
+            "brain_mode":
+                self.brain_mode,
+
+            # =================================================
+            # AGENTIC DECISIONS
+            # =================================================
+
+            "gemini_decisions":
+                self.gemini_decisions,
+
+            "decision_calls_used":
+                self.decision_calls_used,
+
+            "max_decision_calls":
+                self.max_decision_calls,
+
+            "decision_budget_available":
+                self.decision_budget_available(),
+
+            # =================================================
+            # STATE
+            # =================================================
+
+            "current_state":
+                self.current_state,
+
+            "current_phase":
+                self.current_phase,
+
+            "iterations":
+                self.iterations,
+
+            # =================================================
+            # TOOLS / RESULTS
+            # =================================================
+
+            "tool_history":
+                self.tool_history,
+
+            "raw_results":
+                self.raw_results[-20:],
+
+            # =================================================
+            # LEADS
+            # =================================================
+
+            "companies":
+                self.companies,
+
+            "persons":
+                self.persons,
+
+            "prospects":
+                self.prospects,
+
+            # =================================================
+            # META ADS
+            # =================================================
+
+            "pending_verification":
+                self.pending_verification,
+
+            "verification_history":
+                self.verification_history,
+
+            # =================================================
+            # DIAGNOSTICS
+            # =================================================
+
+            "rejected_results":
+                self.rejected_results[-20:],
+
+            "errors":
+                self.errors,
+
+            "logs":
+                self.logs,
         }

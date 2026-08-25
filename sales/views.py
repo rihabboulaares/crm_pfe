@@ -17,8 +17,9 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.views import APIView
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.db import transaction
-from django.db.models import Q, Avg, Sum
+from django.db.models import Q, Avg, Sum, Count
 from django.core.mail import send_mail
 from django.conf import settings
 from django.utils import timezone
@@ -31,6 +32,8 @@ from .models import (
     Account, Prospect, ProspectCompany,
     Opportunity, Contact,
     Task, TaskActivity, TaskComment,
+    ProspectActivity, ProspectAgentRun, ProspectDocument,
+    ProspectRecommendation, ProspectScoreHistory,
     PerformanceScore, ManagerFeedback,
     PerformanceGoal, CommercialBadge,
     Pipeline, PipelineStage, OpportunityPipeline,
@@ -40,6 +43,9 @@ from .serializers import (
     AccountSerializer, ProspectSerializer, ProspectCompanySerializer,
     OpportunitySerializer, ContactSerializer,
     TaskSerializer, TaskActivitySerializer, TaskCommentSerializer,
+    ProspectActivitySerializer, ProspectAgentRunSerializer,
+    ProspectDocumentSerializer, ProspectRecommendationSerializer,
+    ProspectScoreHistorySerializer,
     PerformanceScoreSerializer, ManagerFeedbackSerializer,
     PerformanceGoalSerializer, CommercialBadgeSerializer,
     PipelineSerializer, PipelineListSerializer,
@@ -56,6 +62,8 @@ from .kpi_engine import (
 from .pagination import StandardPagination
 from users.models import User
 from .trigger_engine import process_call_trigger
+from .prospect_tracking_service import ensure_default_recommendation, record_prospect_activity
+from Notifications.crm_event_service import event_from_document, record_crm_event
 
 # ══════════════════════════════════════════════════════════════
 # HELPERS
@@ -434,7 +442,11 @@ class ProspectViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs = get_engagement_queryset_for_user(user).select_related("assigned_to", "prospect_company")
+        qs = get_engagement_queryset_for_user(user).select_related("assigned_to", "prospect_company").annotate(
+            _activities_count=Count("prospect_activities", distinct=True),
+            _documents_count=Count("documents", distinct=True),
+            _agent_runs_count=Count("agent_runs", distinct=True),
+        )
 
         p_status         = self.request.query_params.get("status")
         assigned_to      = self.request.query_params.get("assigned_to")
@@ -515,6 +527,192 @@ class ProspectViewSet(viewsets.ModelViewSet):
             "activities__performed_by",
         ).order_by("-created_at")
         return Response(TaskSerializer(qs, many=True, context={"request": request}).data)
+
+    @action(detail=True, methods=["get"], url_path="details")
+    def details(self, request, pk=None):
+        detail_qs = self.get_queryset().select_related(
+            "assigned_to", "prospect_company"
+        ).prefetch_related(
+            "prospect_activities__created_by",
+            "documents",
+            "agent_runs",
+            "recommendations",
+            "score_history",
+            "engagement_logs",
+        )
+        prospect = get_object_or_404(detail_qs, pk=pk)
+        ensure_default_recommendation(prospect)
+        latest_activity = prospect.prospect_activities.select_related("created_by").first()
+        latest_agent_run = prospect.agent_runs.first()
+        next_recommendation = prospect.recommendations.filter(status="pending").first()
+        next_task = get_task_queryset_for_user(request.user).filter(
+            prospect=prospect,
+            status__in=["pending", "ready", "in_progress", "todo"],
+        ).order_by("due_date", "created_at").first()
+        company = prospect.prospect_company
+        score = company.score_ia if company else None
+        contact_methods = sum(
+            1
+            for value in [
+                prospect.email,
+                prospect.phone,
+                prospect.linkedin_url,
+                prospect.facebook_url,
+                prospect.instagram_url,
+                prospect.website,
+            ]
+            if value
+        )
+        last_engagement = prospect.engagement_logs.first()
+        summary = {
+            "score": score,
+            "priority": "Haute" if (score or 0) >= 70 or prospect.evaluation == "hot" else "Moyenne" if (score or 0) >= 35 else "Basse",
+            "contact_methods": contact_methods,
+            "activities_count": prospect.prospect_activities.count(),
+            "documents_count": prospect.documents.count(),
+            "agent_runs_count": prospect.agent_runs.count(),
+            "engagement_count": prospect.engagement_logs.count(),
+            "last_interaction_at": latest_activity.created_at if latest_activity else prospect.last_reply_at or prospect.last_message_sent_at,
+            "last_interaction_title": latest_activity.title if latest_activity else (last_engagement.action if last_engagement else ""),
+            "latest_agent_run": latest_agent_run.agent_type if latest_agent_run else "",
+            "next_action": next_recommendation.title if next_recommendation else (next_task.title if next_task else prospect.next_recommended_action),
+        }
+        return Response({
+            "prospect": ProspectSerializer(prospect, context={"request": request}).data,
+            "summary": summary,
+            "latest_activity": ProspectActivitySerializer(latest_activity, context={"request": request}).data if latest_activity else None,
+            "latest_agent_run": ProspectAgentRunSerializer(latest_agent_run, context={"request": request}).data if latest_agent_run else None,
+            "next_recommendation": ProspectRecommendationSerializer(next_recommendation, context={"request": request}).data if next_recommendation else None,
+        })
+
+    @action(detail=True, methods=["get", "post"], url_path="activity-stream")
+    def activity_stream(self, request, pk=None):
+        prospect = self.get_object()
+        if request.method == "GET":
+            qs = prospect.prospect_activities.select_related("created_by", "agent_run").prefetch_related("score_changes")[:100]
+            return Response(ProspectActivitySerializer(qs, many=True, context={"request": request}).data)
+
+        serializer = ProspectActivitySerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        activity = record_prospect_activity(
+            prospect=prospect,
+            activity_type=serializer.validated_data["activity_type"],
+            channel=serializer.validated_data.get("channel"),
+            title=serializer.validated_data["title"],
+            description=serializer.validated_data.get("description") or "",
+            source="manual",
+            created_by=request.user,
+            metadata=serializer.validated_data.get("metadata") or {},
+        )
+        return Response(ProspectActivitySerializer(activity, context={"request": request}).data, status=status.HTTP_201_CREATED)
+
+    @action(
+        detail=True,
+        methods=["get", "post"],
+        url_path="documents",
+        parser_classes=[MultiPartParser, FormParser, JSONParser],
+    )
+    def documents(self, request, pk=None):
+        prospect = self.get_object()
+        if request.method == "GET":
+            qs = prospect.documents.select_related("uploaded_by", "agent_run")[:100]
+            return Response(ProspectDocumentSerializer(qs, many=True, context={"request": request}).data)
+
+        serializer = ProspectDocumentSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        document = serializer.save(prospect=prospect, uploaded_by=request.user, source="manual")
+        event_from_document(document)
+        return Response(ProspectDocumentSerializer(document, context={"request": request}).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["delete"], url_path=r"documents/(?P<document_id>[^/.]+)")
+    def delete_document(self, request, pk=None, document_id=None):
+        prospect = self.get_object()
+        document = get_object_or_404(ProspectDocument, pk=document_id, prospect=prospect)
+        if not (_is_company_admin(request.user) or request.user.role == "MANAGER" or document.uploaded_by_id == request.user.id):
+            raise PermissionDenied("Vous ne pouvez pas supprimer ce document.")
+        document.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["get"], url_path="agent-runs")
+    def agent_runs(self, request, pk=None):
+        prospect = self.get_object()
+        qs = prospect.agent_runs.all()[:100]
+        return Response(ProspectAgentRunSerializer(qs, many=True, context={"request": request}).data)
+
+    @action(detail=True, methods=["get"], url_path="score-history")
+    def score_history(self, request, pk=None):
+        prospect = self.get_object()
+        qs = prospect.score_history.select_related("activity", "agent_run")[:100]
+        return Response(ProspectScoreHistorySerializer(qs, many=True, context={"request": request}).data)
+
+    @action(detail=True, methods=["get", "post"], url_path="recommendations")
+    def recommendations(self, request, pk=None):
+        prospect = self.get_object()
+        ensure_default_recommendation(prospect)
+        if request.method == "GET":
+            qs = prospect.recommendations.all()[:100]
+            return Response(ProspectRecommendationSerializer(qs, many=True, context={"request": request}).data)
+        serializer = ProspectRecommendationSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        recommendation = serializer.save(prospect=prospect, generated_by="manual")
+        return Response(ProspectRecommendationSerializer(recommendation, context={"request": request}).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path=r"recommendations/(?P<recommendation_id>[^/.]+)/status")
+    def recommendation_status(self, request, pk=None, recommendation_id=None):
+        prospect = self.get_object()
+        recommendation = get_object_or_404(ProspectRecommendation, pk=recommendation_id, prospect=prospect)
+        new_status = request.data.get("status")
+        if new_status not in {"pending", "completed", "ignored"}:
+            raise ValidationError({"status": "Statut invalide."})
+        recommendation.status = new_status
+        recommendation.completed_at = timezone.now() if new_status == "completed" else None
+        recommendation.save(update_fields=["status", "completed_at"])
+        if new_status in {"completed", "ignored"}:
+            record_crm_event(
+                event_type="recommendation_completed",
+                category="prospect",
+                title=recommendation.title,
+                description=recommendation.reason or recommendation.description or "",
+                severity="success" if new_status == "completed" else "info",
+                source_type="manual",
+                source_name="recommendation",
+                source_id=f"recommendation-status-{recommendation.id}-{new_status}",
+                user=request.user,
+                prospect=prospect,
+                related_object_type="prospect_recommendation",
+                related_object_id=recommendation.id,
+                status=new_status,
+                metadata={"priority": recommendation.priority, "status": new_status},
+            )
+        return Response(ProspectRecommendationSerializer(recommendation, context={"request": request}).data)
+
+    @action(detail=True, methods=["get"], url_path="engagement")
+    def engagement(self, request, pk=None):
+        prospect = self.get_object()
+        from agentEngagement.models import EngagementLog
+
+        logs = EngagementLog.objects.filter(prospect=prospect).select_related("user")[:100]
+        data = [
+            {
+                "id": log.id,
+                "action": log.action,
+                "channel": log.channel,
+                "message": log.message,
+                "status": log.status,
+                "error": log.error or log.error_message,
+                "agent": "Engagement Agent",
+                "validated_by": (
+                    f"{getattr(log.user, 'first_name', '')} {getattr(log.user, 'last_name', '')}".strip()
+                    or getattr(log.user, "username", None)
+                    or getattr(log.user, "email", None)
+                ) if log.user else None,
+                "sent_at": log.sent_at,
+                "created_at": log.created_at,
+                "sender": log.sender_name or log.sender_email,
+            }
+            for log in logs
+        ]
+        return Response(data)
 
 
 # ══════════════════════════════════════════════════════════════

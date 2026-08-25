@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import EngagementCampaign, EngagementLog
+from .models import EngagementCampaign, EngagementLog, UserEmailConnection
+
+
+@admin.register(UserEmailConnection)
+class UserEmailConnectionAdmin(admin.ModelAdmin):
+    list_display = ("email", "provider", "user", "is_active", "last_verified_at", "updated_at")
+    list_filter = ("provider", "is_active")
+    search_fields = ("email", "display_name", "user__email")
+    readonly_fields = ("created_at", "updated_at")
 
 
 @admin.register(EngagementLog)

@@ -71,7 +71,7 @@ class EngagementSender:
                 }
 
             if channel == "email":
-                status = send_prepared_email(prospect, subject, message)
+                status = send_prepared_email(prospect, user, subject, message)
 
             elif channel == "linkedin":
                 status = send_linkedin_message(
@@ -124,7 +124,13 @@ class EngagementSender:
             else:
                 return {"success": False, "status": "unsupported_channel"}
 
-            return normalize_sender_result(status, channel)
+            result = normalize_sender_result(status, channel)
+            if channel == "email" and isinstance(status, dict):
+                result["sent"] = bool(status.get("sent"))
+                result["success"] = bool(status.get("success"))
+                result["error_code"] = status.get("code") or status.get("status")
+                result["error"] = status.get("error") or status.get("message")
+            return result
 
         except Exception as exc:
             logger.exception("[sender] Erreur envoi prepared")

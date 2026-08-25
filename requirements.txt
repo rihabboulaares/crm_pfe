@@ -13,7 +13,6 @@ langgraph
 langchain-chroma
 chromadb
 redis
-mcp
 python-dotenv
 # Agent de prospection — dépendances Python
 # Installe avec: pip install -r requirements-agent.txt
@@ -43,9 +42,6 @@ duckduckgo-search>=6.0.0
 requests>=2.31.0
 httpx>=0.27.0
 
-# Browser automation
-playwright>=1.45.0
-
 # Redis (optionnel — mode dégradé si absent)
 redis>=5.0.0
 
@@ -60,3 +56,10 @@ Pillow
 
 gunicorn
 whitenoise
+requests
+httpx
+beautifulsoup4
+lxml
+mcp[cli]>=1.13,<2
+playwright
+chromium

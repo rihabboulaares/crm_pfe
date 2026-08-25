@@ -16,6 +16,27 @@ from .models import (
     PerformanceGoal, CommercialBadge,
 )
 from .models import Pipeline, PipelineStage, OpportunityPipeline, StageHistory, PipelineAlert
+from .models import (
+    ProspectActivity,
+    ProspectAgentRun,
+    ProspectDocument,
+    ProspectRecommendation,
+    ProspectScoreHistory,
+)
+
+
+def _user_display_name(user):
+    if not user:
+        return None
+    get_full_name = getattr(user, "get_full_name", None)
+    if callable(get_full_name):
+        full_name = get_full_name()
+        if full_name:
+            return full_name
+    first_name = getattr(user, "first_name", "") or ""
+    last_name = getattr(user, "last_name", "") or ""
+    full_name = f"{first_name} {last_name}".strip()
+    return full_name or getattr(user, "username", None) or getattr(user, "email", None)
 
 
 def _pipeline_task_queryset(serializer, obj):
@@ -50,11 +71,12 @@ class AccountNestedSerializer(serializers.ModelSerializer):
 # -----------------------
 class ProspectCompanySerializer(serializers.ModelSerializer):
     source_display = serializers.SerializerMethodField()
+    source_label = serializers.SerializerMethodField()
 
     class Meta:
         model  = ProspectCompany
         fields = "__all__"
-        read_only_fields = ["company", "created_by", "created_at", "source_display"]
+        read_only_fields = ["company", "created_by", "created_at", "source_display", "source_label"]
 
     def get_source_display(self, obj):
         return {
@@ -67,6 +89,12 @@ class ProspectCompanySerializer(serializers.ModelSerializer):
             "web": "Web",
             "other": "Autre",
         }.get(obj.source, obj.source)
+
+    def get_source_label(self, obj):
+        sources = obj.discovery_sources or []
+        if sources:
+            return sources[0]
+        return self.get_source_display(obj)
 
     def validate_number_of_employees(self, value):
         if value is not None and value < 0:
@@ -101,10 +129,17 @@ class ProspectSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
     source_display = serializers.SerializerMethodField()
+    source_label = serializers.SerializerMethodField()
     prospect_company_detail = ProspectCompanySerializer(source="prospect_company", read_only=True)
+    score_ia = serializers.SerializerMethodField()
+    score_reasons = serializers.CharField(source="raison_score", read_only=True)
     engagement_message = serializers.CharField(source="generated_message", read_only=True)
     engagement_channel = serializers.CharField(source="last_engagement_channel", read_only=True)
     next_task = serializers.SerializerMethodField()
+    activities_count = serializers.SerializerMethodField()
+    documents_count = serializers.SerializerMethodField()
+    agent_runs_count = serializers.SerializerMethodField()
+    last_activity_summary = serializers.SerializerMethodField()
 
     class Meta:
         model  = Prospect
@@ -116,7 +151,8 @@ class ProspectSerializer(serializers.ModelSerializer):
             "company", "prospect_company", "prospect_company_name", "prospect_company_detail",
             "website", "website_url", "source_url", "linkedin_url", "facebook_url",
             "instagram_url", "google_maps_url", "notes",
-            "source", "source_display", "lead_origin",
+            "score_ia", "score_reasons",
+            "source", "source_display", "source_label", "discovery_sources", "lead_origin",
             "engagement_status", "engagement_channel", "engagement_message",
             "engagement_error", "engagement_subject", "last_engagement_at",
             "last_message_sent", "last_message_sent_at", "last_reply_checked_at",
@@ -126,7 +162,8 @@ class ProspectSerializer(serializers.ModelSerializer):
             "social_profile_activity_level", "social_profile_tone",
             "social_profile_relevance", "social_profile_hook",
             "social_profile_topics", "social_profile_analysis", "social_profile_last_analyzed_at",
-            "next_task",
+            "profile_summary", "profile_analysis_status", "last_analyzed_at", "analysis_error_message",
+            "next_task", "activities_count", "documents_count", "agent_runs_count", "last_activity_summary",
             "created_at", "updated_at",
         ]
         read_only_fields = [
@@ -156,9 +193,20 @@ class ProspectSerializer(serializers.ModelSerializer):
             "social_profile_topics",
             "social_profile_analysis",
             "social_profile_last_analyzed_at",
+            "profile_summary",
+            "profile_analysis_status",
+            "last_analyzed_at",
+            "analysis_error_message",
             "next_task",
+            "activities_count",
+            "documents_count",
+            "agent_runs_count",
+            "last_activity_summary",
             "prospect_company_detail",
             "source_display",
+            "source_label",
+            "score_ia",
+            "score_reasons",
         ]
         extra_kwargs = {
             "first_name": {"required": False, "allow_blank": True},
@@ -202,6 +250,19 @@ class ProspectSerializer(serializers.ModelSerializer):
             "other": "Autre",
         }.get(obj.source, obj.source)
 
+    def get_source_label(self, obj):
+        sources = obj.discovery_sources or []
+        if sources:
+            return sources[0]
+        if obj.source == "commercial" or obj.lead_origin == "manual":
+            return "Manuel"
+        return self.get_source_display(obj)
+
+    def get_score_ia(self, obj):
+        if obj.prospect_company_id and obj.prospect_company:
+            return obj.prospect_company.score_ia
+        return None
+
     def get_next_task(self, obj):
         task = (
             obj.task_set.filter(status__in=["pending", "ready", "in_progress", "todo"])
@@ -217,6 +278,36 @@ class ProspectSerializer(serializers.ModelSerializer):
             "status": task.status,
             "priority": task.priority,
             "due_date": task.due_date,
+        }
+
+    def get_activities_count(self, obj):
+        if hasattr(obj, "_activities_count"):
+            return obj._activities_count
+        return getattr(obj, "prospect_activities", None).count() if getattr(obj, "pk", None) else 0
+
+    def get_documents_count(self, obj):
+        if hasattr(obj, "_documents_count"):
+            return obj._documents_count
+        return getattr(obj, "documents", None).count() if getattr(obj, "pk", None) else 0
+
+    def get_agent_runs_count(self, obj):
+        if hasattr(obj, "_agent_runs_count"):
+            return obj._agent_runs_count
+        return getattr(obj, "agent_runs", None).count() if getattr(obj, "pk", None) else 0
+
+    def get_last_activity_summary(self, obj):
+        activities = getattr(obj, "prospect_activities", None)
+        if activities is None:
+            return None
+        activity = activities.order_by("-created_at").first()
+        if not activity:
+            return None
+        return {
+            "id": activity.id,
+            "type": activity.activity_type,
+            "title": activity.title,
+            "channel": activity.channel,
+            "created_at": activity.created_at,
         }
 
     def validate(self, attrs):
@@ -306,6 +397,120 @@ class ProspectSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         return instance
+
+
+class ProspectActivitySerializer(serializers.ModelSerializer):
+    created_by_name = serializers.SerializerMethodField()
+    activity_type_display = serializers.CharField(source="get_activity_type_display", read_only=True)
+    channel_display = serializers.CharField(source="get_channel_display", read_only=True)
+    score_change = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProspectActivity
+        fields = [
+            "id", "prospect", "activity_type", "activity_type_display", "channel",
+            "channel_display", "title", "description", "source", "created_by",
+            "created_by_name", "agent_run", "metadata", "created_at", "updated_at",
+            "score_change",
+        ]
+        read_only_fields = [
+            "prospect", "created_by", "created_by_name", "updated_at", "score_change",
+        ]
+
+    def get_created_by_name(self, obj):
+        return _user_display_name(obj.created_by)
+
+    def get_score_change(self, obj):
+        change = obj.score_changes.order_by("-created_at").first()
+        if not change:
+            return None
+        return {
+            "previous_score": change.previous_score,
+            "new_score": change.new_score,
+            "reason": change.reason,
+            "created_at": change.created_at,
+        }
+
+
+class ProspectScoreHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProspectScoreHistory
+        fields = [
+            "id", "prospect", "previous_score", "new_score", "reason",
+            "activity", "agent_run", "created_at",
+        ]
+        read_only_fields = fields
+
+
+class ProspectDocumentSerializer(serializers.ModelSerializer):
+    uploaded_by_name = serializers.SerializerMethodField()
+    file_url = serializers.SerializerMethodField()
+    file_size = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProspectDocument
+        fields = [
+            "id", "prospect", "name", "document_type", "file", "file_url",
+            "file_size", "description", "source", "uploaded_by", "uploaded_by_name",
+            "agent_run", "created_at", "updated_at",
+        ]
+        read_only_fields = [
+            "prospect", "uploaded_by", "uploaded_by_name", "file_url", "file_size",
+            "created_at", "updated_at",
+        ]
+
+    def get_uploaded_by_name(self, obj):
+        return _user_display_name(obj.uploaded_by)
+
+    def get_file_url(self, obj):
+        request = self.context.get("request")
+        if not obj.file:
+            return ""
+        url = obj.file.url
+        return request.build_absolute_uri(url) if request else url
+
+    def get_file_size(self, obj):
+        try:
+            return obj.file.size
+        except Exception:
+            return None
+
+    def validate_file(self, value):
+        from django.conf import settings
+
+        max_size = getattr(settings, "PROSPECT_DOCUMENT_MAX_SIZE", 10 * 1024 * 1024)
+        if value and value.size > max_size:
+            raise serializers.ValidationError("Le fichier dépasse la taille maximale autorisée.")
+        return value
+
+
+class ProspectAgentRunSerializer(serializers.ModelSerializer):
+    duration_seconds = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProspectAgentRun
+        fields = [
+            "id", "prospect", "agent_type", "status", "started_at", "finished_at",
+            "duration_seconds", "input_summary", "output_summary", "error_message",
+            "metadata", "audit_run", "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_duration_seconds(self, obj):
+        if not obj.finished_at or not obj.started_at:
+            return None
+        return round((obj.finished_at - obj.started_at).total_seconds(), 2)
+
+
+class ProspectRecommendationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProspectRecommendation
+        fields = [
+            "id", "prospect", "recommendation_type", "title", "description",
+            "priority", "reason", "status", "generated_by", "agent_run",
+            "created_at", "completed_at",
+        ]
+        read_only_fields = ["prospect", "generated_by", "agent_run", "created_at", "completed_at"]
 
 
 # -----------------------

@@ -3,10 +3,12 @@ import logging
 from math import ceil
 
 from django.conf import settings
+from django.core import signing
 from django.db.models import Count, Q
+from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -19,8 +21,11 @@ from sales.engagement_tasks import (
     upsert_prospect_task,
 )
 from superadmin.audit import create_ai_agent_run, create_audit_log
+from users.models import User
 
-from .models import EngagementCampaign, EngagementLog
+from .email_providers.router import get_email_provider, normalize_email_provider_name, provider_is_configured
+from .email_sender import get_active_email_connection, get_sender_context
+from .models import EngagementCampaign, EngagementLog, UserEmailConnection
 from .permissions import (
     get_engagement_queryset_for_user,
     get_team_users_for_manager,
@@ -57,6 +62,7 @@ ENGAGEMENT_STATUSES = [
 ]
 
 CHANNELS = {"linkedin", "email", "facebook", "instagram"}
+EMAIL_PROVIDERS = {UserEmailConnection.PROVIDER_GMAIL, UserEmailConnection.PROVIDER_MICROSOFT}
 
 
 def normalize_status(status_value):
@@ -120,8 +126,39 @@ def serialize_prospect(prospect, request):
     return data
 
 
-def create_log(prospect, user, action, status_value, channel=None, message=None, error=None, sent_at=None):
-    return EngagementLog.objects.create(
+def serialize_email_connection(connection):
+    if not connection:
+        return {
+            "connected": False,
+            "provider": "",
+            "email": "",
+            "display_name": "",
+            "last_verified_at": None,
+            "token_expires_at": None,
+        }
+    return {
+        "connected": True,
+        "provider": connection.provider,
+        "email": connection.email,
+        "display_name": connection.display_name or "",
+        "last_verified_at": connection.last_verified_at,
+        "token_expires_at": connection.token_expires_at,
+    }
+
+
+def create_log(
+    prospect,
+    user,
+    action,
+    status_value,
+    channel=None,
+    message=None,
+    error=None,
+    sent_at=None,
+    sender_snapshot=None,
+):
+    sender_snapshot = sender_snapshot or {}
+    log = EngagementLog.objects.create(
         prospect=prospect,
         user=user,
         company=user.company,
@@ -130,8 +167,87 @@ def create_log(prospect, user, action, status_value, channel=None, message=None,
         message=message,
         status=status_value,
         error=error,
+        sender_name=sender_snapshot.get("sender_name") or "",
+        sender_email=sender_snapshot.get("sender_email") or "",
+        provider=sender_snapshot.get("provider") or "",
+        provider_message_id=sender_snapshot.get("provider_message_id") or "",
+        error_code=sender_snapshot.get("error_code") or "",
+        error_message=sender_snapshot.get("error_message") or "",
         sent_at=sent_at,
     )
+    try:
+        from Notifications.crm_event_service import record_crm_event
+        from sales.prospect_tracking_service import record_agent_run, safe_track_activity
+
+        agent_run = None
+        if action in {"agent_launched", "message_generated", "message_sent", "replied"}:
+            agent_run = record_agent_run(
+                prospect=prospect,
+                agent_type="engagement",
+                status="completed" if action != "send_error" else "failed",
+                started_at=log.created_at,
+                finished_at=log.created_at,
+                input_summary=f"Action engagement: {action}",
+                output_summary=(message or "")[:1000],
+                error_message=error or "",
+                metadata={"engagement_log_id": log.id, "channel": channel, "status": status_value},
+            )
+        event_map = {
+            "agent_launched": ("agent_started", "agent", "info", "Engagement Agent lancé"),
+            "message_generated": ("message_generated", "engagement", "info", "Message généré"),
+            "message_sent": ("message_sent", "engagement", "success", "Message envoyé"),
+            "replied": ("reply_received", "engagement", "success", "Réponse reçue"),
+            "send_error": ("agent_failed", "agent", "critical", "Engagement Agent en erreur"),
+        }
+        if action in event_map:
+            event_type, category, severity, title = event_map[action]
+            record_crm_event(
+                event_type=event_type,
+                category=category,
+                title=title,
+                description=error or message or "",
+                severity=severity,
+                source_type="engagement_log",
+                source_name="Engagement Agent",
+                source_id=log.id,
+                user=user,
+                prospect=prospect,
+                agent_run=agent_run,
+                related_object_type="engagement_log",
+                related_object_id=log.id,
+                status=status_value,
+                channel=channel or "",
+                metadata={"action": action, "engagement_log_id": log.id, "channel": channel},
+            )
+        if action == "message_sent":
+            safe_track_activity(
+                prospect=prospect,
+                activity_type="message_sent",
+                title="Message envoyé",
+                description=message or "",
+                channel=channel,
+                source="agent",
+                created_by=user,
+                agent_run=agent_run,
+                metadata={"engagement_log_id": log.id},
+                created_at=sent_at or log.created_at,
+            )
+        elif action == "replied":
+            safe_track_activity(
+                prospect=prospect,
+                activity_type="reply_received",
+                title="Réponse reçue",
+                description=getattr(prospect, "last_reply_text", "") or message or "",
+                channel=channel,
+                source="manual",
+                created_by=user,
+                agent_run=agent_run,
+                metadata={"engagement_log_id": log.id},
+                created_at=log.created_at,
+            )
+    except Exception:
+        logger.exception("Prospect 360 tracking failed for engagement log=%s", getattr(log, "id", None))
+    return log
 
 
 def notify(user, title, message, notif_type, prospect):
@@ -201,8 +317,156 @@ class EngagementDashboardView(APIView):
                 "agent_prospects": agent_prospects,
                 "opportunities_ready": opportunities_ready,
                 "by_status": counts,
+                "email_connection": serialize_email_connection(get_active_email_connection(request.user)),
             }
         )
+
+
+class EmailConnectionsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        connections = UserEmailConnection.objects.filter(user=request.user).order_by("-is_active", "-updated_at")
+        return Response(
+            {
+                "active": serialize_email_connection(get_active_email_connection(request.user)),
+                "results": [serialize_email_connection(connection) for connection in connections],
+                "sender_context": get_sender_context(request.user),
+            }
+        )
+
+
+class EmailConnectView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, provider):
+        provider = normalize_email_provider_name(provider)
+        if provider not in EMAIL_PROVIDERS:
+            return Response({"success": False, "code": "EMAIL_PROVIDER_UNSUPPORTED"}, status=400)
+        if not provider_is_configured(provider):
+            missing = []
+            if provider == UserEmailConnection.PROVIDER_GMAIL:
+                if not settings.GOOGLE_CLIENT_ID:
+                    missing.append("GOOGLE_CLIENT_ID")
+                if not settings.GOOGLE_CLIENT_SECRET:
+                    missing.append("GOOGLE_CLIENT_SECRET")
+                if not settings.GOOGLE_REDIRECT_URI:
+                    missing.append("GOOGLE_REDIRECT_URI")
+            if provider == UserEmailConnection.PROVIDER_MICROSOFT:
+                if not settings.MICROSOFT_CLIENT_ID:
+                    missing.append("MICROSOFT_CLIENT_ID")
+                if not settings.MICROSOFT_CLIENT_SECRET:
+                    missing.append("MICROSOFT_CLIENT_SECRET")
+                if not settings.MICROSOFT_REDIRECT_URI:
+                    missing.append("MICROSOFT_REDIRECT_URI")
+            return Response(
+                {
+                    "success": False,
+                    "code": "EMAIL_OAUTH_CONFIG_MISSING",
+                    "message": "Configuration OAuth manquante pour ce fournisseur.",
+                    "missing": missing,
+                },
+                status=400,
+            )
+        state = signing.dumps({"user_id": request.user.id, "provider": provider}, salt="agent-engagement-email")
+        authorization_url = get_email_provider(provider).build_authorization_url(state)
+        return Response({"success": True, "provider": provider, "authorization_url": authorization_url})
+
+
+class EmailOAuthCallbackView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request, provider):
+        provider = normalize_email_provider_name(provider)
+        code = request.query_params.get("code")
+        state = request.query_params.get("state")
+        if not code or not state or provider not in EMAIL_PROVIDERS:
+            return HttpResponse("Connexion email invalide.", status=400)
+
+        try:
+            payload = signing.loads(state, salt="agent-engagement-email", max_age=600)
+        except signing.BadSignature:
+            return HttpResponse("State OAuth invalide ou expire.", status=400)
+
+        if payload.get("provider") != provider:
+            return HttpResponse("Provider OAuth incoherent.", status=400)
+
+        user = User.objects.filter(pk=payload.get("user_id")).first()
+        if not user:
+            return HttpResponse("Utilisateur introuvable.", status=404)
+
+        try:
+            email_provider = get_email_provider(provider)
+            token_data = email_provider.exchange_code(code)
+            profile = email_provider.get_profile(token_data.get("access_token"))
+        except Exception as exc:
+            logger.exception("[engagement] OAuth email callback failed")
+            return HttpResponse(f"Connexion email impossible: {str(exc)[:200]}", status=400)
+
+        expires_in = int(token_data.get("expires_in") or 3600)
+        email = profile.get("email")
+        if not email:
+            return HttpResponse("Adresse email introuvable chez le fournisseur.", status=400)
+
+        UserEmailConnection.objects.filter(user=user).update(is_active=False)
+        connection, _ = UserEmailConnection.objects.update_or_create(
+            user=user,
+            provider=provider,
+            email=email,
+            defaults={
+                "display_name": profile.get("display_name") or "",
+                "access_token": token_data.get("access_token") or "",
+                "refresh_token": token_data.get("refresh_token") or "",
+                "token_expires_at": timezone.now() + timedelta(seconds=expires_in),
+                "is_active": True,
+                "last_verified_at": timezone.now(),
+            },
+        )
+        connection.set_access_token(token_data.get("access_token"))
+        if token_data.get("refresh_token"):
+            connection.set_refresh_token(token_data.get("refresh_token"))
+        connection.save(update_fields=["access_token", "refresh_token", "updated_at"])
+
+        return HttpResponse(
+            "<html><body><h3>Connexion email active.</h3><p>Vous pouvez fermer cette fenetre et revenir a l'agent d'engagement.</p></body></html>"
+        )
+
+
+class EmailDisconnectView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        provider = (request.data.get("provider") or "").lower()
+        qs = UserEmailConnection.objects.filter(user=request.user)
+        if provider:
+            qs = qs.filter(provider=provider)
+        updated = qs.update(is_active=False)
+        return Response({"success": True, "disconnected": updated})
+
+
+class EmailConnectionTestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        connection = get_active_email_connection(request.user)
+        if not connection:
+            return Response({"success": False, "code": "EMAIL_LOGIN_REQUIRED"}, status=400)
+        try:
+            provider = get_email_provider(connection.provider)
+            if not provider.ensure_valid_token(connection):
+                return Response({"success": False, "code": "EMAIL_REFRESH_FAILED"}, status=400)
+            profile = provider.get_profile(connection.get_access_token())
+        except Exception as exc:
+            connection.is_active = False
+            connection.save(update_fields=["is_active", "updated_at"])
+            return Response({"success": False, "code": "EMAIL_CONNECTION_EXPIRED", "message": str(exc)[:300]}, status=400)
+        connection.email = profile.get("email") or connection.email
+        connection.display_name = profile.get("display_name") or connection.display_name
+        connection.last_verified_at = timezone.now()
+        connection.is_active = True
+        connection.save(update_fields=["email", "display_name", "last_verified_at", "is_active", "updated_at"])
+        return Response({"success": True, "connection": serialize_email_connection(connection)})
 
 
 class EngagementProspectsView(APIView):
@@ -582,7 +846,22 @@ class SendPreparedEngagementView(APIView):
                     "conversation_status",
                 ]
             )
-            log = create_log(prospect, request.user, "message_sent", "message_sent", channel, message, sent_at=sent_at)
+            sender_snapshot = {
+                "sender_name": result.get("sender_name") or "",
+                "sender_email": result.get("sender_email") or "",
+                "provider": result.get("provider") or "",
+                "provider_message_id": result.get("provider_message_id") or "",
+            }
+            log = create_log(
+                prospect,
+                request.user,
+                "message_sent",
+                "message_sent",
+                channel,
+                message,
+                sent_at=sent_at,
+                sender_snapshot=sender_snapshot,
+            )
             create_audit_log(
                 actor=request.user,
                 company=getattr(request.user, "company", None),
@@ -609,11 +888,27 @@ class SendPreparedEngagementView(APIView):
             prospect.save(update_fields=["engagement_status", "engagement_error"])
             return Response({**result, "prospect": serialize_prospect(prospect, request)})
 
-        error = result.get("error") or result.get("status") or "Erreur d'envoi."
+        error = result.get("error") or result.get("message") or result.get("status") or "Erreur d'envoi."
         prospect.engagement_status = "message_failed"
         prospect.engagement_error = error
         prospect.save(update_fields=["engagement_status", "engagement_error"])
-        create_log(prospect, request.user, "send_error", "message_failed", channel, message, error=error)
+        create_log(
+            prospect,
+            request.user,
+            "send_error",
+            "message_failed",
+            channel,
+            message,
+            error=error,
+            sender_snapshot={
+                "sender_name": result.get("sender_name") or "",
+                "sender_email": result.get("sender_email") or "",
+                "provider": result.get("provider") or "",
+                "provider_message_id": result.get("provider_message_id") or "",
+                "error_code": result.get("error_code") or result.get("code") or result.get("status") or "",
+                "error_message": error,
+            },
+        )
         create_audit_log(
             actor=request.user,
             company=getattr(request.user, "company", None),
@@ -625,7 +920,15 @@ class SendPreparedEngagementView(APIView):
             metadata={"channel": channel, "prospect_id": prospect.pk, "error": error},
         )
         notify(request.user, f"Erreur {channel} pour {prospect.first_name} {prospect.last_name}", error, "error", prospect)
-        return Response({"success": False, "status": "message_failed", "error": error, "prospect": serialize_prospect(prospect, request)})
+        return Response(
+            {
+                "success": False,
+                "status": "message_failed",
+                "code": result.get("error_code") or result.get("code") or result.get("status"),
+                "error": error,
+                "prospect": serialize_prospect(prospect, request),
+            }
+        )
 
 
 class ProspectLogsView(APIView):
@@ -637,7 +940,20 @@ class ProspectLogsView(APIView):
             return unauthorized_prospect_response(request, prospect_id)
 
         logs = prospect.engagement_logs.filter(company=request.user.company).values(
-            "id", "action", "channel", "message", "status", "error", "sent_at", "created_at"
+            "id",
+            "action",
+            "channel",
+            "message",
+            "status",
+            "error",
+            "sender_name",
+            "sender_email",
+            "provider",
+            "provider_message_id",
+            "error_code",
+            "error_message",
+            "sent_at",
+            "created_at",
         )
         return Response({"results": list(logs)})
 

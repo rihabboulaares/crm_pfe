@@ -1,78 +1,170 @@
+import asyncio
+import logging
 import os
 import re
-import json
-import logging
 import time
+import unicodedata
+from dataclasses import dataclass
 
+from django.conf import settings
 from google import genai
 from google.genai import types
 
-from agentProspection.agent.lead_classifier import (
-    classify_lead_type,
-    has_valid_contact_url,
-    qualify_entity,
+from agentProspection.agent.prompts import (
+    SYSTEM_PROMPT,
+    build_decision_prompt,
+    build_validation_prompt,
 )
+
 from agentProspection.agent.schemas import (
-    DecisionSchema,
-    EntityAnalysisSchema,
+    AgentDecision,
     IntentSchema,
+    ValidationBatch,
 )
-from agentProspection.agent.prompts import SYSTEM_PROMPT
 
-logger = logging.getLogger("agentProspection.gemini")
+from agentProspection.agent.tool_registry import (
+    normalize_source_name,
+    source_to_tool,
+)
 
-GEMINI_RETRY_DELAYS = (3, 10, 30)
+
+logger = logging.getLogger(
+    "agentProspection.gemini"
+)
 
 
-ROLE_KEYWORDS = [
-    "responsable rh",
-    "responsables rh",
-    "directeur rh",
-    "directrice rh",
-    "drh",
-    "rh",
-    "recruteur",
-    "recruteuse",
-    "recrutement",
-    "hr",
-    "human resources",
-    "ceo",
-    "cto",
-    "founder",
-    "fondateur",
-    "fondatrice",
-    "manager",
-    "directeur",
-    "directrice",
-    "responsable",
-    "consultant",
-    "commercial",
-    "sales",
-    "marketing manager",
-    "dentiste",
-    "médecin",
-    "medecin",
-    "avocat",
-    "architecte",
-]
+# ============================================================
+# CONSTANTS
+# ============================================================
 
-SOURCE_KEYWORDS = {
-    "linkedin": ["linkedin"],
-    "facebook": ["facebook"],
-    "instagram": ["instagram"],
-    "general": ["site web", "website", "web", "email", "contact"],
-    "maps": ["maps", "google maps", "adresse", "telephone", "téléphone"],
+GEMINI_STATUS_SUCCESS = "success"
+GEMINI_STATUS_RATE_LIMITED = "rate_limited"
+GEMINI_STATUS_UNAVAILABLE = "unavailable"
+GEMINI_STATUS_INVALID_RESPONSE = "invalid_response"
+
+DEFAULT_COUNTRY = "Tunisie"
+DEFAULT_COUNTRY_CODE = "TN"
+
+MAX_META_ADS_QUERIES = 6
+MAX_INTENT_SEARCH_KEYWORDS = 3
+MAX_META_SEARCH_KEYWORDS = 6
+MIN_META_QUERY_LENGTH = 3
+
+
+# ============================================================
+# RUNTIME STATE
+# ============================================================
+
+@dataclass
+class GeminiRuntimeState:
+    status: str = GEMINI_STATUS_UNAVAILABLE
+    calls: int = 0
+    last_error: str = ""
+
+
+# ============================================================
+# CIRCUIT BREAKER
+# ============================================================
+
+class GeminiCircuitBreaker:
+    """
+    Empêche de rappeler immédiatement Gemini après un 429.
+
+    Important :
+    ce circuit breaker concerne les appels Gemini du process
+    courant uniquement.
+
+    Il ne constitue pas un fallback métier.
+    """
+
+    def __init__(self):
+        self.opened_until = 0.0
+
+    def is_open(
+        self,
+    ) -> bool:
+        return (
+            time.monotonic()
+            < self.opened_until
+        )
+
+    def remaining_seconds(
+        self,
+    ) -> int:
+        return max(
+            0,
+            round(
+                self.opened_until
+                - time.monotonic()
+            ),
+        )
+
+    def record_success(
+        self,
+    ):
+        self.opened_until = 0.0
+
+    def record_rate_limit(
+        self,
+    ):
+        cooldown = int(
+            getattr(
+                settings,
+                "PROSPECTION_GEMINI_CIRCUIT_COOLDOWN_SECONDS",
+                300,
+            )
+            or 300
+        )
+
+        self.opened_until = (
+            time.monotonic()
+            + max(
+                1,
+                cooldown,
+            )
+        )
+
+
+GEMINI_CIRCUIT_BREAKER = (
+    GeminiCircuitBreaker()
+)
+
+
+# ============================================================
+# LOCATION
+# ============================================================
+
+FOREIGN_LOCATION_ALIASES = {
+    "france",
+    "paris",
+    "lyon",
+    "marseille",
+    "italie",
+    "italy",
+    "allemagne",
+    "germany",
+    "espagne",
+    "spain",
+    "royaume uni",
+    "united kingdom",
+    "uk",
+    "etats unis",
+    "etats-unis",
+    "états unis",
+    "united states",
+    "usa",
+    "canada",
+    "maroc",
+    "morocco",
+    "algerie",
+    "algérie",
+    "algeria",
 }
 
-SOURCE_TO_TOOL = {
-    "maps": "maps_search",
-    "linkedin": "serper_linkedin",
-    "facebook": "serper_facebook",
-    "instagram": "serper_instagram",
-    "general": "serper_general",
-}
 
-LOCATION_KEYWORDS = [
+TUNISIA_ALIASES = {
+    "tunisie",
+    "tunisia",
     "tunis",
     "ariana",
     "sousse",
@@ -81,1235 +173,2341 @@ LOCATION_KEYWORDS = [
     "bizerte",
     "monastir",
     "mahdia",
-    "gabes",
-    "gabès",
     "kairouan",
     "hammamet",
-    "la marsa",
-    "ben arous",
     "djerba",
-]
-
-INDUSTRY_KEYWORDS = [
-    "startup",
-    "startups",
-    "it",
-    "informatique",
-    "software",
-    "saas",
-    "technologie",
-    "tech",
-    "restaurant",
-    "restaurants",
-    "cafe",
-    "café",
-    "hotel",
-    "hotels",
-    "hôtel",
-    "hôtels",
-    "dentiste",
-    "dentistes",
-    "cabinet dentaire",
-    "avocat",
-    "avocats",
-    "cabinet avocat",
-    "architecte",
-    "architectes",
-    "marketing",
-    "agence marketing",
-    "agence",
-    "agences",
-    "pharmacie",
-    "pharmacies",
-    "clinique",
-    "cliniques",
-    "garage",
-    "garages",
-    "salon",
-    "coiffure",
-    "beaute",
-    "beauté",
-    "immobilier",
-    "agence immobiliere",
-    "agence immobilière",
-]
-
-STOPWORDS = {
-    "trouve",
-    "trouver",
-    "cherche",
-    "chercher",
-    "des",
-    "les",
-    "une",
-    "un",
-    "de",
-    "du",
-    "la",
-    "le",
-    "dans",
-    "avec",
-    "sur",
-    "a",
-    "à",
-    "en",
-    "et",
-    "ou",
-    "pour",
-    "prospect",
-    "prospects",
-    "entreprise",
-    "entreprises",
-    "personne",
-    "personnes",
-    "site",
-    "web",
-    "website",
-    "email",
-    "mail",
-    "contact",
-    "telephone",
-    "téléphone",
-    "linkedin",
-    "facebook",
-    "instagram",
-    "maps",
-    "google",
+    "gabes",
+    "gabès",
+    "ben arous",
+    "manouba",
 }
 
 
-ROLE_ALIASES = {
-    "responsables rh": "responsable rh",
-    "responsable rh": "responsable rh",
-    "directeur rh": "responsable rh",
-    "directrice rh": "responsable rh",
-    "drh": "responsable rh",
-    "rh": "responsable rh",
-    "hr": "responsable rh",
-    "human resources": "responsable rh",
-    "recruteur": "recruteur",
-    "recruteuse": "recruteur",
-    "recrutement": "recruteur",
-    "ceo": "ceo",
-    "cto": "cto",
-    "founder": "fondateur",
-    "fondateur": "fondateur",
-    "fondatrice": "fondateur",
-    "manager": "manager",
-    "directeur": "directeur",
-    "directrice": "directeur",
-    "responsable": "responsable",
-    "consultant": "consultant",
-    "commercial": "commercial",
-    "sales": "commercial",
-    "marketing manager": "responsable marketing",
-    "dentiste": "dentiste",
-    "médecin": "médecin",
-    "medecin": "médecin",
-    "avocat": "avocat",
-    "architecte": "architecte",
-}
+# ============================================================
+# NORMALIZATION
+# ============================================================
+
+def normalize_text(
+    value: str | None,
+) -> str:
+    return re.sub(
+        r"\s+",
+        " ",
+        str(
+            value or ""
+        )
+        .lower()
+        .strip(),
+    )
 
 
-INDUSTRY_ALIASES = {
-    "startups": "startup",
-    "startup": "startup",
-    "it": "IT",
-    "informatique": "IT",
-    "software": "IT",
-    "saas": "SaaS",
-    "technologie": "IT",
-    "tech": "IT",
-    "restaurants": "restaurant",
-    "restaurant": "restaurant",
-    "cafe": "café",
-    "café": "café",
-    "hotels": "hôtel",
-    "hotel": "hôtel",
-    "hôtel": "hôtel",
-    "hôtels": "hôtel",
-    "dentistes": "dentiste",
-    "dentiste": "dentiste",
-    "cabinet dentaire": "dentiste",
-    "avocats": "avocat",
-    "avocat": "avocat",
-    "cabinet avocat": "avocat",
-    "architectes": "architecte",
-    "architecte": "architecte",
-    "agence marketing": "marketing",
-    "marketing": "marketing",
-    "agences": "agence",
-    "agence": "agence",
-    "pharmacies": "pharmacie",
-    "pharmacie": "pharmacie",
-    "cliniques": "clinique",
-    "clinique": "clinique",
-    "garages": "garage",
-    "garage": "garage",
-    "salon": "salon",
-    "coiffure": "coiffure",
-    "beaute": "beauté",
-    "beauté": "beauté",
-    "immobilier": "immobilier",
-    "agence immobiliere": "immobilier",
-    "agence immobilière": "immobilier",
-}
+def normalize_plain(
+    value: str | None,
+) -> str:
+    text = unicodedata.normalize(
+        "NFKD",
+        str(
+            value or ""
+        ),
+    )
+
+    text = "".join(
+        char
+        for char in text
+        if not unicodedata.combining(
+            char
+        )
+    )
+
+    text = text.lower()
+
+    text = re.sub(
+        r"[^a-z0-9\s'-]",
+        " ",
+        text,
+    )
+
+    return re.sub(
+        r"\s+",
+        " ",
+        text,
+    ).strip()
 
 
-def normalize_text(text: str) -> str:
-    return re.sub(r"\s+", " ", str(text or "").lower()).strip()
-
-
-def dedupe(values: list[str]) -> list[str]:
+def dedupe(
+    values,
+) -> list[str]:
     result = []
     seen = set()
 
-    for value in values:
-        value = str(value or "").strip()
+    for value in (
+        values
+        or []
+    ):
+        text = str(
+            value
+            or ""
+        ).strip()
 
-        if not value:
+        if not text:
             continue
 
-        key = value.lower()
+        key = normalize_plain(
+            text
+        )
 
-        if key in seen:
+        if (
+            not key
+            or key in seen
+        ):
             continue
 
-        seen.add(key)
-        result.append(value)
+        seen.add(
+            key
+        )
+
+        result.append(
+            text
+        )
 
     return result
 
 
-def parse_json_text(text: str) -> dict:
-    value = (text or "").strip()
+# ============================================================
+# TUNISIA SCOPE
+# ============================================================
 
-    if value.startswith("```"):
-        value = re.sub(r"^```(?:json)?", "", value, flags=re.IGNORECASE).strip()
-        value = re.sub(r"```$", "", value).strip()
+def query_requests_foreign_location(
+    query: str,
+) -> str | None:
+    normalized = normalize_plain(
+        query
+    )
 
-    return json.loads(value)
+    for alias in (
+        FOREIGN_LOCATION_ALIASES
+    ):
+        alias_normalized = (
+            normalize_plain(
+                alias
+            )
+        )
+
+        if re.search(
+            rf"\b{re.escape(alias_normalized)}\b",
+            normalized,
+        ):
+            return alias
+
+    return None
 
 
-def ensure_list(value) -> list:
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return value
-    return [value]
+def enforce_tunisia_scope(
+    intent: dict,
+) -> dict:
+    intent = dict(
+        intent
+        or {}
+    )
 
-
-def repair_decision_payload(data) -> dict:
-    if isinstance(data, list):
-        data = data[0] if data else {}
-    if not isinstance(data, dict):
-        data = {}
-
-    decision = data.get("decision") or data.get("action") or "analyze_entities"
-    target_urls = (
-        data.get("target_urls")
-        or data.get("urls")
-        or data.get("target")
-        or data.get("targets")
-        or data.get("target_url")
+    locations = dedupe(
+        intent.get(
+            "locations"
+        )
         or []
     )
 
-    return {
-        "decision": str(decision or "analyze_entities"),
-        "tool": data.get("tool") or data.get("next_tool") or "",
-        "query": data.get("query") or data.get("next_query") or "",
-        "target_urls": ensure_list(target_urls),
-        "reason": data.get("reason") or data.get("rationale") or "",
-        "confidence": data.get("confidence") or 0.5,
-    }
-
-
-def score_to_evaluation(score: int) -> str:
-    if score >= 70:
-        return "hot"
-    if score >= 40:
-        return "warm"
-    return "cold"
-
-
-def repair_analysis_payload(data) -> dict:
-    if isinstance(data, list):
-        items = data
-    elif isinstance(data, dict):
-        items = (
-            data.get("entities")
-            or data.get("analysis")
-            or data.get("analyses")
-            or data.get("results")
-            or data.get("items")
-            or []
-        )
-    else:
-        items = []
-
-    repaired = []
-    for position, item in enumerate(ensure_list(items)):
-        if not isinstance(item, dict):
-            continue
-
-        raw_index = (
-            item.get("index")
-            if item.get("index") is not None
-            else item.get("entity_index")
-            if item.get("entity_index") is not None
-            else item.get("id")
-        )
-        try:
-            index = int(raw_index)
-        except Exception:
-            index = position
-
-        score = item.get("lead_score", item.get("score", item.get("score_ia", 0)))
-        try:
-            score = int(score or 0)
-        except Exception:
-            score = 0
-
-        is_valid = item.get("is_valid")
-        if is_valid is None:
-            is_valid = item.get("valid")
-        if is_valid is None:
-            is_valid = item.get("relevant")
-        if is_valid is None:
-            is_valid = bool(score >= 40 or item.get("crm_ready"))
-
-        cleaned_data = item.get("cleaned_data") or item.get("data") or {}
-        if not isinstance(cleaned_data, dict):
-            cleaned_data = {}
-
-        repaired.append({
-            "index": index,
-            "is_valid": bool(is_valid),
-            "entity_type": item.get("entity_type") or item.get("lead_type") or "company",
-            "lead_score": max(0, min(score, 100)),
-            "evaluation": item.get("evaluation") or score_to_evaluation(score),
-            "reason": item.get("reason") or item.get("rationale") or item.get("evaluation_reason") or "",
-            "crm_ready": bool(item.get("crm_ready")),
-            "enrichment_status": item.get("enrichment_status") or "needs_enrichment",
-            "qualification_reasons": item.get("qualification_reasons") or [],
-            "rejection_reason": item.get("rejection_reason") or "",
-            "cleaned_data": cleaned_data,
-        })
-
-    return {"entities": repaired}
-
-
-def normalize_source_name(source: str) -> str | None:
-    value = normalize_text(source).replace("-", "_")
-
-    mapping = {
-        "serper_linkedin": "linkedin",
-        "linkedin": "linkedin",
-        "linked_in": "linkedin",
-        "serper_facebook": "facebook",
-        "facebook": "facebook",
-        "serper_instagram": "instagram",
-        "instagram": "instagram",
-        "serper_general": "general",
-        "general": "general",
-        "website": "general",
-        "web": "general",
-        "site_web": "general",
-        "email": "general",
-        "maps_search": "maps",
-        "google_maps": "maps",
-        "maps": "maps",
-    }
-
-    return mapping.get(value)
-
-
-def extract_locations(query: str) -> list[str]:
-    q = normalize_text(query)
-    found = []
-
-    for loc in LOCATION_KEYWORDS:
-        if re.search(rf"\b{re.escape(loc)}\b", q):
-            found.append(loc.title())
-
-    return dedupe(found)
-
-
-def extract_sources(query: str) -> list[str]:
-    q = normalize_text(query)
-    sources = []
-
-    for source, keywords in SOURCE_KEYWORDS.items():
-        if any(keyword in q for keyword in keywords):
-            sources.append(source)
-
-    if not sources:
-        sources = ["general"]
-
-    return dedupe(sources)
-
-
-def detect_forced_sources(query: str) -> list[str]:
-    q = normalize_text(query)
-    forced = []
-
-    forced_markers = {
-        "linkedin": ["linkedin"],
-        "facebook": ["facebook"],
-        "instagram": ["instagram"],
-        "maps": ["google maps", "maps"],
-    }
-
-    for source, markers in forced_markers.items():
-        if any(marker in q for marker in markers):
-            forced.append(source)
-
-    return dedupe(forced)
-
-
-def extract_roles(query: str) -> list[str]:
-    q = normalize_text(query)
-    found = []
-
-    for role in ROLE_KEYWORDS:
-        if re.search(rf"\b{re.escape(role)}\b", q):
-            found.append(ROLE_ALIASES.get(role, role))
-
-    return dedupe(found)
-
-
-def extract_industries(query: str) -> list[str]:
-    q = normalize_text(query)
-    found = []
-
-    for keyword in INDUSTRY_KEYWORDS:
-        if re.search(rf"\b{re.escape(keyword)}\b", q):
-            found.append(INDUSTRY_ALIASES.get(keyword, keyword))
-
-    cleaned = []
-
-    for item in found:
-        if normalize_text(item) in STOPWORDS:
-            continue
-
-        cleaned.append(item)
-
-    if cleaned:
-        return dedupe(cleaned)
-
-    words = re.sub(r"[^a-zA-ZÀ-ÿ0-9\s]", " ", q).split()
-    candidates = []
-
-    for word in words:
-        if word in STOPWORDS:
-            continue
-
-        if len(word) <= 2:
-            continue
-
-        candidates.append(word)
-
-    return dedupe(candidates[:2])
-
-
-def detect_lead_types(query: str) -> list[str]:
-    q = normalize_text(query)
-    roles = extract_roles(q)
-
-    if roles:
-        return ["person", "company"]
-
-    person_terms = [
-        "responsable",
-        "directeur",
-        "manager",
-        "recruteur",
-        "consultant",
-        "coach",
-        "fondateur",
-        "ceo",
-        "cto",
-        "rh",
-        "drh",
-    ]
-
-    if any(term in q for term in person_terms):
-        return ["person", "company"]
-
-    return ["company"]
-
-
-def clean_gemini_intent(data: dict, original_query: str) -> dict:
-    fallback = local_intent_parser(original_query)
-    forced_sources = detect_forced_sources(original_query)
-
-    industries = data.get("industries") or fallback["industries"]
-    locations = data.get("locations") or fallback["locations"]
-    sources = data.get("sources") or fallback["sources"]
-    lead_types = data.get("lead_types") or fallback["lead_types"]
-    target_roles = data.get("target_roles") or fallback["target_roles"]
-
-    cleaned_industries = []
-
-    for industry in industries:
-        text = normalize_text(industry)
-
-        parts = [
-            word
-            for word in re.split(r"\s+", text)
-            if word not in STOPWORDS
+    if not locations:
+        locations = [
+            DEFAULT_COUNTRY
         ]
 
-        cleaned = " ".join(parts).strip()
+    intent[
+        "locations"
+    ] = locations
 
-        if cleaned:
-            cleaned_industries.append(INDUSTRY_ALIASES.get(cleaned, cleaned))
-
-    if not cleaned_industries:
-        cleaned_industries = fallback["industries"]
-
-    normalized_sources = []
-    for source in sources:
-        normalized = normalize_source_name(source)
-        if normalized:
-            normalized_sources.append(normalized)
-
-    if forced_sources:
-        normalized_sources = forced_sources
-    elif not normalized_sources:
-        normalized_sources = fallback["sources"]
-
-    return {
-        "objective": "prospection",
-        "lead_types": dedupe(lead_types),
-        "industries": dedupe(cleaned_industries),
-        "locations": dedupe(locations),
-        "target_roles": dedupe(target_roles),
-        "sources": dedupe(normalized_sources),
-        "source_forced": bool(forced_sources or data.get("source_forced")),
-        "max_leads": min(int(data.get("max_leads") or fallback.get("max_leads") or 50), 50),
-        "reasoning_summary": data.get("reasoning_summary") or "",
-    }
+    return intent
 
 
-def local_intent_parser(query: str) -> dict:
-    industries = extract_industries(query)
-    locations = extract_locations(query)
-    forced_sources = detect_forced_sources(query)
-    sources = forced_sources or extract_sources(query)
-    roles = extract_roles(query)
-    lead_types = detect_lead_types(query)
+# ============================================================
+# INTENT CLEANUP
+# ============================================================
 
-    if not industries:
-        industries = ["business"]
+def clean_gemini_intent(
+    data: dict,
+) -> dict:
+    """
+    Nettoie l'intention produite par Gemini.
 
-    if not locations:
-        locations = ["Tunisie"]
+    Important :
+    search_keywords est conservé car il permet
+    au DiscoveryAgent de fonctionner dans n'importe
+    quel domaine sans table métier codée en dur.
+    """
 
-    if not forced_sources and "company" in lead_types:
-        physical_terms = {
-            "restaurant",
-            "hôtel",
-            "hotel",
-            "café",
-            "cafe",
-            "dentiste",
-            "avocat",
-            "pharmacie",
-            "clinique",
-            "garage",
-            "salon",
-        }
-
-        if any(normalize_text(ind) in physical_terms for ind in industries):
-            if "maps" not in sources:
-                sources.insert(0, "maps")
-
-    if not forced_sources and "person" in lead_types:
-        if "linkedin" not in sources:
-            sources.insert(0, "linkedin")
-
-        if "general" not in sources:
-            sources.append("general")
-
-    return {
-        "objective": "prospection",
-        "lead_types": lead_types,
-        "industries": industries,
-        "locations": locations,
-        "target_roles": roles,
-        "sources": sources,
-        "source_forced": bool(forced_sources),
-        "max_leads": 50,
-        "reasoning_summary": "Intent extrait localement car Gemini est indisponible.",
-    }
-
-
-def compact_json(data) -> str:
-    return json.dumps(data, ensure_ascii=False, default=str)
-
-
-def gemini_error_text(exc: Exception) -> str:
-    parts = [str(exc)]
-    for attr in ("code", "status_code", "message"):
-        value = getattr(exc, attr, None)
-        if value:
-            parts.append(str(value))
-    return " ".join(parts)
-
-
-def is_retryable_gemini_error(exc: Exception) -> bool:
-    text = gemini_error_text(exc).lower()
-    return any(
-        marker in text
-        for marker in (
-            "429",
-            "too many requests",
-            "resource_exhausted",
-            "quota",
-            "503",
-            "unavailable",
-            "timeout",
-            "timed out",
-            "connection",
-            "network",
-            "temporarily",
+    lead_types = dedupe(
+        data.get(
+            "lead_types"
         )
+        or []
+    )
+
+    industries = dedupe(
+        data.get(
+            "industries"
+        )
+        or []
+    )
+
+    locations = dedupe(
+        data.get(
+            "locations"
+        )
+        or []
+    )
+
+    target_roles = dedupe(
+        data.get(
+            "target_roles"
+        )
+        or []
+    )
+
+    search_keywords = dedupe(
+        data.get(
+            "search_keywords"
+        )
+        or []
+    )[:MAX_INTENT_SEARCH_KEYWORDS]
+
+    meta_search_keywords = dedupe(
+        data.get(
+            "meta_search_keywords"
+        )
+        or []
+    )[:MAX_META_SEARCH_KEYWORDS]
+
+    # ========================================================
+    # SOURCES
+    # ========================================================
+
+    sources = []
+
+    for source in (
+        data.get(
+            "sources"
+        )
+        or []
+    ):
+        normalized = (
+            normalize_source_name(
+                source
+            )
+        )
+
+        if (
+            normalized
+            and normalized
+            not in sources
+        ):
+            sources.append(
+                normalized
+            )
+
+    sources = (
+        sources[:2]
+    )
+
+    # ========================================================
+    # LEAD TYPE
+    # ========================================================
+
+    if len(
+        lead_types
+    ) != 1:
+        raise ValueError(
+            "Intent Gemini invalide : "
+            "un seul lead_type est requis."
+        )
+
+    lead_type = (
+        lead_types[0]
+    )
+
+    if lead_type not in {
+        "person",
+        "company",
+    }:
+        raise ValueError(
+            "Intent Gemini invalide : "
+            "lead_type non supporté."
+        )
+
+    if (
+        lead_type
+        == "company"
+    ):
+        target_roles = []
+
+    if (
+        lead_type
+        == "person"
+    ):
+        sources = [
+            source
+            for source
+            in sources
+            if source
+            not in {
+                "maps",
+                "meta_ads",
+            }
+        ]
+
+    # ========================================================
+    # MAX LEADS
+    # ========================================================
+
+    try:
+        max_leads = int(
+            data.get(
+                "max_leads"
+            )
+            or 10
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        max_leads = 10
+
+    max_leads = max(
+        1,
+        min(
+            max_leads,
+            50,
+        ),
+    )
+
+    # ========================================================
+    # FINAL INTENT
+    # ========================================================
+
+    intent = {
+        "objective":
+            "prospection",
+
+        "lead_types":
+            [
+                lead_type
+            ],
+
+        "industries":
+            industries,
+
+        "locations":
+            locations,
+
+        "target_roles":
+            target_roles,
+
+        "sources":
+            sources,
+
+        "search_keywords":
+            search_keywords,
+
+        # Réservé à Meta Ads : aucun autre outil ne consomme ce champ.
+        "meta_search_keywords":
+            (
+                meta_search_keywords
+                if "meta_ads" in sources
+                else []
+            ),
+
+        "source_forced":
+            bool(
+                data.get(
+                    "source_forced",
+                    False,
+                )
+            ),
+
+        "max_leads":
+            max_leads,
+
+        "reasoning_summary":
+            str(
+                data.get(
+                    "reasoning_summary"
+                )
+                or ""
+            ).strip()[:500],
+    }
+
+    return enforce_tunisia_scope(
+        intent
     )
 
 
+# ============================================================
+# META ADS COUNTRY
+# ============================================================
+
+def meta_ads_country_codes(
+    intent: dict,
+) -> list[str]:
+    """
+    Retourne les codes pays acceptés par Meta Ads Library.
+
+    L'application reste volontairement limitée à la Tunisie.
+    Cette fonction centralise néanmoins la logique afin d'éviter
+    les codes pays écrits en dur dans plusieurs endroits.
+    """
+
+    locations = dedupe(
+        intent.get("locations")
+        or []
+    )
+
+    # `enforce_tunisia_scope()` garantit déjà la présence de la
+    # Tunisie quand aucune localisation n'est fournie. On garde
+    # néanmoins un contrôle défensif ici.
+    if not locations:
+        return [DEFAULT_COUNTRY_CODE]
+
+    for location in locations:
+        normalized = normalize_plain(location)
+
+        if any(
+            re.search(
+                rf"\b{re.escape(normalize_plain(alias))}\b",
+                normalized,
+            )
+            for alias in TUNISIA_ALIASES
+        ):
+            return [DEFAULT_COUNTRY_CODE]
+
+    # Le périmètre métier actuel est la Tunisie uniquement.
+    return [DEFAULT_COUNTRY_CODE]
+
+
+# ============================================================
+# META ADS QUERIES
+# ============================================================
+
+def _meta_query_quality_key(value: str) -> tuple[int, int, str]:
+    """
+    Clé de tri simple pour privilégier les requêtes Meta Ads
+    les plus descriptives sans utiliser de dictionnaire métier.
+
+    Priorité :
+    - expressions de plusieurs mots ;
+    - longueur raisonnable ;
+    - ordre alphabétique uniquement comme dernier critère stable.
+    """
+
+    normalized = normalize_plain(value)
+    words = [
+        word
+        for word in normalized.split()
+        if word
+    ]
+
+    return (
+        1 if len(words) >= 2 else 0,
+        min(len(normalized), 80),
+        normalized,
+    )
+
+
+def build_meta_ads_queries(
+    intent: dict,
+    max_queries: int = MAX_META_ADS_QUERIES,
+) -> list[str]:
+    """
+    Retourne les requêtes Meta Ads préparées par Gemini.
+
+    Principe :
+    - Gemini comprend le métier et génère `meta_search_keywords` ;
+    - Python NE fabrique aucun synonyme ;
+    - Python NE combine jamais automatiquement secteur + mot-clé ;
+    - Python se limite au nettoyage, à la déduplication et aux limites.
+
+    Cela évite les requêtes artificielles du type :
+    "secteur + mot générique".
+
+    Fallback de sécurité :
+    si Gemini n'a fourni aucune variante Meta, on utilise le secteur
+    exact, puis seulement le premier search_keyword historique.
+    """
+
+    try:
+        limit = int(
+            max_queries
+            or MAX_META_ADS_QUERIES
+        )
+    except (TypeError, ValueError):
+        limit = MAX_META_ADS_QUERIES
+
+    limit = max(
+        1,
+        min(
+            limit,
+            MAX_META_ADS_QUERIES,
+        ),
+    )
+
+    meta_keywords = dedupe(
+        intent.get("meta_search_keywords")
+        or []
+    )
+
+    industries = dedupe(
+        intent.get("industries")
+        or []
+    )
+
+    historical_keywords = dedupe(
+        intent.get("search_keywords")
+        or []
+    )
+
+    # Gemini est la source principale des variantes Meta.
+    raw_candidates = list(
+        meta_keywords
+    )
+
+    # Le secteur exact doit rester disponible si Gemini ne l'a pas
+    # déjà inclus explicitement.
+    for industry in industries[:2]:
+        if industry:
+            raw_candidates.insert(
+                0,
+                industry,
+            )
+
+    # Fallback strict uniquement si Gemini n'a rien produit pour Meta.
+    if not raw_candidates:
+        raw_candidates.extend(
+            industries[:1]
+        )
+
+        if historical_keywords:
+            raw_candidates.append(
+                historical_keywords[0]
+            )
+
+    result: list[str] = []
+    seen = set()
+
+    for candidate in raw_candidates:
+        value = re.sub(
+            r"\s+",
+            " ",
+            str(candidate or "").strip(),
+        )
+
+        key = normalize_plain(
+            value
+        )
+
+        if (
+            not key
+            or len(key) < MIN_META_QUERY_LENGTH
+            or key in seen
+        ):
+            continue
+
+        seen.add(
+            key
+        )
+
+        result.append(
+            value
+        )
+
+        if len(result) >= limit:
+            break
+
+    return result
+
+
+def build_meta_ads_query(
+    intent: dict,
+) -> str:
+    """
+    Helper de compatibilité.
+
+    Retourne uniquement la première variante Meta.
+    """
+
+    queries = (
+        build_meta_ads_queries(
+            intent,
+            max_queries=1,
+        )
+    )
+
+    return (
+        queries[0]
+        if queries
+        else ""
+    )
+
+
+# ============================================================
+# LOCATION FOR SEARCH
+# ============================================================
+
+def search_location_text(
+    intent: dict,
+) -> str:
+    locations = (
+        intent.get(
+            "locations"
+        )
+        or []
+    )
+
+    if not locations:
+        return DEFAULT_COUNTRY
+
+    location = str(
+        locations[0]
+        or ""
+    ).strip()
+
+    if not location:
+        return DEFAULT_COUNTRY
+
+    return location
+
+
+# ============================================================
+# SEARCH QUERY
+# ============================================================
+
+def build_search_query(
+    intent: dict,
+    source: str,
+) -> str:
+    """
+    Construit une requête déterministe.
+
+    Gemini comprend le métier.
+    Python construit la requête réellement envoyée aux outils.
+    """
+
+    industries = (
+        intent.get(
+            "industries"
+        )
+        or []
+    )
+
+    roles = (
+        intent.get(
+            "target_roles"
+        )
+        or []
+    )
+
+    keywords = (
+        intent.get(
+            "search_keywords"
+        )
+        or []
+    )
+
+    industry = (
+        str(
+            industries[0]
+        ).strip()
+        if industries
+        else ""
+    )
+
+    role = (
+        str(
+            roles[0]
+        ).strip()
+        if roles
+        else ""
+    )
+
+    keyword = (
+        str(
+            keywords[0]
+        ).strip()
+        if keywords
+        else ""
+    )
+
+    location = (
+        search_location_text(
+            intent
+        )
+    )
+
+    lead_types = (
+        intent.get(
+            "lead_types"
+        )
+        or []
+    )
+
+    # ========================================================
+    # LINKEDIN
+    # ========================================================
+
+    if source == "linkedin":
+        if (
+            lead_types
+            == ["person"]
+        ):
+            parts = [
+                role,
+                industry,
+                location,
+            ]
+
+        else:
+            parts = [
+                keyword
+                or industry,
+                location,
+            ]
+
+        return " ".join(
+            part
+            for part in parts
+            if part
+        ).strip()
+
+    # ========================================================
+    # FACEBOOK / INSTAGRAM / MAPS
+    # ========================================================
+
+    if source in {
+        "facebook",
+        "instagram",
+        "maps",
+    }:
+        return " ".join(
+            part
+            for part in [
+                keyword
+                or industry,
+                location,
+            ]
+            if part
+        ).strip()
+
+    # ========================================================
+    # META ADS
+    # ========================================================
+
+    if source == "meta_ads":
+        return (
+            build_meta_ads_query(
+                intent
+            )
+        )
+
+    # ========================================================
+    # GENERAL WEB
+    # ========================================================
+
+    return " ".join(
+        part
+        for part in [
+            role,
+            keyword
+            or industry,
+            location,
+        ]
+        if part
+    ).strip()
+
+
+# ============================================================
+# DEFAULT SOURCE
+# ============================================================
+
+def default_sources_for_intent(
+    intent: dict,
+) -> list[str]:
+    lead_types = (
+        intent.get(
+            "lead_types"
+        )
+        or []
+    )
+
+    if (
+        lead_types
+        == ["person"]
+    ):
+        return [
+            "linkedin"
+        ]
+
+    return [
+        "maps"
+    ]
+
+
+# ============================================================
+# SEARCH PLAN
+# ============================================================
+
+def build_search_plan(
+    intent: dict,
+) -> dict:
+    """
+    Premier plan déterministe.
+
+    Le plan initial est construit par Python.
+    Les décisions suivantes pourront être prises
+    par Gemini dans la boucle agentique.
+    """
+
+    target_total = int(
+        intent.get(
+            "max_leads"
+        )
+        or 10
+    )
+
+    target_total = max(
+        1,
+        min(
+            target_total,
+            50,
+        ),
+    )
+
+    # ========================================================
+    # SOURCES
+    # ========================================================
+
+    sources = dedupe(
+        intent.get(
+            "sources"
+        )
+        or []
+    )
+
+    sources = [
+        source
+        for source in sources
+        if source_to_tool(
+            source
+        )
+    ][:2]
+
+    if not sources:
+        sources = (
+            default_sources_for_intent(
+                intent
+            )
+        )
+
+    searches = []
+
+    for source in sources:
+        tool = (
+            source_to_tool(
+                source
+            )
+        )
+
+        if not tool:
+            continue
+
+        # ====================================================
+        # META ADS
+        # ====================================================
+
+        if source == "meta_ads":
+            queries = (
+                build_meta_ads_queries(
+                    intent,
+                    max_queries=
+                        MAX_META_ADS_QUERIES,
+                )
+            )
+
+            if not queries:
+                continue
+
+            searches.append(
+                {
+                    "source":
+                        source,
+
+                    "tool":
+                        tool,
+
+                    "query":
+                        queries[0],
+
+                    "queries":
+                        queries,
+
+                    "countries":
+                        meta_ads_country_codes(
+                            intent
+                        ),
+
+                    "page":
+                        1,
+                }
+            )
+
+            continue
+
+        # ====================================================
+        # OTHER SOURCES
+        # ====================================================
+
+        query = (
+            build_search_query(
+                intent,
+                source,
+            )
+        )
+
+        if not query:
+            continue
+
+        searches.append(
+            {
+                "source":
+                    source,
+
+                "tool":
+                    tool,
+
+                "query":
+                    query,
+
+                "page":
+                    1,
+            }
+        )
+
+    # ========================================================
+    # SAFETY FALLBACK
+    # ========================================================
+
+    if not searches:
+        for source in (
+            default_sources_for_intent(
+                intent
+            )
+        ):
+            tool = (
+                source_to_tool(
+                    source
+                )
+            )
+
+            query = (
+                build_search_query(
+                    intent,
+                    source,
+                )
+            )
+
+            if (
+                not tool
+                or not query
+            ):
+                continue
+
+            searches.append(
+                {
+                    "source":
+                        source,
+
+                    "tool":
+                        tool,
+
+                    "query":
+                        query,
+
+                    "page":
+                        1,
+                }
+            )
+
+    return {
+        "target_total":
+            target_total,
+
+        "source_forced":
+            bool(
+                intent.get(
+                    "source_forced"
+                )
+            ),
+
+        "source_plan": {
+            source:
+                target_total
+            for source in sources
+        },
+
+        "searches":
+            searches[:2],
+
+        "stop_conditions": {
+            "max_prospects":
+                target_total,
+
+            "max_empty_searches":
+                2,
+
+            "max_iterations":
+                len(
+                    searches[:2]
+                ),
+        },
+    }
+
+
+# ============================================================
+# GEMINI API KEY POOL
+# ============================================================
+
+@dataclass
+class GeminiKeySlot:
+    api_key: str
+    source: str
+    opened_until: float = 0.0
+
+    def is_available(self) -> bool:
+        return time.monotonic() >= self.opened_until
+
+    def remaining_seconds(self) -> int:
+        return max(
+            0,
+            round(self.opened_until - time.monotonic()),
+        )
+
+    def record_success(self):
+        self.opened_until = 0.0
+
+    def record_rate_limit(self):
+        cooldown = int(
+            getattr(
+                settings,
+                "PROSPECTION_GEMINI_CIRCUIT_COOLDOWN_SECONDS",
+                300,
+            )
+            or 300
+        )
+        self.opened_until = (
+            time.monotonic()
+            + max(1, cooldown)
+        )
+
+
+def prospection_gemini_api_keys() -> list[GeminiKeySlot]:
+    """
+    Charge jusqu'à deux clés Gemini distinctes.
+
+    Ordre :
+    1. GOOGLE_API_KEY
+    2. GEMINI_API_KEY
+
+    Les doublons sont supprimés.
+    """
+    candidates = [
+        (
+            str(
+                getattr(settings, "GOOGLE_API_KEY", "")
+                or os.getenv("GOOGLE_API_KEY", "")
+                or ""
+            ).strip(),
+            "GOOGLE_API_KEY",
+        ),
+        (
+            str(
+                getattr(settings, "GEMINI_API_KEY", "")
+                or os.getenv("GEMINI_API_KEY", "")
+                or ""
+            ).strip(),
+            "GEMINI_API_KEY",
+        ),
+    ]
+
+    result = []
+    seen = set()
+
+    for api_key, source in candidates:
+        if not api_key or api_key in seen:
+            continue
+        seen.add(api_key)
+        result.append(
+            GeminiKeySlot(
+                api_key=api_key,
+                source=source,
+            )
+        )
+
+    return result
+
+
+def build_gemini_client(api_key: str):
+    return genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(
+            timeout=(
+                int(
+                    getattr(
+                        settings,
+                        "PROSPECTION_LLM_TIMEOUT",
+                        30,
+                    )
+                    or 30
+                )
+                * 1000
+            ),
+            retry_options=types.HttpRetryOptions(
+                attempts=1,
+            ),
+        ),
+    )
+
+
+# ============================================================
+# ERROR SANITIZATION
+# ============================================================
+
+def sanitize_gemini_error(
+    text: str,
+) -> str:
+    value = str(
+        text
+        or ""
+    )
+
+    secrets = [
+        getattr(
+            settings,
+            "GEMINI_API_KEY",
+            "",
+        ),
+
+        os.getenv(
+            "GEMINI_API_KEY",
+            "",
+        ),
+
+        # Compatibilité de sécurité : si une ancienne clé
+        # PROSPECTION_GEMINI_API_KEY existe encore dans le
+        # processus, on la masque dans les logs.
+        getattr(
+            settings,
+            "PROSPECTION_GEMINI_API_KEY",
+            "",
+        ),
+
+        os.getenv(
+            "PROSPECTION_GEMINI_API_KEY",
+            "",
+        ),
+
+        os.getenv(
+            "GOOGLE_API_KEY",
+            "",
+        ),
+    ]
+
+    for secret in secrets:
+        if secret:
+            value = (
+                value.replace(
+                    secret,
+                    "[REDACTED]",
+                )
+            )
+
+    return value[:500]
+
+
+# ============================================================
+# RATE LIMIT
+# ============================================================
+
+def is_rate_limited(
+    exc: Exception,
+) -> bool:
+    text = str(
+        exc
+    ).lower()
+
+    code = (
+        getattr(
+            exc,
+            "code",
+            None,
+        )
+        or getattr(
+            exc,
+            "status_code",
+            None,
+        )
+    )
+
+    return (
+        code == 429
+        or "429" in text
+        or "resource_exhausted"
+        in text
+        or "quota" in text
+        or "too many requests"
+        in text
+    )
+
+
+# ============================================================
+# GEMINI CALL
+# ============================================================
+
 def safe_gemini_generate(
     prompt: str,
-    client=None,
-    model: str | None = None,
-    schema=None,
-    response_mime_type: str = "application/json",
-) -> dict:
-    if not client:
-        logger.warning("Gemini indisponible - fallback local activé")
+    key_slots: list[GeminiKeySlot],
+    model: str,
+    schema,
+    runtime_state: GeminiRuntimeState,
+):
+    """
+    Appel Gemini avec failover entre les clés configurées.
+
+    - utilise la première clé disponible ;
+    - sur 429, met uniquement cette clé en cooldown ;
+    - essaie ensuite la clé suivante une seule fois ;
+    - aucune boucle infinie ;
+    - les erreurs non liées au quota ne déclenchent pas de switch.
+    """
+
+    if not key_slots:
+        runtime_state.status = GEMINI_STATUS_UNAVAILABLE
+        runtime_state.last_error = "Gemini API key missing"
         return {
             "success": False,
             "text": "",
-            "error": "Gemini client unavailable",
-            "fallback": True,
+            "error": runtime_state.last_error,
+            "key_source": None,
         }
 
-    config_kwargs = {"response_mime_type": response_mime_type}
-    if schema is not None:
-        config_kwargs["response_schema"] = schema
-    config = types.GenerateContentConfig(**config_kwargs)
+    try:
+        configured_output_tokens = int(
+            getattr(
+                settings,
+                "PROSPECTION_GEMINI_MAX_OUTPUT_TOKENS",
+                2048,
+            )
+            or 2048
+        )
+    except (TypeError, ValueError):
+        configured_output_tokens = 2048
 
-    last_error = None
-    attempts = len(GEMINI_RETRY_DELAYS) + 1
+    max_output_tokens = max(
+        2048,
+        configured_output_tokens,
+    )
 
-    for attempt in range(attempts):
+    config_kwargs = {
+        "response_mime_type": "application/json",
+        "response_schema": schema,
+        "max_output_tokens": max_output_tokens,
+        "temperature": 0.0,
+    }
+
+    normalized_model = str(model or "").lower()
+
+    if "gemini-2.5-flash" in normalized_model:
+        config_kwargs["thinking_config"] = (
+            types.ThinkingConfig(
+                thinking_budget=1024,
+                include_thoughts=False,
+            )
+        )
+
+    config = types.GenerateContentConfig(
+        **config_kwargs
+    )
+
+    available_slots = [
+        slot
+        for slot in key_slots
+        if slot.is_available()
+    ]
+
+    if not available_slots:
+        runtime_state.status = GEMINI_STATUS_RATE_LIMITED
+        runtime_state.last_error = "all_gemini_keys_in_cooldown"
+        return {
+            "success": False,
+            "text": "",
+            "error": runtime_state.last_error,
+            "key_source": None,
+        }
+
+    last_error = ""
+
+    for index, slot in enumerate(available_slots):
         try:
+            client = build_gemini_client(
+                slot.api_key
+            )
+
+            runtime_state.calls += 1
+
+            logger.info(
+                "[GEMINI][KEY] using=%s attempt=%s/%s",
+                slot.source,
+                index + 1,
+                len(available_slots),
+            )
+
             response = client.models.generate_content(
                 model=model,
                 contents=prompt,
                 config=config,
             )
+
+            response_text = (
+                getattr(response, "text", "")
+                or ""
+            )
+
+            finish_reason = None
+
+            try:
+                candidates = (
+                    getattr(
+                        response,
+                        "candidates",
+                        None,
+                    )
+                    or []
+                )
+                if candidates:
+                    finish_reason = getattr(
+                        candidates[0],
+                        "finish_reason",
+                        None,
+                    )
+            except Exception:
+                finish_reason = None
+
+            logger.info(
+                "[GEMINI] schema=%s chars=%s finish_reason=%s key=%s",
+                getattr(
+                    schema,
+                    "__name__",
+                    str(schema),
+                ),
+                len(response_text),
+                finish_reason,
+                slot.source,
+            )
+
+            if not response_text.strip():
+                runtime_state.status = (
+                    GEMINI_STATUS_INVALID_RESPONSE
+                )
+                runtime_state.last_error = (
+                    "Gemini returned an empty structured response"
+                )
+                return {
+                    "success": False,
+                    "text": "",
+                    "error": runtime_state.last_error,
+                    "key_source": slot.source,
+                }
+
+            slot.record_success()
+
+            runtime_state.status = GEMINI_STATUS_SUCCESS
+            runtime_state.last_error = ""
+
             return {
                 "success": True,
-                "text": getattr(response, "text", "") or "",
+                "text": response_text,
                 "error": None,
-                "fallback": False,
+                "key_source": slot.source,
             }
+
         except Exception as exc:
-            last_error = exc
-            if not is_retryable_gemini_error(exc) or attempt >= len(GEMINI_RETRY_DELAYS):
-                break
+            error = sanitize_gemini_error(
+                str(exc)
+            )
+            last_error = error
+            runtime_state.last_error = error
 
-            if "429" in gemini_error_text(exc) or "quota" in gemini_error_text(exc).lower():
-                logger.warning("Gemini rate limit atteint - retry en cours")
-            else:
-                logger.warning("Gemini indisponible - retry en cours")
-            time.sleep(GEMINI_RETRY_DELAYS[attempt])
+            if is_rate_limited(exc):
+                runtime_state.status = (
+                    GEMINI_STATUS_RATE_LIMITED
+                )
+                slot.record_rate_limit()
 
-    logger.warning("Gemini indisponible - fallback local activé")
+                logger.warning(
+                    "[GEMINI][RATE_LIMIT] key=%s cooldown=%ss error=%s",
+                    slot.source,
+                    slot.remaining_seconds(),
+                    error,
+                )
+
+                # On tente la prochaine clé disponible.
+                continue
+
+            runtime_state.status = (
+                GEMINI_STATUS_UNAVAILABLE
+            )
+
+            logger.error(
+                "[GEMINI][ERROR] key=%s error=%s",
+                slot.source,
+                error,
+            )
+
+            # Une erreur non-quota n'est pas une raison de
+            # consommer une autre clé.
+            return {
+                "success": False,
+                "text": "",
+                "error": error,
+                "key_source": slot.source,
+            }
+
+    runtime_state.status = GEMINI_STATUS_RATE_LIMITED
+    runtime_state.last_error = (
+        last_error
+        or "all_gemini_keys_rate_limited"
+    )
+
     return {
         "success": False,
         "text": "",
-        "error": gemini_error_text(last_error)[:500] if last_error else "gemini_unavailable",
-        "fallback": True,
+        "error": runtime_state.last_error,
+        "key_source": None,
     }
 
 
-def local_search_query(intent: dict) -> str:
-    industries = intent.get("industries") or ["business"]
-    locations = intent.get("locations") or ["Tunisie"]
-    roles = intent.get("target_roles") or []
+# ============================================================
+# FALLBACK DECISION
+# ============================================================
 
-    industry = " ".join(industries[:2]).strip()
-    location = locations[0]
-    role = " ".join(roles[:2]).strip()
+def _fallback_decision(
+    memory,
+    allowed_actions: list[str] | None = None,
+    allowed_sources: list[str] | None = None,
+    reason: str = "fallback",
+) -> dict:
+    """
+    Décision stratégique 100 % déterministe.
 
-    if role:
-        return f"{role} {industry} {location}".strip()
-    return f"{industry} {location}".strip()
+    Utilisée seulement lorsqu'un appel de décision Gemini
+    ne peut pas être effectué ou ne peut pas être exploité.
 
+    Ce fallback ne remplace jamais l'extraction initiale
+    d'intention.
+    """
 
-def generate_query_variants(intent: dict, source: str) -> list[str]:
-    industries = intent.get("industries") or ["business"]
-    locations = intent.get("locations") or ["Tunisie"]
-    roles = intent.get("target_roles") or []
-
-    location = locations[0] if locations else "Tunisie"
-    industry = " ".join(industries[:2]).strip() or "business"
-    variants = []
-
-    role_aliases = roles or []
-    if any(normalize_text(role) == "responsable rh" for role in role_aliases):
-        role_aliases = [
-            "responsable RH",
-            "DRH",
-            "HR Manager",
-            "Talent Acquisition",
-            "People Operations",
-            "Recruiter",
-        ]
-
-    if role_aliases:
-        for role in role_aliases[:6]:
-            variants.append(f"{role} {industry} {location}".strip())
-        if source == "general":
-            variants.extend(
-                f"{role} {industry} {location} email contact site web".strip()
-                for role in role_aliases[:3]
-            )
-    else:
-        base_terms = [
-            industry,
-            f"societe {industry}",
-            f"entreprise {industry}",
-            f"{industry} professionnel",
-            f"{industry} contact",
-        ]
-        variants.extend(f"{term} {location}".strip() for term in base_terms)
-
-    if source == "instagram":
-        variants.extend(
-            [
-                f"{industry} blogger {location}",
-                f"{industry} influencer {location}",
-                f"createur contenu {industry} {location}",
-                f"{industry} Tunisia",
-            ]
-        )
-    elif source == "facebook":
-        variants.extend(
-            [
-                f"{industry} {location} page officielle",
-                f"{industry} {location} facebook",
-            ]
-        )
-    elif source == "maps":
-        cities = locations if locations and locations != ["Tunisie"] else [
-            "Tunis",
-            "Ariana",
-            "Ben Arous",
-            "La Marsa",
-            "Sousse",
-            "Sfax",
-            "Nabeul",
-            "Bizerte",
-            "Monastir",
-            "Mahdia",
-            "Gabes",
-            "Kairouan",
-        ]
-        variants = [f"{industry} {city}".strip() for city in cities]
-
-    return dedupe(variants)[:12]
-
-
-def build_search_plan(intent: dict) -> dict:
-    target_total = min(int((intent or {}).get("max_leads") or 50), 50)
-    sources = intent.get("sources") or ["general"]
-    forced = bool(intent.get("source_forced"))
-
-    if forced and sources:
-        source_plan = {source: target_total for source in sources}
-    else:
-        weights = {
-            "linkedin": 25,
-            "general": 10,
-            "maps": 10,
-            "facebook": 5,
-            "instagram": 10,
-        }
-        selected = [source for source in sources if source in weights] or ["general"]
-        total_weight = sum(weights[source] for source in selected)
-        source_plan = {
-            source: max(3, round(target_total * weights[source] / total_weight))
-            for source in selected
-        }
-
-    searches = []
-    for source in source_plan:
-        tool = SOURCE_TO_TOOL.get(source, "serper_general")
-        pages = 1 if source == "maps" else 3
-        for variant in generate_query_variants(intent, source):
-            for page in range(1, pages + 1):
-                searches.append({"source": source, "tool": tool, "query": variant, "page": page})
-
-    return {
-        "target_total": target_total,
-        "source_forced": forced,
-        "source_plan": source_plan,
-        "searches": searches,
-        "stop_conditions": {
-            "max_prospects": target_total,
-            "max_empty_searches": 6,
-            "max_iterations": 40,
-        },
-    }
-
-
-def local_decision_from_memory(memory_summary: dict, error: str | None = None) -> dict:
-    intent = memory_summary.get("intent") or local_intent_parser(memory_summary.get("query") or "")
-    plan = memory_summary.get("plan") or build_search_plan(intent)
-    pending_urls = memory_summary.get("pending_urls") or []
-    valid_count = int(memory_summary.get("valid_leads_count") or 0)
-    companies_count = int(memory_summary.get("companies_count") or 0)
-    persons_count = int(memory_summary.get("persons_count") or 0)
-    total_count = companies_count + persons_count
-    entity_samples = (memory_summary.get("companies_sample") or []) + (memory_summary.get("persons_sample") or [])
-    needs_batch_analysis = (companies_count or persons_count) and (
-        not entity_samples or any(not item.get("gemini_analyzed") for item in entity_samples)
+    allowed_actions = list(
+        allowed_actions
+        or []
     )
-    tools_used = memory_summary.get("all_tools_used") or memory_summary.get("tools_used") or []
-    remaining_searches = [
-        item for item in plan.get("searches", [])
-        if not any(
-            history.get("tool") == item.get("tool")
-            and history.get("query") == item.get("query")
-            and int(history.get("page") or 1) == int(item.get("page") or 1)
-            for history in tools_used
+
+    allowed_sources = list(
+        allowed_sources
+        or []
+    )
+
+    companies, persons = (
+        memory.crm_ready_entities()
+    )
+
+    valid_count = (
+        len(
+            companies
         )
-    ]
-    target_total = int(plan.get("target_total") or 50)
-    maps_websites = []
+        + len(
+            persons
+        )
+    )
 
-    for company in memory_summary.get("companies_sample") or []:
-        website = company.get("website")
-        if (
-            company.get("source") in {"google_maps", "maps", "maps_search"}
-            and website
-        ):
-            already_crawled = any(
-                page.get("website") == website or page.get("raw_url") == website
-                for page in memory_summary.get("crawled_pages_sample") or []
-            )
-            if not already_crawled:
-                maps_websites.append(website)
+    # ========================================================
+    # OBJECTIVE REACHED
+    # ========================================================
 
-    if maps_websites:
-        return {
-            "decision": "crawl_urls",
-            "tool": "website_scraper",
-            "query": "",
-            "target_urls": maps_websites[:3],
-            "reason": "Enrichir les entreprises Google Maps via leur site web avant qualification CRM.",
-            "confidence": 0.8,
-            "gemini_error": error,
-            "fallback_local": bool(error),
-        }
+    if (
+        valid_count
+        >= memory.max_leads
+    ):
+        decision = (
+            "stop"
+        )
 
-    if needs_batch_analysis and (total_count >= target_total or (not pending_urls and not remaining_searches)):
-        return {
-            "decision": "analyze_entities",
-            "tool": "",
-            "query": "",
-            "target_urls": [],
-            "reason": "Fallback local: analyser le batch d'entites avant import CRM.",
-            "confidence": 0.7,
-            "gemini_error": error,
-            "fallback_local": bool(error),
-        }
+        source = None
 
-    if valid_count >= target_total or (valid_count > 0 and not pending_urls and not remaining_searches):
-        return {
-            "decision": "import_crm",
-            "tool": "crm_importer",
-            "query": "",
-            "target_urls": [],
-            "reason": "Fallback local: des prospects sont prêts pour import CRM.",
-            "confidence": 0.75,
-            "gemini_error": error,
-            "fallback_local": bool(error),
-        }
+    # ========================================================
+    # META VERIFICATION
+    # ========================================================
 
-    if pending_urls and (len(pending_urls) >= 3 or not remaining_searches):
-        return {
-            "decision": "crawl_urls",
-            "tool": "playwright_profile_scraper",
-            "query": "",
-            "target_urls": [item.get("url") for item in pending_urls[:3] if item.get("url")],
-            "reason": "Fallback local: crawler les URLs deja trouvees.",
-            "confidence": 0.65,
-            "gemini_error": error,
-            "fallback_local": bool(error),
-        }
+    elif (
+        "verify_pending_meta_ads"
+        in allowed_actions
+        and memory.pending_verification
+    ):
+        decision = (
+            "verify_pending_meta_ads"
+        )
 
-    if remaining_searches:
-        item = remaining_searches[0]
-        tool = item.get("tool") or SOURCE_TO_TOOL.get(item.get("source"), "serper_general")
-        page = int(item.get("page") or 1)
-        return {
-            "decision": "use_tool",
-            "tool": tool,
-            "query": {"q": item.get("query") or local_search_query(intent), "page": page},
-            "target_urls": [],
-            "reason": f"Fallback local: recherche {item.get('source')} page {page}.",
-            "confidence": 0.65,
-            "gemini_error": error,
-            "fallback_local": bool(error),
-        }
+        source = None
+
+    # ========================================================
+    # CONTINUE SAME STRATEGY
+    # ========================================================
+
+    elif (
+        "continue_same_strategy"
+        in allowed_actions
+        and memory.iterations
+        < memory.max_iterations
+    ):
+        decision = (
+            "continue_same_strategy"
+        )
+
+        source = None
+
+    # ========================================================
+    # SWITCH SOURCE
+    # ========================================================
+
+    elif (
+        "switch_source"
+        in allowed_actions
+        and allowed_sources
+    ):
+        decision = (
+            "switch_source"
+        )
+
+        source = (
+            allowed_sources[0]
+        )
+
+    # ========================================================
+    # BROADEN CRITERIA
+    # ========================================================
+
+    elif (
+        "broaden_criteria"
+        in allowed_actions
+    ):
+        decision = (
+            "broaden_criteria"
+        )
+
+        source = None
+
+    # ========================================================
+    # STOP
+    # ========================================================
+
+    else:
+        decision = (
+            "stop"
+        )
+
+        source = None
 
     return {
-        "decision": "import_crm" if valid_count else "analyze_entities",
-        "tool": "crm_importer" if valid_count else "",
-        "query": "",
-        "target_urls": [],
-        "reason": "Fallback local: finaliser les prospects trouves sans arret lie a Gemini.",
-        "confidence": 0.55,
-        "gemini_error": error,
-        "fallback_local": bool(error),
+        "decision":
+            decision,
+
+        "source":
+            source,
+
+        "reason":
+            (
+                "Fallback stratégique déterministe : "
+                f"{str(reason or 'fallback')[:120]}"
+            ),
+
+        "confidence":
+            0.5,
+
+        "origin":
+            "deterministic_fallback",
     }
 
 
-def first_search_query(intent: dict, source: str) -> str:
-    industries = intent.get("industries") or ["business"]
-    locations = intent.get("locations") or ["Tunisie"]
-    roles = intent.get("target_roles") or []
+# ============================================================
+# GEMINI BRAIN
+# ============================================================
 
-    industry = " ".join(industries[:2]).strip()
-    location = locations[0]
-    role = " ".join(roles[:2]).strip()
+class GeminiBrain:
+    """
+    Cerveau du DiscoveryAgent.
 
-    people_query = f"{role} {industry} {location}".strip() if role else f"{industry} {location}".strip()
+    Gemini intervient à trois niveaux distincts :
 
-    if source == "linkedin":
-        if role:
-            return f"site:linkedin.com/in {people_query}"
-        return f"site:linkedin.com/company {industry} {location}"
-    if source == "facebook":
-        return f"site:facebook.com {industry} {location} page officielle"
-    if source == "instagram":
-        return f"site:instagram.com {industry} {location}"
-    if source == "maps":
-        return f"{industry} {location}".strip()
+    1. une fois pour comprendre la demande utilisateur ;
+    2. pour valider sémantiquement des candidats préfiltrés ;
+    3. jusqu'à max_decision_calls fois pour prendre des
+       décisions stratégiques après observation des résultats.
 
-    if role:
-        return f"{people_query} email contact site web"
-    return f"{industry} {location} site officiel contact"
+    Python reste responsable de :
+    - construire les requêtes ;
+    - appeler les outils ;
+    - imposer les limites ;
+    - valider les prospects ;
+    - dédupliquer ;
+    - importer dans le CRM.
+    """
 
+    def __init__(
+        self,
+    ):
+        self.gemini_state = (
+            GeminiRuntimeState()
+        )
 
-class GeminiBrainBase:
-    def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        self.gemini_keys = (
+            prospection_gemini_api_keys()
+        )
 
-        if api_key:
-            self.client = genai.Client(api_key=api_key)
-        else:
-            self.client = None
+        self.gemini_key_source = (
+            self.gemini_keys[0].source
+            if self.gemini_keys
+            else "none"
+        )
 
-        self.model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.model = getattr(
+            settings,
+            "GEMINI_MODEL",
+            os.getenv(
+                "GEMINI_MODEL",
+                "gemini-2.5-flash",
+            ),
+        )
 
-    def fallback_intent(self, query: str) -> dict:
-        return local_intent_parser(query)
+        # Compatibilité avec le reste du code :
+        # self.client indique simplement qu'au moins une clé existe.
+        self.client = (
+            True
+            if self.gemini_keys
+            else None
+        )
 
-    async def extract_intent(self, query: str) -> dict:
-        if not self.client:
-            return self.fallback_intent(query)
+        if not self.gemini_keys:
+            self.gemini_state.status = (
+                GEMINI_STATUS_UNAVAILABLE
+            )
+            self.gemini_state.last_error = (
+                "Gemini API key missing"
+            )
+
+        logger.info(
+            "[GEMINI][KEY_POOL] configured=%s sources=%s",
+            len(self.gemini_keys),
+            [
+                slot.source
+                for slot in self.gemini_keys
+            ],
+        )
+
+    # ========================================================
+    # METADATA
+    # ========================================================
+
+    def gemini_metadata(
+        self,
+    ) -> dict:
+        return {
+            "gemini_status":
+                self.gemini_state.status,
+
+            "gemini_calls":
+                self.gemini_state.calls,
+
+            "gemini_model":
+                self.model,
+
+            "gemini_key_source":
+                self.gemini_key_source,
+
+            "gemini_key_sources":
+                [
+                    slot.source
+                    for slot in self.gemini_keys
+                ],
+
+            "gemini_keys_configured":
+                len(self.gemini_keys),
+
+            "gemini_fallback_used":
+                False,
+        }
+
+    # ========================================================
+    # INTENT EXTRACTION
+    # ========================================================
+
+    async def extract_intent(
+        self,
+        query: str,
+    ) -> dict:
+        query = str(
+            query
+            or ""
+        ).strip()
+
+        if not query:
+            raise ValueError(
+                "La requête de prospection est vide."
+            )
+
+        foreign_location = (
+            query_requests_foreign_location(
+                query
+            )
+        )
+
+        if foreign_location:
+            raise ValueError(
+                "Cette application de prospection "
+                "est consacrée uniquement à la Tunisie. "
+                f"La localisation '{foreign_location}' "
+                "n'est pas supportée."
+            )
 
         prompt = f"""
 {SYSTEM_PROMPT}
 
 Demande utilisateur :
+
 {query}
+""".strip()
 
-Tu dois extraire :
-- objectif
-- types de leads recherchés
-- secteur ou métier
-- localisation
-- sources utiles
-- nombre maximum de leads
-
-Règles :
-- Ne limite jamais aux restaurants ou dentistes.
-- Ne mets jamais "email", "site web", "facebook", "linkedin", "instagram" dans industries.
-- Si la demande vise RH, CEO, CTO, manager, recruteur, responsable : lead_types doit contenir "person".
-- Si la demande vise restaurants, hôtels, cliniques, pharmacies, dentistes, avocats : source maps utile.
-- Retourne uniquement du JSON valide.
-"""
-
-        try:
-            response = safe_gemini_generate(
+        response = (
+            await asyncio.to_thread(
+                safe_gemini_generate,
                 prompt,
-                client=self.client,
-                model=self.model,
-                schema=IntentSchema,
+                self.gemini_keys,
+                self.model,
+                IntentSchema,
+                self.gemini_state,
             )
-            if not response.get("success"):
-                raise RuntimeError(response.get("error") or "gemini_unavailable")
-
-            data = IntentSchema.model_validate_json(response.get("text") or "{}").model_dump()
-            return clean_gemini_intent(data, query)
-
-        except Exception as e:
-            data = self.fallback_intent(query)
-            data["gemini_error"] = str(e)[:400]
-            return data
-
-    async def decide_next_action(self, memory) -> dict:
-        # Pour éviter quota Gemini : décision locale suffisante.
-        total_leads = len(getattr(memory, "companies", []) or []) + len(getattr(memory, "persons", []) or [])
-        plan = memory.plan or {}
-        max_leads = plan.get("stop_conditions", {}).get("max_prospects", 10)
-
-        pending_urls = any(
-            not item.get("crawled")
-            for item in getattr(memory, "crawl_queue", []) or []
         )
 
-        if total_leads >= max_leads and not pending_urls:
-            return {
-                "decision": "enough_data",
-                "next_tool": "",
-                "next_query": "",
-                "reason": "Nombre suffisant de leads et aucune URL restante.",
-                "confidence": 1.0,
+        if not response[
+            "success"
+        ]:
+            raise RuntimeError(
+                "Gemini indisponible pour "
+                "analyser la demande : "
+                f"{response['error']}"
+            )
+
+        try:
+            parsed = (
+                IntentSchema
+                .model_validate_json(
+                    response[
+                        "text"
+                    ]
+                )
+            )
+
+            data = (
+                parsed.model_dump()
+            )
+
+        except Exception as exc:
+            self.gemini_state.status = (
+                GEMINI_STATUS_INVALID_RESPONSE
+            )
+
+            self.gemini_state.last_error = (
+                sanitize_gemini_error(
+                    str(
+                        exc
+                    )
+                )
+            )
+
+            raise RuntimeError(
+                "Réponse Gemini invalide : "
+                f"{self.gemini_state.last_error}"
+            ) from exc
+
+        return clean_gemini_intent(
+            data
+        )
+
+    # ========================================================
+    # SEMANTIC CANDIDATE VALIDATION
+    # ========================================================
+
+    async def validate_candidates(
+        self,
+        intent: dict,
+        candidates: list[dict],
+    ) -> list[dict]:
+        """
+        Valide sémantiquement un lot de candidats déjà découverts.
+
+        Cette méthode ne recherche rien et ne décide jamais
+        directement qu'un candidat est CRM-ready.
+
+        Elle ajoute uniquement `semantic_validation` à chaque
+        candidat lorsque Gemini fournit une réponse exploitable.
+
+        En cas d'indisponibilité ou de réponse incomplète,
+        le candidat est conservé sans validation sémantique afin
+        que le backend puisse appliquer sa politique de fallback.
+        """
+
+        if not candidates:
+            return []
+
+        normalized_candidates = []
+
+        for index, candidate in enumerate(candidates):
+            item = dict(candidate or {})
+
+            candidate_id = str(
+                item.get("candidate_id")
+                or item.get("id")
+                or f"candidate_{index + 1}"
+            ).strip()[:120]
+
+            item["candidate_id"] = candidate_id
+            normalized_candidates.append(item)
+
+        # Ne transmettre à Gemini que les informations utiles
+        # à la validation. Aucun dictionnaire métier n'est utilisé.
+        intent_payload = {
+            "lead_types": intent.get("lead_types") or [],
+            "industries": intent.get("industries") or [],
+            "target_roles": intent.get("target_roles") or [],
+            "locations": intent.get("locations") or [],
+            "search_keywords": intent.get("search_keywords") or [],
+        }
+
+        has_meta_candidate = any(
+            str(item.get("source") or "").strip().lower()
+            in {"meta_ads", "meta_ads_library", "ads_library_search"}
+            for item in normalized_candidates
+        )
+
+        if has_meta_candidate:
+            intent_payload["meta_search_keywords"] = (
+                intent.get("meta_search_keywords") or []
+            )
+
+        candidate_payloads = []
+
+        evidence_fields = (
+            "candidate_id",
+            "company_name",
+            "full_name",
+            "title",
+            "job_title",
+            "headline",
+            "category",
+            "description",
+            "snippet",
+            "about",
+            "city",
+            "country",
+            "address",
+            "website",
+            "linkedin_url",
+            "facebook_url",
+            "instagram_url",
+            "email",
+            "phone",
+            "source",
+            "source_label",
+            "meta_search_query",
+            "meta_search_queries",
+            "meta_ads_texts",
+            "meta_ads_count",
+            "meta_ads_matched_ads_count",
+            "meta_ads_query_coverage",
+            "meta_ads_exact_phrase_match",
+            "meta_evidence_strength",
+            "meta_ad_overlap",
+            "meta_advertiser_overlap",
+            "meta_requires_external_verification",
+        )
+
+        for item in normalized_candidates:
+            evidence = {}
+
+            for field in evidence_fields:
+                value = item.get(field)
+
+                if value not in (None, "", [], {}):
+                    evidence[field] = value
+
+            candidate_payloads.append(evidence)
+
+        import json
+
+        prompt = build_validation_prompt(
+            intent_summary=json.dumps(
+                intent_payload,
+                ensure_ascii=False,
+                default=str,
+            ),
+            candidates_payload=json.dumps(
+                candidate_payloads,
+                ensure_ascii=False,
+                default=str,
+            ),
+        )
+
+        # Validation sémantique = amélioration de qualité.
+        # Elle ne doit pas faire tomber tout le run si Gemini
+        # est temporairement indisponible.
+        if not self.client:
+            logger.warning(
+                "[SEMANTIC_VALIDATION] Gemini client unavailable; "
+                "keeping %s candidates without semantic validation.",
+                len(normalized_candidates),
+            )
+            return normalized_candidates
+
+
+        response = await asyncio.to_thread(
+            safe_gemini_generate,
+            prompt,
+            self.gemini_keys,
+            self.model,
+            ValidationBatch,
+            self.gemini_state,
+        )
+
+        if not response["success"]:
+            logger.warning(
+                "[SEMANTIC_VALIDATION] Gemini validation unavailable: %s",
+                response.get("error") or "unknown_error",
+            )
+            return normalized_candidates
+
+        try:
+            parsed = ValidationBatch.model_validate_json(
+                response["text"]
+            )
+        except Exception as exc:
+            error = sanitize_gemini_error(str(exc))
+
+            logger.warning(
+                "[SEMANTIC_VALIDATION] Invalid ValidationBatch: %s",
+                error,
+            )
+
+            return normalized_candidates
+
+        validations = {
+            result.candidate_id: result.model_dump()
+            for result in parsed.results
+        }
+
+        validated_count = 0
+
+        for item in normalized_candidates:
+            validation = validations.get(
+                item["candidate_id"]
+            )
+
+            if not validation:
+                continue
+
+            item["semantic_validation"] = {
+                "sector_match": bool(
+                    validation.get("sector_match")
+                ),
+                "role_match": bool(
+                    validation.get("role_match")
+                ),
+                "location_status": str(
+                    validation.get("location_status")
+                    or "unknown"
+                ),
+                "confidence": float(
+                    validation.get("confidence")
+                    or 0.0
+                ),
+                "reason": str(
+                    validation.get("reason")
+                    or ""
+                ).strip()[:300],
             }
 
-        return {
-            "decision": "continue",
-            "next_tool": "",
-            "next_query": "",
-            "reason": "Continuer le plan local.",
-            "confidence": 0.7,
-        }
+            validated_count += 1
 
-
-class GeminiBrain(GeminiBrainBase):
-    def generate_json(self, prompt: str, schema=None):
-        response = safe_gemini_generate(
-            prompt,
-            client=self.client,
-            model=self.model,
-            schema=schema,
+        logger.info(
+            "[SEMANTIC_VALIDATION] candidates=%s validated=%s missing=%s",
+            len(normalized_candidates),
+            validated_count,
+            len(normalized_candidates) - validated_count,
         )
-        if not response.get("success"):
-            raise RuntimeError(response.get("error") or "gemini_unavailable")
-        return response.get("text") or ""
 
-    def fallback_decision(self, memory_summary: dict, error: str | None = None) -> dict:
-        logger.warning("Gemini indisponible - fallback local activé")
-        return local_decision_from_memory(memory_summary, error=error)
+        return normalized_candidates
 
-    async def decide_next_action(self, memory_summary: dict) -> dict:
-        return local_decision_from_memory(memory_summary)
+    # ========================================================
+    # AGENTIC DECISION
+    # ========================================================
 
-        if not self.client:
-            return self.fallback_decision(memory_summary, "Gemini client unavailable")
-
-        if (memory_summary.get("companies_count") or 0) or (memory_summary.get("persons_count") or 0):
-            return local_decision_from_memory(memory_summary)
-
-        if memory_summary.get("pending_urls"):
-            return local_decision_from_memory(memory_summary)
-
-        prompt = f"""
-{SYSTEM_PROMPT}
-
-Tu es le cerveau principal d'un agent de prospection. Tu controles la boucle.
-
-Tools disponibles et noms exacts :
-- maps_search : recherche Google Maps / Places pour entreprises physiques.
-- serper_linkedin : recherche Google sur LinkedIn.
-- serper_facebook : recherche Google sur Facebook.
-- serper_instagram : recherche Google sur Instagram.
-- serper_general : recherche web generale.
-- playwright_profile_scraper : scrape uniquement des URLs LinkedIn/Facebook/Instagram deja trouvees.
-- website_scraper : scrape uniquement des sites web deja trouves.
-- crm_importer : importe les entites deja analysees.
-
-Decisions autorisees :
-- use_tool : renseigne tool et query.
-- crawl_urls : renseigne tool et target_urls.
-- analyze_entities : quand les donnees doivent etre qualifiees/scorees.
-- import_crm : quand les entites crm_ready suffisent.
-- stop : quand il faut arreter sans importer.
-
-Priorite de decision :
-1. Si aucune recherche n'a ete faite, choisis la meilleure source initiale.
-2. Si des URLs fiables sont decouvertes et non crawlees, choisis crawl_urls.
-3. Si des entites brutes existent mais ne sont pas analysees, choisis analyze_entities.
-4. Si des entites crm_ready existent, choisis import_crm.
-5. Si une source ne donne rien, change de requete ou de source.
-6. Ne stoppe jamais uniquement parce que Gemini/API est indisponible ou en quota : utilise le fallback local.
-
-JSON attendu exactement :
-{{
-  "decision": "use_tool|crawl_urls|analyze_entities|import_crm|stop",
-  "tool": "nom_tool_ou_chaine_vide",
-  "query": "requete_ou_chaine_vide",
-  "target_urls": [],
-  "reason": "raison courte",
-  "confidence": 0.0
-}}
-
-Contraintes :
-- Tu choisis une seule prochaine action.
-- N'utilise jamais null. Si un champ est inutile, mets "" ou [].
-- Pour serper_linkedin, serper_facebook et serper_instagram, n'ajoute jamais site:... dans query : le tool ajoute deja le filtre.
-- Les query doivent etre des mots-cles metier/localisation/role, pas des operateurs Google complexes.
-- Playwright ne doit crawler que des URLs presentes dans pending_urls/urls_found.
-- Evite annuaires, jobs, blogs, PDF, TikTok, Scribd, YouTube, Threads.
-- Si peu de donnees, change de source ou enrichis les URLs.
-- Si max_leads est atteint, analyse puis importe.
-- N'utilise import_crm que si des entites ont deja crm_ready=true dans la memoire.
-- N'utilise analyze_entities qu'apres au moins un resultat brut, une entreprise ou une personne.
-- Si Serper a trouve un profil pertinent, ne le rejette pas parce que le crawl Playwright est bloque.
-- Email et telephone sont des bonus, jamais des prerequis de decision.
-- Retourne uniquement un JSON valide compatible avec DecisionSchema.
-
-Memoire resumee :
-{compact_json(memory_summary)}
-"""
-
-        try:
-            text = self.generate_json(prompt)
-            data = parse_json_text(text)
-            data = repair_decision_payload(data)
-            return DecisionSchema.model_validate(data).model_dump()
-        except Exception as exc:
-            return self.fallback_decision(memory_summary, str(exc)[:400])
-
-    def fallback_analysis(
+    async def decide_next_action(
         self,
-        entities: list[dict],
-        reason: str | None = None,
-        memory_summary: dict | None = None,
+        memory,
+        allowed_actions: list[str],
+        allowed_sources: list[str] | None = None,
     ) -> dict:
-        logger.warning("Gemini indisponible - fallback local activé")
-        intent = (memory_summary or {}).get("intent") or {}
-        fallback_entities = []
+        """
+        Prend une décision stratégique à partir
+        de l'état réel du run.
 
-        for index, entity in enumerate(entities[:30]):
-            local_entity = dict(entity or {})
-            qualify_entity(local_entity, intent)
-            entity_type = local_entity.get("lead_type") or classify_lead_type(local_entity)
-            score = int(local_entity.get("lead_score") or local_entity.get("score") or 0)
-            has_source = has_valid_contact_url(local_entity)
-            is_valid = bool(local_entity.get("is_valid") or has_source)
-            crm_ready = bool(local_entity.get("crm_ready") or has_source)
-            evaluation = local_entity.get("evaluation") or ("warm" if score >= 40 else "cold")
-            fallback_reason = (
-                "review_needed: analyse IA indisponible, qualification locale appliquee. "
-                f"{reason or 'Gemini unavailable'}"
+        Budget :
+        - extraction d'intent : compteur Gemini général ;
+        - décision stratégique : budget spécifique
+          memory.max_decision_calls.
+
+        Python reste responsable de valider l'action
+        avant son exécution.
+        """
+
+        allowed_actions = list(
+            dict.fromkeys(
+                str(
+                    item
+                ).strip()
+                for item
+                in (
+                    allowed_actions
+                    or []
+                )
+                if str(
+                    item
+                    or ""
+                ).strip()
+            )
+        )
+
+        allowed_sources = list(
+            dict.fromkeys(
+                str(
+                    item
+                ).strip()
+                for item
+                in (
+                    allowed_sources
+                    or []
+                )
+                if str(
+                    item
+                    or ""
+                ).strip()
+            )
+        )
+
+        # ====================================================
+        # NO AVAILABLE ACTION
+        # ====================================================
+
+        if not allowed_actions:
+            return {
+                "decision":
+                    "stop",
+
+                "source":
+                    None,
+
+                "reason":
+                    (
+                        "Aucune action stratégique "
+                        "disponible."
+                    ),
+
+                "confidence":
+                    1.0,
+
+                "origin":
+                    "deterministic_guard",
+            }
+
+        # ====================================================
+        # TARGET ALREADY REACHED
+        # ====================================================
+
+        companies, persons = (
+            memory.crm_ready_entities()
+        )
+
+        valid_count = (
+            len(
+                companies
+            )
+            + len(
+                persons
+            )
+        )
+
+        if (
+            valid_count
+            >= memory.max_leads
+        ):
+            return {
+                "decision":
+                    "stop",
+
+                "source":
+                    None,
+
+                "reason":
+                    (
+                        "Objectif de prospects "
+                        "valides déjà atteint."
+                    ),
+
+                "confidence":
+                    1.0,
+
+                "origin":
+                    "deterministic_guard",
+            }
+
+        # ====================================================
+        # DECISION BUDGET
+        # ====================================================
+
+        if not (
+            memory
+            .decision_budget_available()
+        ):
+            return _fallback_decision(
+                memory,
+                allowed_actions=
+                    allowed_actions,
+                allowed_sources=
+                    allowed_sources,
+                reason=
+                    "budget_epuise",
             )
 
-            fallback_entities.append(
-                {
-                    "index": index,
-                    "is_valid": is_valid,
-                    "entity_type": entity_type or "company",
-                    "lead_score": score,
-                    "evaluation": evaluation,
-                    "reason": fallback_reason,
-                    "crm_ready": crm_ready,
-                    "enrichment_status": local_entity.get("enrichment_status") or "needs_enrichment",
-                    "qualification_reasons": list(local_entity.get("qualification_reasons") or []),
-                    "rejection_reason": "" if is_valid else "local_review_needed",
-                    "cleaned_data": {
-                        "analysis_status": "review_needed",
-                        "gemini_analyzed": True,
-                        "raison_score": fallback_reason,
-                        "enrichment_status": local_entity.get("enrichment_status") or "needs_enrichment",
-                    },
-                }
-            )
-
-        return {
-            "entities": fallback_entities,
-            "gemini_required": True,
-            "gemini_error": reason or "Gemini analysis unavailable",
-            "analysis_status": "review_needed",
-        }
-
-    async def analyze_entities(self, entities: list[dict], memory_summary: dict) -> dict:
-        if not entities:
-            return {"entities": []}
+        # ====================================================
+        # CLIENT UNAVAILABLE
+        # ====================================================
 
         if not self.client:
-            return self.fallback_analysis(entities, "Gemini indisponible.", memory_summary)
+            return _fallback_decision(
+                memory,
+                allowed_actions=
+                    allowed_actions,
+                allowed_sources=
+                    allowed_sources,
+                reason=
+                    "client_gemini_indisponible",
+            )
 
-        indexed_entities = [
-            {"index": index, "data": entity}
-            for index, entity in enumerate(entities[:30])
-        ]
 
-        prompt = f"""
-{SYSTEM_PROMPT}
+        # ====================================================
+        # DECISION PROMPT
+        # ====================================================
 
-Analyse ces entites scrapees/recherchees pour la prospection.
-Pour chaque index, decide :
-- est-ce un vrai prospect ou une vraie entreprise ?
-- est-ce pertinent pour la requete et l'intent ?
-- score 0-100, evaluation hot/warm/cold, crm_ready.
-- nettoie uniquement les champs fiables dans cleaned_data si necessaire.
-- IMPORTANT : ne rejette jamais un prospect uniquement parce qu'il n'a pas d'email ou de telephone.
-- Un profil LinkedIn, Facebook, Instagram, Google Maps ou site web fiable peut suffire pour accepter un prospect.
-- Email et telephone sont des bonus d'enrichissement, pas des conditions de validation.
-- Mets is_valid=true et crm_ready=true si le prospect correspond a l'intention et possede une URL fiable, meme sans email/telephone.
-- Mets enrichment_status="needs_enrichment" quand email et telephone sont absents.
-- Ne confonds pas scraping bloque avec prospect invalide : si la source Serper/snippet est fiable, accepte le prospect et explique que l'enrichissement reste a faire.
-- Si une page crawlee est login/captcha/vide, juge le scrape comme faible mais conserve les donnees fiables deja connues.
-- Pour une personne, garde first_name et last_name sous 50 caracteres chacun.
-- Pour un title, garde une formulation courte sous 100 caracteres.
+        prompt = (
+            build_decision_prompt(
+                context_summary=
+                    memory.decision_context(),
 
-JSON attendu exactement :
-{{
-  "entities": [
-    {{
-      "index": 0,
-      "is_valid": true,
-      "entity_type": "person|company",
-      "lead_score": 0,
-      "evaluation": "hot|warm|cold",
-      "reason": "raison courte",
-      "crm_ready": true,
-      "enrichment_status": "enriched|needs_enrichment",
-      "qualification_reasons": [],
-      "rejection_reason": "",
-      "cleaned_data": {{}}
-    }}
-  ]
-}}
+                allowed_actions=
+                    allowed_actions,
 
-Regles de format :
-- Retourne un objet avec la cle "entities".
-- Utilise les index fournis dans Entites indexees.
-- N'utilise jamais null. Utilise false, "", [] ou {{}}.
+                allowed_sources=
+                    allowed_sources,
+            )
+        )
 
-Rejette les annuaires, jobs, blogs, PDF et reseaux non autorises.
-Retourne uniquement JSON valide compatible avec EntityAnalysisSchema.
+        # ====================================================
+        # REGISTER REAL GEMINI DECISION CALL
+        # ====================================================
 
-Memoire :
-{compact_json(memory_summary)}
+        memory.register_decision_call()
 
-Entites indexees :
-{compact_json(indexed_entities)}
-"""
+        # ====================================================
+        # EXACTLY ONE GEMINI CALL
+        # ====================================================
+
+        response = (
+            await asyncio.to_thread(
+                safe_gemini_generate,
+                prompt,
+                self.gemini_keys,
+                self.model,
+                AgentDecision,
+                self.gemini_state,
+            )
+        )
+
+        # ====================================================
+        # GEMINI FAILURE
+        # ====================================================
+
+        if not response[
+            "success"
+        ]:
+            memory.add_error(
+                "gemini_decision",
+                (
+                    response.get(
+                        "error"
+                    )
+                    or "gemini_indisponible"
+                ),
+            )
+
+            return _fallback_decision(
+                memory,
+                allowed_actions=
+                    allowed_actions,
+                allowed_sources=
+                    allowed_sources,
+                reason=
+                    "gemini_indisponible",
+            )
+
+        # ====================================================
+        # STRICT PARSING
+        # ====================================================
 
         try:
-            text = self.generate_json(prompt)
-            data = parse_json_text(text)
-            data = repair_analysis_payload(data)
-            return EntityAnalysisSchema.model_validate(data).model_dump()
+            parsed = (
+                AgentDecision
+                .model_validate_json(
+                    response[
+                        "text"
+                    ]
+                )
+            )
+
+            decision = (
+                parsed.model_dump()
+            )
+
         except Exception as exc:
-            return self.fallback_analysis(entities, str(exc)[:400], memory_summary)
+            error = (
+                sanitize_gemini_error(
+                    str(
+                        exc
+                    )
+                )
+            )
+
+            memory.add_error(
+                "gemini_decision",
+                (
+                    "Réponse décision invalide : "
+                    f"{error}"
+                ),
+            )
+
+            return _fallback_decision(
+                memory,
+                allowed_actions=
+                    allowed_actions,
+                allowed_sources=
+                    allowed_sources,
+                reason=
+                    "reponse_invalide",
+            )
+
+        # ====================================================
+        # ACTION AUTHORIZATION
+        # ====================================================
+
+        action = (
+            decision.get(
+                "decision"
+            )
+        )
+
+        if (
+            action
+            not in allowed_actions
+        ):
+            return _fallback_decision(
+                memory,
+                allowed_actions=
+                    allowed_actions,
+                allowed_sources=
+                    allowed_sources,
+                reason=
+                    (
+                        "action_non_autorisee:"
+                        f"{action}"
+                    ),
+            )
+
+        # ====================================================
+        # SOURCE AUTHORIZATION
+        # ====================================================
+
+        if (
+            action
+            == "switch_source"
+        ):
+            source = (
+                decision.get(
+                    "source"
+                )
+                or ""
+            )
+
+            if (
+                not source
+                or source
+                not in allowed_sources
+            ):
+                return _fallback_decision(
+                    memory,
+                    allowed_actions=
+                        allowed_actions,
+                    allowed_sources=
+                        allowed_sources,
+                    reason=
+                        (
+                            "source_non_autorisee:"
+                            f"{source}"
+                        ),
+                )
+
+        else:
+            decision[
+                "source"
+            ] = None
+
+        # ====================================================
+        # FINAL DECISION
+        # ====================================================
+
+        decision[
+            "origin"
+        ] = "gemini"
+
+        return decision

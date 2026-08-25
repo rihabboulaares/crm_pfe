@@ -2,7 +2,7 @@
 views.py — Endpoints Django REST Framework pour l'agent CRM MCP.
 """
 import asyncio
-import traceback
+import logging
 import base64
 from time import perf_counter
 
@@ -12,9 +12,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
-from .agent import chat_with_memory, reset_memory
-from .memory import REDIS_AVAILABLE
 from superadmin.audit import create_ai_agent_run, create_audit_log, finish_ai_agent_run
+
+logger = logging.getLogger(__name__)
 
 
 class AgentChatView(APIView):
@@ -51,7 +51,14 @@ class AgentChatView(APIView):
                 metadata={"message_preview": message[:300]},
             )
 
-            print(f"[AGENT] user={username} | company={company_id} | msg={message}")
+            logger.info(
+                "CRM agent request user=%s company=%s message_length=%s",
+                username,
+                company_id,
+                len(message),
+            )
+
+            from .agent import chat_with_memory
 
             response = asyncio.run(
                 chat_with_memory(
@@ -59,6 +66,8 @@ class AgentChatView(APIView):
                     user_message=message,
                     username=username,
                     company_id=company_id,
+                    current_user_id=user.id,
+                    current_user_role=getattr(user, "role", ""),
                 )
             )
 
@@ -69,7 +78,7 @@ class AgentChatView(APIView):
                 duration_seconds=round(perf_counter() - started, 2),
                 metadata={"response_preview": str(response)[:500]},
             )
-            print(f"[AGENT] réponse OK")
+            logger.info("CRM agent response generated user=%s company=%s", username, company_id)
             return Response({
                 "response": response,
                 "user": username,
@@ -93,8 +102,12 @@ class AgentChatView(APIView):
                 description="Erreur agent CRM",
                 metadata={"error": str(e)[:500]},
             )
-            print(f"[AGENT ERROR] {traceback.format_exc()}")
-            return Response({"error": str(e)}, status=500)
+            logger.exception(
+                "CRM agent chat failed user=%s company=%s",
+                getattr(getattr(request, "user", None), "username", None),
+                getattr(getattr(request, "user", None), "company_id", None),
+            )
+            return Response({"error": "Impossible de traiter la demande pour le moment."}, status=500)
 
 
 class AgentFileView(APIView):
@@ -159,7 +172,15 @@ class AgentFileView(APIView):
                 metadata={"file": file.name},
             )
 
-            print(f"[AGENT FILE] user={username} | fichier={file.name} | taille={len(content)} bytes")
+            logger.info(
+                "CRM agent file request user=%s company=%s filename=%s size=%s",
+                username,
+                company_id,
+                file.name,
+                len(content),
+            )
+
+            from .agent import chat_with_memory
 
             response = asyncio.run(
                 chat_with_memory(
@@ -167,6 +188,8 @@ class AgentFileView(APIView):
                     user_message=user_message,
                     username=username,
                     company_id=company_id,
+                    current_user_id=user.id,
+                    current_user_role=getattr(user, "role", ""),
                 )
             )
 
@@ -200,8 +223,13 @@ class AgentFileView(APIView):
                 description="Erreur agent CRM fichier",
                 metadata={"error": str(e)[:500]},
             )
-            print(f"[AGENT FILE ERROR] {traceback.format_exc()}")
-            return Response({"error": str(e)}, status=500)
+            logger.exception(
+                "CRM agent file failed user=%s company=%s filename=%s",
+                getattr(getattr(request, "user", None), "username", None),
+                getattr(getattr(request, "user", None), "company_id", None),
+                getattr(locals().get("file", None), "name", None),
+            )
+            return Response({"error": "Impossible de traiter le fichier pour le moment."}, status=500)
 
     def _extract(self, filename: str, content: bytes) -> str:
         """Extrait le texte selon l'extension du fichier."""
@@ -330,15 +358,23 @@ class AgentResetView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        from .agent import reset_memory
+
         user_id = f"user_{request.user.id}"
         result = reset_memory(user_id)
         return Response({"message": result})
 
 
 class AgentStatusView(APIView):
-    permission_classes = []
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        try:
+            from .memory import REDIS_AVAILABLE
+        except Exception:
+            logger.exception("Unable to read CRM agent Redis status")
+            REDIS_AVAILABLE = False
+
         return Response({
             "status": "ok",
             "redis": REDIS_AVAILABLE,

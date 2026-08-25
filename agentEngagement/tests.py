@@ -7,9 +7,11 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from sales.models import Prospect
 from users.models import Company, User
 
+from .email_sender import send_prepared_email
 from .memory import save_prepared_message
+from .models import UserEmailConnection
 from .runner import launch_engagement_agent
-from .views import LaunchEngagementAgentView
+from .views import EmailConnectionsView, LaunchEngagementAgentView
 
 
 class EngagementAgentWorkflowTests(TestCase):
@@ -28,6 +30,7 @@ class EngagementAgentWorkflowTests(TestCase):
             "first_name": "Ada",
             "last_name": f"Lead{Prospect.objects.count()}",
             "company": self.company,
+            "assigned_to": self.owner,
             "engagement_status": "new",
             "email": f"lead{Prospect.objects.count()}@example.com",
         }
@@ -79,3 +82,34 @@ class EngagementAgentWorkflowTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.data["success"])
+
+    def test_email_send_requires_current_user_connection(self):
+        prospect = self.make_prospect()
+
+        result = send_prepared_email(prospect, self.owner, "Contact", "Bonjour Ada")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["code"], "EMAIL_LOGIN_REQUIRED")
+
+    def test_email_connections_are_user_scoped(self):
+        other = User.objects.create_user(
+            email="other@example.com",
+            username="other",
+            password="pass",
+            company=self.company,
+        )
+        UserEmailConnection.objects.create(
+            user=other,
+            provider=UserEmailConnection.PROVIDER_GMAIL,
+            email="other.gmail@example.com",
+            display_name="Other",
+            access_token="token",
+            is_active=True,
+        )
+        request = APIRequestFactory().get("/api/engagement/connections/email/")
+        force_authenticate(request, user=self.owner)
+
+        response = EmailConnectionsView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data["active"]["connected"])

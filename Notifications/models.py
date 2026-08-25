@@ -96,6 +96,106 @@ class HistoryLog(models.Model):
         return f"[{self.get_action_display()}] {self.entity_type} #{self.entity_id} par {actor_name}"
 
 
+class CRMEvent(models.Model):
+    CATEGORY_CHOICES = [
+        ("prospect", "Prospect"),
+        ("commercial", "Commercial"),
+        ("engagement", "Engagement"),
+        ("agent", "Agent IA"),
+        ("scoring", "Scoring"),
+        ("document", "Document"),
+        ("opportunity", "Opportunité"),
+        ("task", "Tâche"),
+        ("system", "Système"),
+    ]
+
+    EVENT_TYPE_CHOICES = [
+        ("prospect_created", "Prospect créé"),
+        ("prospect_enriched", "Prospect enrichi"),
+        ("prospect_qualified", "Prospect qualifié"),
+        ("prospect_status_changed", "Statut prospect modifié"),
+        ("commercial_activity_created", "Activité commerciale ajoutée"),
+        ("call_completed", "Appel effectué"),
+        ("message_generated", "Message généré"),
+        ("message_sent", "Message envoyé"),
+        ("reply_received", "Réponse reçue"),
+        ("prospect_interested", "Prospect intéressé"),
+        ("document_uploaded", "Document ajouté"),
+        ("score_changed", "Score recalculé"),
+        ("opportunity_created", "Opportunité créée"),
+        ("opportunity_status_changed", "Statut opportunité modifié"),
+        ("opportunity_won", "Opportunité gagnée"),
+        ("opportunity_lost", "Opportunité perdue"),
+        ("agent_started", "Agent lancé"),
+        ("agent_completed", "Agent terminé"),
+        ("agent_failed", "Agent échoué"),
+        ("recommendation_created", "Recommandation créée"),
+        ("recommendation_completed", "Recommandation réalisée"),
+    ]
+
+    SEVERITY_CHOICES = [
+        ("info", "Info"),
+        ("success", "Succès"),
+        ("warning", "Avertissement"),
+        ("critical", "Critique"),
+    ]
+
+    SOURCE_TYPE_CHOICES = [
+        ("manual", "Manuel"),
+        ("agent", "Agent"),
+        ("system", "Système"),
+        ("prospect_activity", "Activité prospect"),
+        ("score_history", "Historique score"),
+        ("prospect_document", "Document prospect"),
+        ("prospect_agent_run", "Exécution agent prospect"),
+        ("engagement_log", "Engagement"),
+        ("opportunity", "Opportunité"),
+    ]
+
+    event_type = models.CharField(max_length=60, choices=EVENT_TYPE_CHOICES)
+    category = models.CharField(max_length=30, choices=CATEGORY_CHOICES, db_index=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default="info", db_index=True)
+    source_type = models.CharField(max_length=40, choices=SOURCE_TYPE_CHOICES, default="system")
+    source_name = models.CharField(max_length=120, blank=True)
+    source_id = models.CharField(max_length=80, blank=True)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="crm_events")
+    prospect = models.ForeignKey("sales.Prospect", on_delete=models.SET_NULL, null=True, blank=True, related_name="crm_events")
+    company = models.ForeignKey("users.Company", on_delete=models.CASCADE, null=True, blank=True, related_name="crm_events")
+    agent_run = models.ForeignKey("sales.ProspectAgentRun", on_delete=models.SET_NULL, null=True, blank=True, related_name="crm_events")
+    related_object_type = models.CharField(max_length=80, blank=True)
+    related_object_id = models.CharField(max_length=80, blank=True)
+    status = models.CharField(max_length=40, blank=True)
+    channel = models.CharField(max_length=40, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Événement CRM"
+        verbose_name_plural = "Événements CRM"
+        indexes = [
+            models.Index(fields=["company", "-created_at"]),
+            models.Index(fields=["event_type", "-created_at"]),
+            models.Index(fields=["category", "-created_at"]),
+            models.Index(fields=["prospect", "-created_at"]),
+            models.Index(fields=["user", "-created_at"]),
+            models.Index(fields=["severity", "-created_at"]),
+            models.Index(fields=["source_type", "source_id", "event_type"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["event_type", "source_type", "source_id"],
+                condition=models.Q(source_id__gt=""),
+                name="unique_crm_event_source",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.get_event_type_display()} - {self.title}"
+
+
 class Notification(models.Model):
     """
     Notification personnelle pour chaque utilisateur.

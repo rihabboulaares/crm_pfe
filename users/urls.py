@@ -7,6 +7,9 @@ from .jwt import EmailTokenObtainPairView          # ← login avec email
 from .views import (
     RegisterView,
     VerifyEmailView,
+    ResendVerificationView,
+    PasswordResetRequestView,
+    PasswordResetConfirmView,
     UserViewSet,
     TeamViewSet,
     invite_member,
@@ -34,6 +37,9 @@ urlpatterns = [
 
     path("register/",     RegisterView.as_view(),             name="register"),
     path("verify-email/", VerifyEmailView.as_view(),          name="verify-email"),
+    path("resend-verification/", ResendVerificationView.as_view(), name="resend-verification"),
+    path("password-reset/request/", PasswordResetRequestView.as_view(), name="password-reset-request"),
+    path("password-reset/confirm/", PasswordResetConfirmView.as_view(), name="password-reset-confirm"),
 
     # ── Profil courant ────────────────────────────────────────
     # GET → données de l'utilisateur connecté (utilisé par le frontend après login)

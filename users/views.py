@@ -1,5 +1,6 @@
 ﻿# users/views.py
 import logging
+import random
 from smtplib import SMTPException
 
 from rest_framework import generics, viewsets, status, filters
@@ -9,21 +10,25 @@ from rest_framework.response import Response
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
+from django.db import transaction
 from django.db.models import Q
-from django.core.mail import send_mail
 from django.utils import timezone
 from datetime import timedelta
 from django.conf import settings
+from django.contrib.auth.hashers import make_password, check_password
 
 from subscriptions.models import SubscriptionPlan, CompanySubscription
 from subscriptions.utils import check_limits
 
-from .models import User, Team, Invitation, Company
+from .models import User, Team, Invitation, Company, TransactionalEmailLog, PasswordResetCode
+from .email_service import render_auth_email, send_transactional_email
 from .serializers import (
     RegisterSerializer,
     UserSerializer,
     ChangePasswordSerializer,
     TeamSerializer,
+    PasswordResetRequestSerializer,
+    PasswordResetConfirmSerializer,
 )
 from .permissions import IsAdmin
 
@@ -31,18 +36,44 @@ logger = logging.getLogger(__name__)
 
 
 def send_mail_safely(*, subject, message, recipient_list):
-    try:
-        send_mail(
-            subject=subject,
-            message=message,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=recipient_list,
-            fail_silently=False,
-        )
-        return True, None
-    except SMTPException as exc:
-        logger.warning("Email sending failed: %s", exc)
-        return False, str(exc)
+    recipient = recipient_list[0] if recipient_list else ""
+    email_sent, email_error, _ = send_transactional_email(
+        email_type="invitation",
+        recipient=recipient,
+        subject=subject,
+        text_body=message,
+        html_body=render_auth_email(title=subject, body=message),
+    )
+    return email_sent, email_error
+
+
+def auth_email_limited(email_type, recipient):
+    now = timezone.now()
+    recent_window = now - timedelta(seconds=settings.AUTH_EMAIL_RESEND_COOLDOWN_SECONDS)
+    hourly_window = now - timedelta(hours=1)
+    base_qs = TransactionalEmailLog.objects.filter(
+        email_type=email_type,
+        recipient__iexact=recipient,
+        status=TransactionalEmailLog.Status.SENT,
+    )
+
+    if base_qs.filter(created_at__gte=recent_window).exists():
+        return True, "Veuillez patienter avant de demander un nouveau code."
+
+    if base_qs.filter(created_at__gte=hourly_window).count() >= settings.AUTH_EMAIL_MAX_PER_HOUR:
+        return True, "Trop de demandes. Veuillez réessayer plus tard."
+
+    return False, None
+
+
+def generic_password_reset_response():
+    return Response(
+        {
+            "message": (
+                "Si un compte vérifié existe pour cet email, un code de réinitialisation a été envoyé."
+            )
+        }
+    )
 
 
 # =====================================================
@@ -74,12 +105,175 @@ class VerifyEmailView(APIView):
         code = request.data.get("code")
         try:
             user = User.objects.get(email=email, verification_code=code)
+            if user.verification_code_sent_at:
+                expires_at = user.verification_code_sent_at + timedelta(
+                    minutes=settings.AUTH_VERIFICATION_CODE_TTL_MINUTES
+                )
+                if timezone.now() > expires_at:
+                    return Response(
+                        {"error": "Code expiré. Veuillez demander un nouveau code."},
+                        status=400,
+                    )
             user.is_verified = True
             user.verification_code = None
-            user.save()
+            user.verification_code_sent_at = None
+            user.save(update_fields=["is_verified", "verification_code", "verification_code_sent_at"])
             return Response({"message": "Compte vérifié"})
         except User.DoesNotExist:
             return Response({"error": "Code invalide"}, status=400)
+
+
+# =====================================================
+# RESEND VERIFICATION CODE
+# =====================================================
+class ResendVerificationView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email")
+        generic_response = {
+            "message": "Si un compte non vérifié existe pour cet email, un nouveau code a été envoyé."
+        }
+
+        if not email:
+            return Response({"error": "Email obligatoire"}, status=400)
+
+        try:
+            user = User.objects.get(email=email, is_verified=False)
+        except User.DoesNotExist:
+            return Response(generic_response)
+
+        limited, limited_message = auth_email_limited(
+            TransactionalEmailLog.EmailType.RESEND_VERIFICATION,
+            user.email,
+        )
+        if limited:
+            return Response({"error": limited_message}, status=429)
+
+        code = str(random.randint(100000, 999999))
+        email_sent, email_error, _ = send_transactional_email(
+            email_type="resend_verification",
+            recipient=user.email,
+            subject="Nouveau code de vérification CRM",
+            text_body=f"Bonjour {user.username}, votre nouveau code est : {code}",
+            html_body=render_auth_email(
+                title="Nouveau code de vérification",
+                body="Utilisez ce nouveau code pour activer votre compte ViewiseCRM.",
+                code=code,
+            ),
+            user=user,
+            metadata={"reason": "manual_resend"},
+        )
+
+        if not email_sent:
+            response = {
+                "error": "Impossible d'envoyer le code de vérification. Veuillez réessayer plus tard."
+            }
+            if settings.DEBUG:
+                response["email_error"] = email_error
+            return Response(response, status=503)
+
+        user.verification_code = code
+        user.verification_code_sent_at = timezone.now()
+        user.save(update_fields=["verification_code", "verification_code_sent_at"])
+        return Response({"message": "Nouveau code de vérification envoyé."})
+
+
+# =====================================================
+# PASSWORD RESET
+# =====================================================
+class PasswordResetRequestView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+
+        try:
+            user = User.objects.get(email__iexact=email, is_active=True, is_verified=True)
+        except User.DoesNotExist:
+            return generic_password_reset_response()
+
+        limited, limited_message = auth_email_limited(
+            TransactionalEmailLog.EmailType.PASSWORD_RESET,
+            user.email,
+        )
+        if limited:
+            return Response({"error": limited_message}, status=429)
+
+        code = str(random.randint(100000, 999999))
+        expires_at = timezone.now() + timedelta(
+            minutes=settings.AUTH_PASSWORD_RESET_CODE_TTL_MINUTES
+        )
+        email_sent, email_error, email_log = send_transactional_email(
+            email_type=TransactionalEmailLog.EmailType.PASSWORD_RESET,
+            recipient=user.email,
+            subject="Code de réinitialisation ViewiseCRM",
+            text_body=f"Bonjour {user.username}, votre code de réinitialisation est : {code}",
+            html_body=render_auth_email(
+                title="Réinitialisation de votre mot de passe",
+                body=(
+                    "Utilisez ce code pour choisir un nouveau mot de passe. "
+                    f"Il expire dans {settings.AUTH_PASSWORD_RESET_CODE_TTL_MINUTES} minutes."
+                ),
+                code=code,
+            ),
+            user=user,
+            metadata={"expires_at": expires_at.isoformat()},
+        )
+
+        if not email_sent:
+            response = {"error": "Impossible d'envoyer le code. Veuillez réessayer plus tard."}
+            if settings.DEBUG:
+                response["email_error"] = email_error
+            return Response(response, status=503)
+
+        PasswordResetCode.objects.filter(user=user, used_at__isnull=True).update(
+            used_at=timezone.now()
+        )
+        PasswordResetCode.objects.create(
+            user=user,
+            code_hash=make_password(code),
+            email_log=email_log,
+            expires_at=expires_at,
+        )
+        return generic_password_reset_response()
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email")
+        user = User.objects.filter(email__iexact=email, is_active=True, is_verified=True).first()
+        serializer = PasswordResetConfirmSerializer(
+            data=request.data,
+            context={"user": user},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        if not user:
+            return Response({"error": "Code invalide ou expiré."}, status=400)
+
+        reset_code = (
+            PasswordResetCode.objects.filter(
+                user=user,
+                used_at__isnull=True,
+                expires_at__gte=timezone.now(),
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+        if not reset_code or not check_password(serializer.validated_data["code"], reset_code.code_hash):
+            return Response({"error": "Code invalide ou expiré."}, status=400)
+
+        user.set_password(serializer.validated_data["new_password"])
+        user.save(update_fields=["password"])
+        reset_code.used_at = timezone.now()
+        reset_code.save(update_fields=["used_at"])
+        return Response({"message": "Mot de passe réinitialisé avec succès."})
 
 
 # =====================================================
@@ -150,50 +344,63 @@ def accept_invite(request, token):
     if User.objects.filter(email=invitation.email).exists():
         return Response({"error": "Cet email a déjà un compte"}, status=400)
 
-    serializer = RegisterSerializer(
-        data={
-            "username": request.data["username"],
-            "email": invitation.email,
-            "password": request.data["password"],
-            "role": invitation.role,
+    try:
+        with transaction.atomic():
+            serializer = RegisterSerializer(
+                data={
+                    "username": request.data["username"],
+                    "email": invitation.email,
+                    "password": request.data["password"],
+                    "role": invitation.role,
+                    "terms_accepted": request.data.get("terms_accepted"),
+                },
+                context={"send_verification_email": False},
+            )
+
+            serializer.is_valid(raise_exception=True)
+            user = serializer.save()
+
+            user.company = invitation.team.company
+            user.save()
+
+            invitation.team.members.add(user)
+            invitation.accepted = True
+            invitation.save()
+
+            email_sent, email_error, email_log = send_transactional_email(
+                email_type="verification",
+                recipient=user.email,
+                subject="Code de verification",
+                text_body=f"Votre code de verification est : {user.verification_code}",
+                html_body=render_auth_email(
+                    title="Vérifiez votre adresse email",
+                    body="Utilisez ce code pour finaliser votre invitation ViewiseCRM.",
+                    code=user.verification_code,
+                ),
+                user=user,
+                metadata={"invitation_id": invitation.id, "team_id": invitation.team_id},
+            )
+
+            if not email_sent:
+                raise SMTPException(email_error or "Email verification sending failed")
+            email_log.user = user
+            email_log.save(update_fields=["user", "updated_at"])
+            user.verification_code_sent_at = timezone.now()
+            user.save(update_fields=["verification_code_sent_at"])
+    except (SMTPException, OSError):
+        return Response(
+            {"error": "Impossible d'envoyer le code de vérification. Veuillez réessayer plus tard."},
+            status=503,
+        )
+
+    return Response(
+        {
+            "message": "Compte créé avec succès",
+            "email": user.email,
+            "user_id": user.id,
+            "email_sent": True,
         }
     )
-
-    serializer.is_valid(raise_exception=True)
-    user = serializer.save()
-
-    user.company = invitation.team.company
-    user.save()
-
-    invitation.team.members.add(user)
-    invitation.accepted = True
-    invitation.save()
-
-    import random
-    code = str(random.randint(100000, 999999))
-    user.verification_code = code
-    user.save()
-
-    email_sent, email_error = send_mail_safely(
-        subject="Code de verification",
-        message=f"Votre code de verification est : {code}",
-        recipient_list=[user.email],
-    )
-
-    response = {
-        "message": "Compte créé avec succès",
-        "email": user.email,
-        "user_id": user.id,
-        "email_sent": email_sent,
-    }
-
-    if not email_sent:
-        response["warning"] = "Code cree mais email non envoye: verifiez les identifiants SMTP Gmail."
-        if settings.DEBUG:
-            response["verification_code"] = code
-            response["email_error"] = email_error
-
-    return Response(response)
 
 
 # =====================================================
@@ -224,7 +431,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["put"], permission_classes=[IsAuthenticated])
     def change_password(self, request):
-        serializer = ChangePasswordSerializer(data=request.data)
+        serializer = ChangePasswordSerializer(data=request.data, context={"user": request.user})
         serializer.is_valid(raise_exception=True)
 
         user = request.user
@@ -310,7 +517,12 @@ class CompleteProfileView(APIView):
             )
             team.members.add(user)
 
-        return Response({"message": "Profil complété avec succès"})
+        return Response(
+            {
+                "message": "Profil complété avec succès",
+                "user": UserSerializer(user, context={"request": request}).data,
+            }
+        )
 
 
 # =====================================================
@@ -408,7 +620,7 @@ class TeamViewSet(viewsets.ModelViewSet):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def me_view(request):
-    return Response(UserSerializer(request.user).data)
+    return Response(UserSerializer(request.user, context={"request": request}).data)
 
 
 # =====================================================

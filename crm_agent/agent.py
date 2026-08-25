@@ -2,6 +2,7 @@
 agent.py — Agent CRM avec MCP + LangGraph + Gemini + mémoire Redis.
 """
 import asyncio
+import logging
 import os
 import sys
 from pathlib import Path
@@ -30,6 +31,7 @@ from .prompts import SYSTEM_PROMPT
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 
+logger = logging.getLogger(__name__)
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
 
 # ── Chemin vers server.py et python du venv ───────────────────
@@ -39,6 +41,12 @@ _SERVER_PATH = str(_HERE / "server.py")
 # On utilise le même python qui exécute Django
 # (celui du venv, pas le python système)
 _PYTHON_EXEC = sys.executable
+try:
+    from django.conf import settings
+
+    CRM_AGENT_DEBUG_TRACE = bool(getattr(settings, "CRM_AGENT_DEBUG_TRACE", False))
+except Exception:
+    CRM_AGENT_DEBUG_TRACE = False
 
 MCP_SERVER_PARAMS = StdioServerParameters(
     command=_PYTHON_EXEC,   # ← python du venv courant
@@ -62,39 +70,29 @@ def make_agent_node(system_prompt: str, tools: list):
 
         messages = [SystemMessage(content=system_prompt)] + state["messages"]
 
-        print("\n" + "=" * 60)
-        print("📝 PROMPT ENVOYÉ À GEMINI")
-        print("=" * 60)
-        for msg in messages:
-            print(f"\n  [{type(msg).__name__}]")
-            print(f"  {str(msg.content)[:300]}")
-        print("=" * 60)
+        if CRM_AGENT_DEBUG_TRACE:
+            logger.debug("CRM agent prompt sent to Gemini")
+            for msg in messages:
+                logger.debug("[%s] %s", type(msg).__name__, str(msg.content)[:300])
 
         response = llm.invoke(messages)
 
-        print("\n" + "=" * 60)
-        print("🧠 RÉPONSE GEMINI")
-        print("=" * 60)
+        if CRM_AGENT_DEBUG_TRACE:
+            if isinstance(response.content, list):
+                for block in response.content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "thinking":
+                            logger.debug("Gemini reasoning: %s", block.get("thinking", "")[:500])
+                        elif block.get("type") == "text":
+                            logger.debug("Gemini text: %s", block.get("text", ""))
+            else:
+                logger.debug("Gemini response: %s", response.content)
 
-        if isinstance(response.content, list):
-            for block in response.content:
-                if isinstance(block, dict):
-                    if block.get("type") == "thinking":
-                        print("\n💭 RAISONNEMENT :")
-                        print(block.get("thinking", "")[:500])
-                    elif block.get("type") == "text":
-                        print("\n📢 TEXTE :")
-                        print(block.get("text", ""))
-        else:
-            print(f"\n📢 RÉPONSE : {response.content}")
-
-        if hasattr(response, "tool_calls") and response.tool_calls:
-            for tc in response.tool_calls:
-                print(f"\n🔧 OUTIL : {tc['name']} | ARGS : {tc['args']}")
-        else:
-            print("\n➡️  Réponse directe (pas d'outil)")
-
-        print("=" * 60)
+            if hasattr(response, "tool_calls") and response.tool_calls:
+                for tc in response.tool_calls:
+                    logger.debug("Gemini tool call: %s args=%s", tc["name"], tc["args"])
+            else:
+                logger.debug("Gemini direct response without tool call")
 
         return {"messages": [response]}
 
@@ -130,35 +128,44 @@ async def chat_with_memory(
     user_message: str,
     username: str = "",
     company_id: int = 1,
+    current_user_id: int = None,
+    current_user_role: str = "",
 ) -> str:
     system = SYSTEM_PROMPT
     if username:
         system += (
             f"\n\n=== UTILISATEUR CONNECTÉ ===\n"
             f"Nom      : {username}\n"
+            f"User ID  : {current_user_id or 'N/A'}\n"
+            f"Role     : {current_user_role or 'N/A'}\n"
             f"ID Redis : {user_id}\n"
             f"Company  : {company_id}\n"
-            f"Utilise toujours company_id={company_id} dans tous tes appels d'outils."
+            f"Utilise toujours company_id={company_id} dans tous tes appels d'outils.\n"
+            f"Si tu crées un prospect, contact, opportunité, tâche ou événement sans assigné explicite, "
+            f"utilise assigned_to_id={current_user_id or 'null'} quand l'outil le permet."
         )
 
     history_dicts = load_history(user_id)
     history = dicts_to_messages(history_dicts)
     history.append(HumanMessage(content=user_message))
 
-    print("\n" + "=" * 60)
-    print(f"🚀 MESSAGE : {user_message}")
-    print(f"   user_id={user_id} | username={username} | company_id={company_id}")
-    print(f"   historique : {len(history) - 1} message(s) précédent(s)")
-    print(f"   python exec : {_PYTHON_EXEC}")
-    print(f"   server path : {_SERVER_PATH}")
-    print("=" * 60)
+    logger.info(
+        "CRM agent chat started user_id=%s username=%s company=%s history_messages=%s",
+        user_id,
+        username,
+        company_id,
+        len(history) - 1,
+    )
+    if CRM_AGENT_DEBUG_TRACE:
+        logger.debug("CRM agent user message: %s", user_message)
+        logger.debug("CRM agent python_exec=%s server_path=%s", _PYTHON_EXEC, _SERVER_PATH)
 
     async with stdio_client(MCP_SERVER_PARAMS) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             tools = await load_mcp_tools(session)
 
-            print(f"🔌 MCP connecté — {len(tools)} outil(s) chargé(s)")
+            logger.info("CRM agent MCP connected tools=%s", len(tools))
 
             agent = build_crm_agent(system_prompt=system, tools=tools)
             result = await agent.ainvoke({"messages": history})

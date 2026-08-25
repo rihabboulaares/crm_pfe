@@ -198,6 +198,16 @@ def create_history_and_notifications(
     return log
 
 
+def safe_record_business_event(**kwargs):
+    try:
+        from .crm_event_service import record_crm_event
+
+        return record_crm_event(**kwargs)
+    except Exception:
+        logger.exception("Non-blocking CRM event creation failed")
+        return None
+
+
 # ─── PROSPECT ─────────────────────────────────────────────────────
 
 @receiver(pre_save, sender="sales.Prospect")
@@ -225,6 +235,23 @@ def prospect_post_save(sender, instance, created, **kwargs):
             affected_users=affected, company=company,
             actor_type=actor_type, actor_name=actor_name, performed_by=performed_by,
         )
+        safe_record_business_event(
+            event_type="prospect_created",
+            category="prospect",
+            title=f"Prospect créé : {name}",
+            description=f"Prospect « {name} » créé",
+            severity="success",
+            source_type="system",
+            source_name=actor_name,
+            source_id=f"prospect-create-{instance.pk}",
+            user=performed_by,
+            prospect=instance,
+            company=company,
+            related_object_type="prospect",
+            related_object_id=instance.pk,
+            status=instance.status,
+            metadata={"email": instance.email, "status": instance.status},
+        )
     else:
         old = getattr(instance, "_pre_save_state", None)
         if not old:
@@ -250,6 +277,24 @@ def prospect_post_save(sender, instance, created, **kwargs):
             affected_users=affected, company=company,
             actor_type=actor_type, actor_name=actor_name, performed_by=performed_by,
         )
+        if "status" in changes:
+            safe_record_business_event(
+                event_type="prospect_status_changed",
+                category="prospect",
+                title="Statut prospect modifié",
+                description=desc,
+                severity="info",
+                source_type="system",
+                source_name=actor_name,
+                source_id=f"prospect-status-{instance.pk}-{instance.updated_at.isoformat() if getattr(instance, 'updated_at', None) else ''}",
+                user=performed_by,
+                prospect=instance,
+                company=company,
+                related_object_type="prospect",
+                related_object_id=instance.pk,
+                status=instance.status,
+                metadata={"old_status": changes["status"]["from"], "new_status": changes["status"]["to"]},
+            )
 
 
 @receiver(post_delete, sender="sales.Prospect")
@@ -290,6 +335,22 @@ def contact_post_save(sender, instance, created, **kwargs):
             new_value={"email": getattr(instance,"email",""), "phone": getattr(instance,"phone","")},
             affected_users=affected, company=company,
         )
+        safe_record_business_event(
+            event_type="opportunity_created",
+            category="opportunity",
+            title=f"Opportunité créée : {name}",
+            description=f"Opportunité « {name} » créée",
+            severity="success",
+            source_type="opportunity",
+            source_name="CRM",
+            source_id=instance.pk,
+            user=actor,
+            company=company,
+            related_object_type="opportunity",
+            related_object_id=instance.pk,
+            status=instance.stage,
+            metadata={"stage": instance.stage, "amount": str(getattr(instance, "amount", 0))},
+        )
     else:
         old = getattr(instance, "_pre_save_state", None)
         if not old:
@@ -313,6 +374,24 @@ def contact_post_save(sender, instance, created, **kwargs):
             new_value={k:v["to"]   for k,v in changes.items()},
             affected_users=affected, company=company,
         )
+        if "stage" in changes:
+            stage_to = changes["stage"]["to"]
+            safe_record_business_event(
+                event_type="opportunity_won" if stage_to == "won" else "opportunity_lost" if stage_to == "lost" else "opportunity_status_changed",
+                category="opportunity",
+                title=f"Étape opportunité modifiée : {name}",
+                description=desc,
+                severity="success" if stage_to == "won" else "warning" if stage_to == "lost" else "info",
+                source_type="opportunity",
+                source_name="CRM",
+                source_id=f"{instance.pk}-{stage_to}-{getattr(instance, 'updated_at', '')}",
+                user=actor,
+                company=company,
+                related_object_type="opportunity",
+                related_object_id=instance.pk,
+                status=stage_to,
+                metadata={"old_stage": changes["stage"]["from"], "new_stage": stage_to},
+            )
 
 
 @receiver(post_delete, sender="sales.Contact")

@@ -1,6 +1,7 @@
 from django.db import models
 from users.models import Company, Team, User
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.validators import FileExtensionValidator
 from django.utils import timezone
 
 
@@ -86,6 +87,7 @@ class ProspectCompany(models.Model):
         choices=SOURCE_CHOICES,
         default="commercial",
     )
+    discovery_sources = models.JSONField(default=list, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -215,6 +217,10 @@ class Prospect(models.Model):
     social_profile_topics = models.JSONField(default=list, blank=True)
     social_profile_analysis = models.JSONField(default=dict, blank=True)
     social_profile_last_analyzed_at = models.DateTimeField(blank=True, null=True)
+    profile_summary = models.TextField(blank=True, null=True)
+    profile_analysis_status = models.CharField(max_length=40, blank=True, null=True)
+    last_analyzed_at = models.DateTimeField(blank=True, null=True)
+    analysis_error_message = models.TextField(blank=True, null=True)
     source = models.CharField(
         max_length=50,
         choices=SOURCE_CHOICES,
@@ -230,6 +236,7 @@ class Prospect(models.Model):
     instagram_url = models.URLField(blank=True, null=True)
     website = models.URLField(blank=True, null=True)
     source_url = models.URLField(blank=True, null=True)
+    discovery_sources = models.JSONField(default=list, blank=True)
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
     address = models.TextField(null=True, blank=True)
@@ -248,6 +255,195 @@ class Prospect(models.Model):
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
+
+
+# ==============================
+# DOSSIER PROSPECT 360
+# ==============================
+class ProspectAgentRun(models.Model):
+    AGENT_TYPE_CHOICES = [
+        ("discovery", "Discovery Agent"),
+        ("enrichment", "Enrichment Agent"),
+        ("qualification", "Qualification Agent"),
+        ("engagement", "Engagement Agent"),
+        ("crm", "CRM Agent"),
+        ("other", "Autre"),
+    ]
+    STATUS_CHOICES = [
+        ("queued", "Queued"),
+        ("running", "Running"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+        ("cancelled", "Cancelled"),
+    ]
+
+    prospect = models.ForeignKey(Prospect, on_delete=models.CASCADE, related_name="agent_runs")
+    agent_type = models.CharField(max_length=30, choices=AGENT_TYPE_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="queued")
+    started_at = models.DateTimeField(default=timezone.now)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    input_summary = models.TextField(blank=True, null=True)
+    output_summary = models.TextField(blank=True, null=True)
+    error_message = models.TextField(blank=True, null=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    audit_run = models.ForeignKey(
+        "superadmin.AIAgentRun",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="prospect_360_runs",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+        indexes = [
+            models.Index(fields=["prospect", "started_at"]),
+            models.Index(fields=["agent_type", "status"]),
+        ]
+
+    def __str__(self):
+        return f"{self.prospect} - {self.agent_type} - {self.status}"
+
+
+class ProspectActivity(models.Model):
+    ACTIVITY_TYPE_CHOICES = [
+        ("call_done", "Appel effectué"),
+        ("email_sent", "Email envoyé"),
+        ("message_sent", "Message envoyé"),
+        ("reply_received", "Réponse reçue"),
+        ("interaction_detected", "Interaction détectée"),
+        ("interested", "Prospect intéressé"),
+        ("not_interested", "Prospect non intéressé"),
+        ("info_requested", "Demande d'informations"),
+        ("meeting_scheduled", "Réunion planifiée"),
+        ("meeting_done", "Réunion réalisée"),
+        ("follow_up", "Relance"),
+        ("no_response", "Aucun retour"),
+        ("commercial_note", "Note commerciale"),
+        ("other", "Autre"),
+    ]
+    CHANNEL_CHOICES = [
+        ("phone", "Téléphone"),
+        ("email", "Email"),
+        ("linkedin", "LinkedIn"),
+        ("facebook", "Facebook"),
+        ("instagram", "Instagram"),
+        ("meeting", "Réunion"),
+        ("website", "Site web"),
+        ("other", "Autre"),
+    ]
+    SOURCE_CHOICES = [("manual", "Manual"), ("agent", "Agent"), ("system", "System")]
+
+    prospect = models.ForeignKey(Prospect, on_delete=models.CASCADE, related_name="prospect_activities")
+    activity_type = models.CharField(max_length=40, choices=ACTIVITY_TYPE_CHOICES)
+    channel = models.CharField(max_length=30, choices=CHANNEL_CHOICES, blank=True, null=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default="manual")
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="prospect_activities")
+    agent_run = models.ForeignKey(ProspectAgentRun, on_delete=models.SET_NULL, null=True, blank=True, related_name="activities")
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["prospect", "created_at"]),
+            models.Index(fields=["activity_type", "source"]),
+        ]
+
+    def __str__(self):
+        return f"{self.prospect} - {self.activity_type}"
+
+
+class ProspectScoreHistory(models.Model):
+    prospect = models.ForeignKey(Prospect, on_delete=models.CASCADE, related_name="score_history")
+    previous_score = models.IntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(100)])
+    new_score = models.IntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(100)])
+    reason = models.TextField(blank=True, null=True)
+    activity = models.ForeignKey(ProspectActivity, on_delete=models.SET_NULL, null=True, blank=True, related_name="score_changes")
+    agent_run = models.ForeignKey(ProspectAgentRun, on_delete=models.SET_NULL, null=True, blank=True, related_name="score_changes")
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["prospect", "created_at"])]
+
+    def __str__(self):
+        return f"{self.prospect}: {self.previous_score} -> {self.new_score}"
+
+
+class ProspectDocument(models.Model):
+    DOCUMENT_TYPE_CHOICES = [
+        ("presentation", "Présentation"),
+        ("quote", "Devis"),
+        ("contract", "Contrat"),
+        ("proposal", "Proposition commerciale"),
+        ("specifications", "Cahier des charges"),
+        ("report", "Rapport"),
+        ("attachment", "Pièce jointe"),
+        ("other", "Autre"),
+    ]
+    SOURCE_CHOICES = [("manual", "Manual"), ("agent", "Agent"), ("system", "System")]
+
+    prospect = models.ForeignKey(Prospect, on_delete=models.CASCADE, related_name="documents")
+    name = models.CharField(max_length=255)
+    document_type = models.CharField(max_length=30, choices=DOCUMENT_TYPE_CHOICES, default="attachment")
+    file = models.FileField(
+        upload_to="prospect_documents/%Y/%m/",
+        validators=[FileExtensionValidator(allowed_extensions=["pdf", "doc", "docx", "xls", "xlsx", "png", "jpg", "jpeg", "txt"])],
+    )
+    description = models.TextField(blank=True, null=True)
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default="manual")
+    uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="prospect_documents")
+    agent_run = models.ForeignKey(ProspectAgentRun, on_delete=models.SET_NULL, null=True, blank=True, related_name="documents")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["prospect", "created_at"])]
+
+    def __str__(self):
+        return self.name
+
+
+class ProspectRecommendation(models.Model):
+    TYPE_CHOICES = [
+        ("send_presentation", "Envoyer une présentation"),
+        ("follow_up", "Relancer"),
+        ("schedule_meeting", "Planifier une réunion"),
+        ("create_opportunity", "Créer une opportunité"),
+        ("qualify", "Qualifier"),
+        ("other", "Autre"),
+    ]
+    PRIORITY_CHOICES = [("low", "Basse"), ("medium", "Moyenne"), ("high", "Haute"), ("critical", "Critique")]
+    STATUS_CHOICES = [("pending", "Pending"), ("completed", "Completed"), ("ignored", "Ignored")]
+    GENERATED_BY_CHOICES = [("manual", "Manual"), ("agent", "Agent"), ("system", "System")]
+
+    prospect = models.ForeignKey(Prospect, on_delete=models.CASCADE, related_name="recommendations")
+    recommendation_type = models.CharField(max_length=40, choices=TYPE_CHOICES, default="follow_up")
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default="medium")
+    reason = models.TextField(blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    generated_by = models.CharField(max_length=20, choices=GENERATED_BY_CHOICES, default="system")
+    agent_run = models.ForeignKey(ProspectAgentRun, on_delete=models.SET_NULL, null=True, blank=True, related_name="recommendations")
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["status", "-created_at"]
+        indexes = [
+            models.Index(fields=["prospect", "status"]),
+            models.Index(fields=["priority", "created_at"]),
+        ]
+
+    def __str__(self):
+        return self.title
 
 
 # ==============================

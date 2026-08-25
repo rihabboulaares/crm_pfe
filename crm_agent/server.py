@@ -28,6 +28,27 @@ from django.utils import timezone
 mcp = FastMCP("crm-tools")
 
 
+def _user_display(user):
+    return f"{getattr(user, 'first_name', '')} {getattr(user, 'last_name', '')}".strip() or user.username
+
+
+def _get_assignable_user(user_id, company_id):
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    return User.objects.get(id=user_id, company_id=company_id, is_active=True)
+
+
+def _apply_assignee(data, assigned_to_id, company_id, changed=None):
+    if assigned_to_id:
+        user = _get_assignable_user(assigned_to_id, company_id)
+        data["assigned_to"] = user
+        if changed is not None:
+            changed.append(f"assigné à {_user_display(user)}")
+        return user
+    return None
+
+
 # ═══════════════════════════════════════════════════════════════
 # UTILISATEURS
 # ═══════════════════════════════════════════════════════════════
@@ -89,11 +110,13 @@ async def add_prospect(
     first_name: str, last_name: str, email: str, company_name: str,
     phone: str = "", title: str = "", city: str = "", country: str = "",
     origin: str = "website", evaluation: str = "warm", company_id: int = 1,
+    assigned_to_id: int = None,
 ) -> str:
     """
     Ajouter un nouveau prospect.
     origin: website | facebook | linkedin | referral
     evaluation: cold | warm | hot
+    assigned_to_id: commercial/admin responsable du prospect. Si absent, utilise l'utilisateur connecté.
     """
     @sync_to_async
     def _run():
@@ -103,16 +126,19 @@ async def add_prospect(
         prospect_company, _ = ProspectCompany.objects.get_or_create(
             name=company_name, company=crm_company,
         )
-        prospect = Prospect.objects.create(
+        data = dict(
             first_name=first_name, last_name=last_name, email=email,
             phone=phone, title=title, city=city, country=country,
             origin=origin, evaluation=evaluation, status="new",
             prospect_company=prospect_company, company=crm_company,
         )
+        assignee = _apply_assignee(data, assigned_to_id, company_id)
+        prospect = Prospect.objects.create(**data)
         return (
             f"✅ Prospect ajouté !\n"
             f"  {first_name} {last_name} | {email}\n"
             f"  Entreprise: {company_name} | Éval: {evaluation}"
+            + (f"\n  Assigné à: {_user_display(assignee)}" if assignee else "\n  Assignation: à compléter")
         )
     try:
         return await _run()
@@ -266,14 +292,11 @@ async def assign_prospect(prospect_id: int, user_id: int) -> str:
     @sync_to_async
     def _run():
         from sales.models import Prospect
-        from django.contrib.auth import get_user_model
-        User = get_user_model()
         p = Prospect.objects.get(id=prospect_id)
-        user = User.objects.get(id=user_id)
+        user = _get_assignable_user(user_id, p.company_id)
         p.assigned_to = user
-        p.save()
-        name = f"{user.first_name} {user.last_name}".strip() or user.username
-        return f"✅ Prospect '{p.first_name} {p.last_name}' assigné à {name}"
+        p.save(update_fields=["assigned_to", "updated_at"])
+        return f"✅ Prospect '{p.first_name} {p.last_name}' assigné à {_user_display(user)}"
     try:
         return await _run()
     except Exception as e:
@@ -319,23 +342,27 @@ async def get_contacts(query: str = "", company_id: int = 1) -> str:
 async def add_contact(
     first_name: str, last_name: str, email: str,
     phone: str = "", title: str = "", city: str = "", country: str = "",
-    account_id: int = None, company_id: int = 1,
+    account_id: int = None, company_id: int = 1, assigned_to_id: int = None,
 ) -> str:
-    """Ajouter un nouveau contact client."""
+    """Ajouter un nouveau contact client et l'assigner à un commercial/admin."""
     @sync_to_async
     def _run():
         from sales.models import Contact
         from users.models import Company
         data = {
             "first_name": first_name, "last_name": last_name,
-            "email": email, "phone": phone, "city": city, "country": country,
+            "email": email, "phone": phone, "title": title, "city": city, "country": country,
             "company": Company.objects.get(id=company_id),
         }
         if account_id:
             from sales.models import Account
             data["account"] = Account.objects.get(id=account_id)
+        assignee = _apply_assignee(data, assigned_to_id, company_id)
         contact = Contact.objects.create(**data)
-        return f"✅ Contact créé : {first_name} {last_name} | {email}"
+        return (
+            f"✅ Contact créé : {first_name} {last_name} | {email}"
+            + (f"\n  Assigné à: {_user_display(assignee)}" if assignee else "\n  Assignation: à compléter")
+        )
     try:
         return await _run()
     except Exception as e:
@@ -372,14 +399,11 @@ async def assign_contact(contact_id: int, user_id: int) -> str:
     @sync_to_async
     def _run():
         from sales.models import Contact
-        from django.contrib.auth import get_user_model
-        User = get_user_model()
         c = Contact.objects.get(id=contact_id)
-        user = User.objects.get(id=user_id)
+        user = _get_assignable_user(user_id, c.company_id)
         c.assigned_to = user
-        c.save()
-        name = f"{user.first_name} {user.last_name}".strip() or user.username
-        return f"✅ Contact '{c.first_name} {c.last_name}' assigné à {name}"
+        c.save(update_fields=["assigned_to", "updated_at"])
+        return f"✅ Contact '{c.first_name} {c.last_name}' assigné à {_user_display(user)}"
     try:
         return await _run()
     except Exception as e:
@@ -447,11 +471,13 @@ async def get_account_detail(account_id: int) -> str:
 async def add_opportunity(
     name: str, amount: float, prospect_id: int = None, contact_id: int = None,
     stage: str = "new", expected_close_date: str = "", company_id: int = 1,
+    assigned_to_id: int = None,
 ) -> str:
     """
     Créer une nouvelle opportunité commerciale.
     stage: new | qualified | proposal | negotiation | won | lost
     expected_close_date: format YYYY-MM-DD (optionnel)
+    assigned_to_id: commercial/admin responsable. Si absent, utilise l'utilisateur connecté.
     """
     @sync_to_async
     def _run():
@@ -468,8 +494,12 @@ async def add_opportunity(
         if expected_close_date:
             from datetime import date
             data["expected_close_date"] = date.fromisoformat(expected_close_date)
+        assignee = _apply_assignee(data, assigned_to_id, company_id)
         opp = Opportunity.objects.create(**data)
-        return f"💼 Opportunité créée : {name} | {amount}€ | Stage: {stage}"
+        return (
+            f"💼 Opportunité créée : {name} | {amount}€ | Stage: {stage}"
+            + (f"\n  Assignée à: {_user_display(assignee)}" if assignee else "\n  Assignation: à compléter")
+        )
     try:
         return await _run()
     except Exception as e:
@@ -562,7 +592,6 @@ async def update_opportunity(
     @sync_to_async
     def _run():
         from sales.models import Opportunity
-        from django.contrib.auth import get_user_model
         opp = Opportunity.objects.get(id=opportunity_id)
         changed = []
         if name:
@@ -576,16 +605,33 @@ async def update_opportunity(
             opp.expected_close_date = date.fromisoformat(expected_close_date)
             changed.append(f"clôture → {expected_close_date}")
         if assigned_to_id:
-            User = get_user_model()
-            user = User.objects.get(id=assigned_to_id)
+            user = _get_assignable_user(assigned_to_id, opp.company_id)
             opp.assigned_to = user
-            changed.append(f"assigné → {user.username}")
+            changed.append(f"assigné → {_user_display(user)}")
         opp.save()
         return f"✅ Opportunité '{opp.name}' mise à jour : {' | '.join(changed)}"
     try:
         return await _run()
     except Exception as e:
         return f"❌ Erreur update opportunité : {str(e)}"
+
+
+@mcp.tool()
+async def assign_opportunity(opportunity_id: int, user_id: int) -> str:
+    """Assigner une opportunité à un commercial/admin. Utilise get_users pour trouver l'utilisateur."""
+    @sync_to_async
+    def _run():
+        from sales.models import Opportunity
+
+        opp = Opportunity.objects.get(id=opportunity_id)
+        user = _get_assignable_user(user_id, opp.company_id)
+        opp.assigned_to = user
+        opp.save(update_fields=["assigned_to", "updated_at"])
+        return f"✅ Opportunité '{opp.name}' assignée à {_user_display(user)}"
+    try:
+        return await _run()
+    except Exception as e:
+        return f"❌ Erreur assignation opportunité : {str(e)}"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -596,13 +642,14 @@ async def update_opportunity(
 async def add_task(
     title: str, description: str = "", priority: str = "medium", status: str = "todo",
     prospect_id: int = None, contact_id: int = None, opportunity_id: int = None,
-    due_date: str = "", company_id: int = 1,
+    due_date: str = "", company_id: int = 1, assigned_to_id: int = None,
 ) -> str:
     """
     Créer une tâche dans le CRM.
     priority: low | medium | high
     status: todo | in_progress | done | cancelled
     due_date: format YYYY-MM-DD HH:MM (optionnel)
+    assigned_to_id: commercial/admin responsable. Si absent, utilise l'utilisateur connecté.
     """
     @sync_to_async
     def _run():
@@ -616,6 +663,7 @@ async def add_task(
         if prospect_id:    data["prospect_id"] = prospect_id
         if contact_id:     data["contact_id"] = contact_id
         if opportunity_id: data["opportunity_id"] = opportunity_id
+        assignee = _apply_assignee(data, assigned_to_id, company_id)
         if due_date:
             from django.utils.dateparse import parse_datetime
             data["due_date"] = parse_datetime(due_date)
@@ -624,6 +672,7 @@ async def add_task(
             f"📋 Tâche créée : {title}\n"
             f"  Priorité: {priority} | Statut: {status}"
             + (f" | Échéance: {due_date}" if due_date else "")
+            + (f"\n  Assignée à: {_user_display(assignee)}" if assignee else "\n  Assignation: à compléter")
         )
     try:
         return await _run()
@@ -757,14 +806,11 @@ async def assign_task(task_id: int, user_id: int) -> str:
     @sync_to_async
     def _run():
         from sales.models import Task
-        from django.contrib.auth import get_user_model
-        User = get_user_model()
         task = Task.objects.get(id=task_id)
-        user = User.objects.get(id=user_id)
+        user = _get_assignable_user(user_id, task.company_id)
         task.assigned_to = user
-        task.save()
-        name = f"{user.first_name} {user.last_name}".strip() or user.username
-        return f"✅ Tâche '{task.title}' assignée à {name}"
+        task.save(update_fields=["assigned_to", "updated_at"])
+        return f"✅ Tâche '{task.title}' assignée à {_user_display(user)}"
     try:
         return await _run()
     except Exception as e:
@@ -818,8 +864,6 @@ async def add_task_activity(
     @sync_to_async
     def _run():
         from sales.models import TaskActivity
-        from django.contrib.auth import get_user_model
-        User = get_user_model()
         data = {
             "task_id": task_id,
             "activity_type": activity_type,
@@ -1092,8 +1136,7 @@ async def add_calendar_event(
         }
         if end:
             data["end"] = parse_datetime(end)
-        if assigned_to_id:
-            data["assigned_to"] = User.objects.get(id=assigned_to_id)
+        assignee = _apply_assignee(data, assigned_to_id, company_id)
         if task_id:
             data["task_id"] = task_id
         if opportunity_id:
@@ -1101,7 +1144,10 @@ async def add_calendar_event(
         if reminder:
             data["reminder"] = reminder
         event = CalendarEvent.objects.create(**data)
-        return f"📅 Événement créé : {title} | {event_type} | {start}"
+        return (
+            f"📅 Événement créé : {title} | {event_type} | {start}"
+            + (f"\n  Assigné à: {_user_display(assignee)}" if assignee else "")
+        )
     try:
         return await _run()
     except Exception as e:

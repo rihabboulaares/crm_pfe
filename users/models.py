@@ -63,6 +63,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_verified = models.BooleanField(default=False)
 
     verification_code = models.CharField(max_length=6, null=True, blank=True)
+    verification_code_sent_at = models.DateTimeField(null=True, blank=True)
+    terms_accepted_at = models.DateTimeField(null=True, blank=True)
+    terms_version = models.CharField(max_length=30, blank=True, default="")
 
     # -----------------------
     # Profil
@@ -209,3 +212,79 @@ class Invitation(models.Model):
 
     def __str__(self):
         return f"Invitation for {self.email} to {self.team.name}"
+
+
+# -----------------------
+# Transactional Email Log
+# -----------------------
+class TransactionalEmailLog(models.Model):
+    class EmailType(models.TextChoices):
+        VERIFICATION = "verification", "Vérification email"
+        RESEND_VERIFICATION = "resend_verification", "Renvoi vérification"
+        INVITATION = "invitation", "Invitation"
+        PASSWORD_RESET = "password_reset", "Mot de passe oublié"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "En attente"
+        SENT = "sent", "Envoyé"
+        FAILED = "failed", "Échec"
+
+    email_type = models.CharField(max_length=40, choices=EmailType.choices)
+    recipient = models.EmailField()
+    subject = models.CharField(max_length=255)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    error_message = models.TextField(blank=True)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="transactional_email_logs",
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["recipient", "email_type", "created_at"]),
+            models.Index(fields=["status", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.email_type} -> {self.recipient} ({self.status})"
+
+
+# -----------------------
+# Password Reset Code
+# -----------------------
+class PasswordResetCode(models.Model):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="password_reset_codes",
+    )
+    code_hash = models.CharField(max_length=128)
+    email_log = models.ForeignKey(
+        TransactionalEmailLog,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="password_reset_codes",
+    )
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "created_at"]),
+            models.Index(fields=["expires_at", "used_at"]),
+        ]
+
+    def __str__(self):
+        return f"Password reset for {self.user.email}"
