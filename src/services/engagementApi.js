@@ -21,6 +21,17 @@ export const launchEngagementAgent = (payload = {}) => api.post("/launch/", payl
 
 export const getEngagementProspects = (params = {}) => api.get("/prospects/", { params });
 
+export const getEmailConnections = () => api.get("/connections/email/");
+
+export const connectGoogleEmail = () => api.post("/connections/gmail/connect/");
+
+export const connectMicrosoftEmail = () => api.post("/connections/microsoft/connect/");
+
+export const disconnectEmail = (provider = "") =>
+  api.post("/connections/email/disconnect/", provider ? { provider } : {});
+
+export const testEmailConnection = () => api.post("/connections/email/test/");
+
 export const prepareEngagementMessage = (prospectId) =>
   api.post(`/prospects/${prospectId}/prepare/`, { scrape: true });
 

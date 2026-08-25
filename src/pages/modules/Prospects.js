@@ -1,4 +1,4 @@
-/* eslint-disable prettier/prettier */
+﻿/* eslint-disable prettier/prettier */
 // src/pages/modules/Prospects.jsx — pagination BACKEND
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -109,6 +109,7 @@ import {
   Info as InfoIcon,
   LocationOn as LocationOnIcon,
   OpenInNew as OpenInNewIcon,
+  MoreVert as MoreVertIcon,
 } from "@mui/icons-material";
 
 import MDBox from "components/MDBox";
@@ -117,19 +118,51 @@ import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 import { useTrackActivity } from "../superadmin/Marketingwidgets";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import PaginationBar from "../../components/PaginationBar";
-import SocialConnectionBox, { isSessionReady } from "../../components/social/SocialConnectionBox";
-import { runProspectionAgent } from "../../services/prospectAgentApi";
-import { getSocialSessions } from "../../services/socialSessionsApi";
+import api from "../../services/salesApi";
+import {
+  calculateProspectScore,
+  getDiscoveryReportBlob,
+  getProspectSources,
+  runDiscovery,
+} from "../../services/prospectAgentApi";
+import {
+  discoveryFailedCount,
+  discoveryImportedCount,
+  discoveryResultMessage,
+  discoverySummarySources,
+  formatDiscoveryMessage,
+  normalizeProspectSources,
+} from "../../utils/prospectSources";
 
 const SOURCE_CONFIG = {
   google_maps: { label: "Google Maps", color: "#d32f2f" },
+  maps_search: { label: "Google Maps", color: "#d32f2f" },
   linkedin: { label: "LinkedIn", color: "#0077b5" },
+  serper_linkedin: { label: "LinkedIn", color: "#0077b5" },
   instagram: { label: "Instagram", color: "#e1306c" },
+  serper_instagram: { label: "Instagram", color: "#e1306c" },
   facebook: { label: "Facebook", color: "#1877f2" },
+  serper_facebook: { label: "Facebook", color: "#1877f2" },
+  meta_ads_library: { label: "Meta Ads", color: "#5e35b1" },
+  ads_library_search: { label: "Meta Ads", color: "#5e35b1" },
+  serper_general: { label: "IA", color: "#546e7a" },
   web: { label: "Web", color: "#c62828" },
   other: { label: "Autre", color: "#6d4c41" },
   commercial: { label: "Commercial", color: "#b71c1c" },
   agent_prospection: { label: "Agent de prospection", color: "#8e0000" },
+};
+
+const PROFILE_STATUS_CONFIG = {
+  running: { label: "En cours", color: "#f9a825" },
+  completed: { label: "Analyse", color: "#2e7d32" },
+  partial: { label: "Partiel", color: "#ef6c00" },
+  failed: { label: "Echec", color: "#c62828" },
+  completed_without_sources: { label: "Sans sources", color: "#607d8b" },
+};
+
+const getProfileStatus = (prospect) => {
+  const status = prospect?.profile_analysis_status;
+  return PROFILE_STATUS_CONFIG[status] || { label: "Non analyse", color: "#78909c" };
 };
 
 const PROSPECT_SOURCE_OPTIONS = [
@@ -157,41 +190,6 @@ const TASK_TYPE_OPTIONS = [
 const getProspectDisplayName = (prospect) =>
   [prospect?.first_name, prospect?.last_name].filter(Boolean).join(" ").trim() || "Sans nom";
 
-const SOCIAL_PLATFORMS = ["linkedin", "facebook", "instagram"];
-
-const normalizePlatformName = (platform) => String(platform || "").trim().toLowerCase();
-
-const normalizeSocialSessions = (payload) => {
-  const rows = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.results)
-    ? payload.results
-    : payload && typeof payload === "object"
-    ? Object.entries(payload).map(([platform, session]) => ({
-        ...(session || {}),
-        platform: session?.platform || platform,
-      }))
-    : [];
-
-  return rows.reduce((acc, item) => {
-    const platform = normalizePlatformName(item?.platform);
-    if (SOCIAL_PLATFORMS.includes(platform)) {
-      acc[platform] = {
-        ...item,
-        platform,
-        success: item?.success === true || item?.ok === true || item?.status === "connected",
-        status: item?.status === "session_ready" ? "connected" : item?.status,
-      };
-    }
-    return acc;
-  }, {});
-};
-
-const getRequiredPlatformsFromAgentQuery = (value) => {
-  const query = String(value || "").toLowerCase();
-  return SOCIAL_PLATFORMS.filter((platform) => query.includes(platform));
-};
-
 const getProspectInitials = (prospect) => {
   const name = getProspectDisplayName(prospect);
   return name
@@ -203,7 +201,10 @@ const getProspectInitials = (prospect) => {
 };
 
 const SourceBadge = ({ source }) => {
-  const cfg = SOURCE_CONFIG[source] || { label: source, color: "#9e9e9e" };
+  const cfg =
+    typeof source === "object"
+      ? { label: source.shortLabel || source.fullLabel, color: source.color || "#9e9e9e" }
+      : SOURCE_CONFIG[source] || { label: source, color: "#9e9e9e" };
   return (
     <Chip
       size="small"
@@ -221,7 +222,173 @@ const SourceBadge = ({ source }) => {
 };
 
 SourceBadge.propTypes = {
-  source: PropTypes.string,
+  source: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
+};
+
+const ProspectSourceBadges = ({ prospect, maxVisible = 1 }) => {
+  const sources = normalizeProspectSources(prospect);
+  const visible = sources.slice(0, maxVisible);
+  const hiddenCount = Math.max(0, sources.length - visible.length);
+  const tooltip = sources.map((source) => source.fullLabel).join("\n");
+
+  return (
+    <Tooltip title={<span style={{ whiteSpace: "pre-line" }}>{tooltip}</span>} arrow>
+      <Box
+        display="flex"
+        gap={0.5}
+        alignItems="center"
+        flexWrap="nowrap"
+        data-testid="prospect-source-badges"
+      >
+        {visible.map((source) => (
+          <SourceBadge key={source.fullLabel} source={source} />
+        ))}
+        {hiddenCount > 0 && (
+          <Typography variant="caption" fontWeight={800} color="textSecondary" noWrap>
+            +{hiddenCount}
+          </Typography>
+        )}
+      </Box>
+    </Tooltip>
+  );
+};
+
+ProspectSourceBadges.propTypes = {
+  prospect: PropTypes.object.isRequired,
+  maxVisible: PropTypes.number,
+};
+
+const getProspectScoreValue = (prospect) => {
+  const value = prospect?.score_ia ?? prospect?.prospect_company_detail?.score_ia;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const hasCalculatedScore = (prospect) => Boolean(prospect?.evaluation);
+
+const ScoreBadge = ({ prospect, onDetails }) => {
+  if (!hasCalculatedScore(prospect)) {
+    return (
+      <Chip
+        size="small"
+        label="Non calculé"
+        sx={{
+          borderRadius: 1,
+          bgcolor: alpha(THEME.info, 0.08),
+          color: THEME.info,
+          fontWeight: 600,
+        }}
+      />
+    );
+  }
+
+  const score = getProspectScoreValue(prospect);
+  const label = score === null ? getEvaluationLabel(prospect.evaluation) : `${score} / 100`;
+
+  return (
+    <Tooltip title={prospect.score_reasons || "Voir le detail du score"}>
+      <Chip
+        clickable={Boolean(onDetails)}
+        size="small"
+        label={label}
+        onClick={onDetails}
+        sx={{
+          borderRadius: 1,
+          bgcolor: alpha(getEvaluationColor(prospect.evaluation), 0.1),
+          color: getEvaluationColor(prospect.evaluation),
+          border: `1px solid ${alpha(getEvaluationColor(prospect.evaluation), 0.35)}`,
+          fontWeight: 700,
+        }}
+      />
+    </Tooltip>
+  );
+};
+
+ScoreBadge.propTypes = {
+  prospect: PropTypes.object.isRequired,
+  onDetails: PropTypes.func,
+};
+
+const CompactScoreBadge = ({ prospect }) => {
+  if (!hasCalculatedScore(prospect)) {
+    return (
+      <Chip
+        size="small"
+        label="Non calculé"
+        sx={{
+          height: 24,
+          borderRadius: 1,
+          bgcolor: alpha(THEME.info, 0.08),
+          color: THEME.info,
+          fontWeight: 700,
+          fontSize: "0.7rem",
+        }}
+      />
+    );
+  }
+
+  const score = getProspectScoreValue(prospect);
+  return (
+    <Stack spacing={0.25} alignItems="center">
+      <Typography variant="body2" fontWeight={800} color={getEvaluationColor(prospect.evaluation)}>
+        {score === null ? "-" : score} / 100
+      </Typography>
+      <Chip
+        size="small"
+        label={getEvaluationLabel(prospect.evaluation)}
+        sx={{
+          height: 18,
+          borderRadius: 0.75,
+          bgcolor: alpha(getEvaluationColor(prospect.evaluation), 0.1),
+          color: getEvaluationColor(prospect.evaluation),
+          fontWeight: 800,
+          fontSize: "0.62rem",
+        }}
+      />
+    </Stack>
+  );
+};
+CompactScoreBadge.propTypes = {
+  prospect: PropTypes.object.isRequired,
+};
+
+const ContactIconLink = ({ href, label, icon: Icon, color, copyText }) => {
+  if (!href && !copyText) return null;
+  const linkProps = href
+    ? {
+        component: "a",
+        href,
+        target: href.startsWith("mailto:") || href.startsWith("tel:") ? undefined : "_blank",
+        rel: "noopener noreferrer",
+      }
+    : {};
+  return (
+    <Tooltip title={copyText || label}>
+      <IconButton
+        size="small"
+        aria-label={label}
+        {...linkProps}
+        onClick={(event) => event.stopPropagation()}
+        sx={{
+          width: 24,
+          height: 24,
+          borderRadius: 1,
+          color,
+          bgcolor: alpha(color, 0.08),
+          border: `1px solid ${alpha(color, 0.18)}`,
+        }}
+      >
+        <Icon sx={{ fontSize: 14 }} />
+      </IconButton>
+    </Tooltip>
+  );
+};
+ContactIconLink.propTypes = {
+  href: PropTypes.string,
+  label: PropTypes.string.isRequired,
+  icon: PropTypes.elementType.isRequired,
+  color: PropTypes.string.isRequired,
+  copyText: PropTypes.string,
 };
 
 const SocialLink = ({ href, icon: Icon, label, color }) => {
@@ -263,13 +430,21 @@ SocialLink.propTypes = {
 
 const prospectMapIcon = L.divIcon({
   className: "prospects-map-marker",
-  html: '<span></span>',
+  html: "<span></span>",
   iconSize: [18, 18],
   iconAnchor: [9, 9],
 });
 
-const agentCompanies = (result) => result?.prospect_companies || result?.companies || [];
-const agentPersons = (result) => result?.prospect_persons || result?.prospects || [];
+const agentCompanies = (result) =>
+  result?.discovery?.candidates?.filter((item) => item.lead_type === "company") ||
+  result?.prospect_companies ||
+  result?.companies ||
+  [];
+const agentPersons = (result) =>
+  result?.discovery?.candidates?.filter((item) => item.lead_type === "person") ||
+  result?.prospect_persons ||
+  result?.prospects ||
+  [];
 const agentMapProspects = (result) => result?.map_prospects || [];
 const agentLeadName = (item) =>
   item?.name ||
@@ -279,9 +454,23 @@ const agentLeadName = (item) =>
   "Prospect";
 const agentLeadSourceLabel = (item) =>
   item?.source_label || SOURCE_CONFIG[item?.source]?.label || item?.source || "Source inconnue";
-const agentLeadScore = (item) =>
-  Number(item?.lead_score ?? item?.score_ia ?? item?.score ?? 0);
+const agentLeadScore = (item) => Number(item?.lead_score ?? item?.score_ia ?? item?.score ?? 0);
 const hasCoordinates = (item) => item?.latitude && item?.longitude;
+const discoveryStats = (result = {}) => {
+  const acceptedCount = Number(result.accepted_count ?? result.found_count ?? 0);
+  const importedCount = Number(result.imported_count ?? 0);
+
+  return {
+    rawResultsCount: Number(result.raw_results_count ?? 0),
+    acceptedCount,
+    newCount: Number(result.new_count ?? 0),
+    existingCount: Number(result.existing_count ?? 0),
+    rejectedCount: Number(result.rejected_count ?? 0),
+    importedCount,
+    importFailedCount: Number(result.import_failed_count ?? 0),
+    hasProspects: acceptedCount > 0 || importedCount > 0,
+  };
+};
 
 const ProspectLocationsMap = ({ prospects }) => {
   const validProspects = (prospects || []).filter(hasCoordinates);
@@ -491,26 +680,209 @@ AgentResultsPreview.propTypes = {
 };
 AgentResultsPreview.defaultProps = { result: null };
 
+const safeValue = (value) => (value === undefined || value === null || value === "" ? "-" : value);
+const asList = (value) => (Array.isArray(value) ? value : value ? [value] : []);
+const pipelineStatsValue = (debug, key) => Number(debug?.stats?.[key] || 0);
+const compactDuration = (value) => {
+  const seconds = Number(value || 0);
+  return seconds ? `${seconds}s` : "-";
+};
+
+const AgentPipelineDebug = ({ result }) => {
+  const debug = result?.pipeline_debug;
+  if (!debug) {
+    return (
+      <Alert severity="info" sx={{ mt: 2 }}>
+        Details de pipeline non disponibles
+      </Alert>
+    );
+  }
+
+  const intent = debug.query_understanding || result?.intent || {};
+  const strategy = debug.strategy || result?.strategy || {};
+  const decision = debug.decision || {};
+  const execution = debug.execution || {};
+  const geminiCalls = debug.gemini_usage?.calls || [];
+  const rejected = debug.rejected_preview || result?.rejected_details || [];
+  const sourcesUsed =
+    result?.sources_used ||
+    execution.searches_executed?.map((item) => item.source).filter(Boolean) ||
+    [];
+  const imported = pipelineStatsValue(debug, "imported");
+  const timeline = [
+    ["Compréhension", intent.reasoning_summary || intent.lead_mode],
+    ["Stratégie Gemini", strategy.strategy_summary],
+    ["Décision sources", decision.reason || decision.search_strategy],
+    ["Planification", debug.planning?.reasoning_summary],
+    ["Recherche", `${pipelineStatsValue(debug, "raw_results")} resultats bruts`],
+    ["Enrichissement", `${execution.urls_scraped?.length || 0} URL scrapees`],
+    ["Qualification Gemini", `${pipelineStatsValue(debug, "qualified")} qualifies`],
+    ["Scoring", `${pipelineStatsValue(debug, "scored")} scores`],
+    ["Validation CRM", `${pipelineStatsValue(debug, "crm_ready")} CRM ready`],
+    ["Import", `${imported} importes`],
+  ];
+
+  return (
+    <Box mt={2}>
+      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+        <Typography variant="subtitle2" fontWeight={800} gutterBottom>
+          Resume de prospection IA
+        </Typography>
+        <Grid container spacing={1}>
+          {[
+            ["Requete", intent.raw_query || result?.intent?.raw_query],
+            ["Mode detecte", intent.lead_mode],
+            ["Strategie", strategy.strategy_summary],
+            ["Sources", [...new Set(sourcesUsed)].join(", ")],
+            ["Collectes", pipelineStatsValue(debug, "collected")],
+            ["Qualifies", pipelineStatsValue(debug, "qualified")],
+            ["CRM Ready", pipelineStatsValue(debug, "crm_ready")],
+            ["Importes", imported],
+            [
+              "Duree",
+              compactDuration(execution.total_duration_seconds || execution.duration_seconds),
+            ],
+            ["Appels Gemini", debug.gemini_usage?.total_calls || 0],
+            ["Statut final", result?.stop_reason],
+          ].map(([label, value]) => (
+            <Grid item xs={6} key={label}>
+              <Typography variant="caption" color="text.secondary">
+                {label}
+              </Typography>
+              <Typography variant="body2" fontWeight={700} sx={{ wordBreak: "break-word" }}>
+                {safeValue(value)}
+              </Typography>
+            </Grid>
+          ))}
+        </Grid>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mt: 1.25 }}>
+        <Typography variant="subtitle2" fontWeight={800} gutterBottom>
+          Timeline pipeline
+        </Typography>
+        <Stack spacing={0.75}>
+          {timeline.map(([label, summary], index) => (
+            <Box key={label} display="flex" gap={1} alignItems="flex-start">
+              <Chip size="small" color="success" label={index + 1} sx={{ minWidth: 28 }} />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="caption" fontWeight={800}>
+                  {label}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  {safeValue(summary)}
+                </Typography>
+              </Box>
+            </Box>
+          ))}
+        </Stack>
+      </Paper>
+
+      <details style={{ marginTop: 10 }}>
+        <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 700 }}>Strategie IA</summary>
+        <TableContainer component={Paper} variant="outlined" sx={{ mt: 1, borderRadius: 2 }}>
+          <Table size="small">
+            <TableBody>
+              {[
+                ["Cibles prioritaires", strategy.priority_targets],
+                ["Cibles a eviter", strategy.avoid_targets],
+                ["Sources recommandees", strategy.recommended_sources],
+                ["Mots-cles", strategy.recommended_keywords],
+                ["Mots-cles negatifs", strategy.negative_keywords],
+                ["Signaux commerciaux", strategy.commercial_signals],
+                ["Signaux de bruit", strategy.noise_signals],
+              ].map(([label, value]) => (
+                <TableRow key={label}>
+                  <TableCell sx={{ fontWeight: 700, width: 150 }}>{label}</TableCell>
+                  <TableCell>{safeValue(asList(value).join(", "))}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </details>
+
+      <details style={{ marginTop: 10 }}>
+        <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
+          Utilisation Gemini
+        </summary>
+        <TableContainer component={Paper} variant="outlined" sx={{ mt: 1, borderRadius: 2 }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Agent</TableCell>
+                <TableCell>Prompt</TableCell>
+                <TableCell>Succes</TableCell>
+                <TableCell>Duree</TableCell>
+                <TableCell>Fallback</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {(geminiCalls.length
+                ? geminiCalls
+                : [{ agent: "-", prompt: "-", success: false }]
+              ).map((call, index) => (
+                <TableRow key={call.id || index}>
+                  <TableCell>{safeValue(call.agent)}</TableCell>
+                  <TableCell>{safeValue(call.prompt)}</TableCell>
+                  <TableCell>{call.success ? "Oui" : "Non"}</TableCell>
+                  <TableCell>{compactDuration(call.duration_seconds)}</TableCell>
+                  <TableCell>{call.fallback_used ? "Oui" : "Non"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </details>
+
+      <details style={{ marginTop: 10 }}>
+        <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
+          Resultats rejetes
+        </summary>
+        <TableContainer
+          component={Paper}
+          variant="outlined"
+          sx={{ mt: 1, borderRadius: 2, maxHeight: 260 }}
+        >
+          <Table size="small" stickyHeader>
+            <TableHead>
+              <TableRow>
+                <TableCell>Nom</TableCell>
+                <TableCell>Source</TableCell>
+                <TableCell>Etape</TableCell>
+                <TableCell>Raison</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {(rejected.length
+                ? rejected
+                : [{ name: "-", source: "-", stage: "-", reason: "-" }]
+              ).map((item, index) => (
+                <TableRow key={`${item.name || "rejected"}-${index}`}>
+                  <TableCell>{safeValue(item.name)}</TableCell>
+                  <TableCell>{safeValue(item.source)}</TableCell>
+                  <TableCell>{safeValue(item.stage)}</TableCell>
+                  <TableCell>{safeValue(item.reason)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </details>
+    </Box>
+  );
+};
+
+AgentPipelineDebug.propTypes = {
+  result: PropTypes.object,
+};
+AgentPipelineDebug.defaultProps = { result: null };
+
 // ==============================
 // CONFIG
 // ==============================
-const API_BASE_URL = "/api/sales";
-const API_ENGAGEMENT_URL = "/api/engagement";
 const API_USER_ME = "/api/users/me/";
 const API_ASSIGNABLE = "/api/users/assignable-users/";
-
-const api = axios.create({ baseURL: API_BASE_URL });
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
-const engagementApi = axios.create({ baseURL: API_ENGAGEMENT_URL });
-engagementApi.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
 
 // ==============================
 // THEME
@@ -534,6 +906,8 @@ const StyledCard = styled(Card)(() => ({
   boxShadow: `0 8px 16px ${alpha(THEME.primary, 0.1)}`,
   transition: "transform 0.2s, box-shadow 0.2s",
   border: `1px solid ${alpha(THEME.primary, 0.1)}`,
+  background: "var(--crm-surface)",
+  color: "var(--crm-text)",
   "&:hover": {
     transform: "translateY(-4px)",
     boxShadow: `0 12px 24px ${alpha(THEME.primary, 0.2)}`,
@@ -543,10 +917,11 @@ const StyledCard = styled(Card)(() => ({
 
 const StyledTableContainer = styled(TableContainer)(() => ({
   borderRadius: 16,
-  boxShadow: `0 8px 16px ${alpha("#000", 0.05)}`,
-  border: `1px solid ${alpha(THEME.primary, 0.1)}`,
+  boxShadow: "var(--crm-shadow-sm)",
+  border: "1px solid var(--crm-border)",
+  background: "var(--crm-surface)",
   overflowX: "auto",
-  "& .MuiTable-root": { minWidth: 1500, borderCollapse: "collapse", tableLayout: "fixed" },
+  "& .MuiTable-root": { minWidth: 910, borderCollapse: "collapse", tableLayout: "fixed" },
 }));
 
 const StyledTableHead = styled(TableHead)(() => ({
@@ -565,7 +940,11 @@ const StyledTableHead = styled(TableHead)(() => ({
 
 const StyledTableRow = styled(TableRow)(() => ({
   "&:hover": { backgroundColor: alpha(THEME.primary, 0.02), cursor: "pointer" },
-  "& td": { padding: "12px 8px", borderBottom: `1px solid ${alpha("#000", 0.05)}` },
+  "& td": {
+    padding: "12px 8px",
+    borderBottom: "1px solid var(--crm-border)",
+    color: "var(--crm-text)",
+  },
 }));
 
 const GradientButton = styled(Button)(() => ({
@@ -583,7 +962,8 @@ const GradientButton = styled(Button)(() => ({
 const StatsCard = styled(Card)(() => ({
   borderRadius: 20,
   padding: 8,
-  background: "white",
+  background: "var(--crm-surface)",
+  color: "var(--crm-text)",
   boxShadow: `0 4px 12px ${alpha(THEME.primary, 0.08)}`,
   border: `1px solid ${alpha(THEME.primary, 0.1)}`,
   transition: "all 0.3s",
@@ -675,6 +1055,8 @@ const ACTIVITY_LABELS = {
 
 const getStatusLabel = (s) => STATUS_LABELS[s] || s;
 const getEvaluationLabel = (e) => EVALUATION_LABELS[e] || "-";
+const getEvaluationColor = (e) =>
+  ({ hot: THEME.error, warm: THEME.warning, cold: THEME.info }[e] || "#9e9e9e");
 const getOriginLabel = (o) => ORIGIN_LABELS[o] || "-";
 const getStatusColor = (s) => STATUS_COLORS[s] || "#9e9e9e";
 const getStatusIcon = (status) =>
@@ -759,156 +1141,100 @@ StatsCardItem.propTypes = {
 const ProspectTableRow = ({
   prospect,
   companyName,
-  currentUser,
   onView,
   onEdit,
-  onArchive,
-  onRestore,
   onDelete,
   onContextMenu,
+  onOpenDossier,
 }) => {
-  const isAdminOrManager = currentUser && ["ADMIN", "MANAGER"].includes(currentUser.role);
   const displayName = getProspectDisplayName(prospect);
   const linkedCompanyName = companyName || prospect.prospect_company_detail?.name;
-  const sourceLinks = [
-    { href: prospect.source_url, icon: OpenInNewIcon, label: "Source", color: THEME.primary },
-    { href: prospect.google_maps_url, icon: LocationOnIcon, label: "Maps", color: "#d32f2f" },
-    { href: prospect.website, icon: LanguageIcon, label: "Web", color: "#1976d2" },
-    { href: prospect.linkedin_url, icon: LinkedInIcon, label: "LinkedIn", color: "#0077b5" },
-    { href: prospect.facebook_url, icon: FacebookIcon, label: "Facebook", color: "#1877f2" },
-    { href: prospect.instagram_url, icon: InstagramIcon, label: "Instagram", color: "#e1306c" },
-  ].filter((link) => link.href);
+
   return (
     <StyledTableRow
       onDoubleClick={() => onView(prospect)}
       onContextMenu={(e) => onContextMenu(e, prospect.id)}
     >
-      {/* Prospect */}
       <TableCell>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, maxWidth: 170 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.1, minWidth: 0 }}>
           <Avatar
             sx={{
-              width: 32,
-              height: 32,
+              width: 34,
+              height: 34,
               bgcolor: alpha(THEME.primary, 0.1),
               color: THEME.primary,
               fontSize: "0.75rem",
-              fontWeight: 600,
+              fontWeight: 800,
               flexShrink: 0,
             }}
           >
             {getProspectInitials(prospect)}
           </Avatar>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography variant="body2" fontWeight={600} noWrap>
+          <Box sx={{ minWidth: 0, maxWidth: "100%" }}>
+            <Typography variant="body2" fontWeight={800} noWrap>
               {displayName}
             </Typography>
-            <Typography variant="caption" color="textSecondary" noWrap>
-              {prospect.title || "Sans titre"}
-            </Typography>
-          </Box>
-        </Box>
-      </TableCell>
-
-      {/* Contact */}
-      <TableCell>
-        <Stack spacing={0.5} sx={{ maxWidth: 170 }}>
-          {prospect.email && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-              <EmailIcon sx={{ fontSize: 14, color: alpha(THEME.primary, 0.6), flexShrink: 0 }} />
-              <Typography variant="caption" noWrap>
-                {prospect.email}
-              </Typography>
-            </Box>
-          )}
-          {prospect.phone && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-              <PhoneIcon sx={{ fontSize: 14, color: alpha(THEME.primary, 0.6), flexShrink: 0 }} />
-              <Typography variant="caption" noWrap>
-                {prospect.phone}
-              </Typography>
-            </Box>
-          )}
-          {!prospect.email && !prospect.phone && (
-            <Typography variant="caption" color="textSecondary">
-              —
-            </Typography>
-          )}
-        </Stack>
-      </TableCell>
-
-      {/* ✅ Colonne Localisation dédiée */}
-      <TableCell>
-        {prospect.city || prospect.country ? (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, maxWidth: 120 }}>
-            <LocationOnIcon
-              sx={{ fontSize: 14, color: alpha(THEME.primary, 0.6), flexShrink: 0 }}
-            />
-            <Typography variant="caption" noWrap>
-              {[prospect.city, prospect.country].filter(Boolean).join(", ")}
-            </Typography>
-          </Box>
-        ) : (
-          <Typography variant="caption" color="textSecondary">
-            —
-          </Typography>
-        )}
-      </TableCell>
-
-      {/* Société */}
-      <TableCell>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, maxWidth: 130 }}>
-          <BusinessIcon sx={{ fontSize: 14, color: alpha(THEME.primary, 0.6), flexShrink: 0 }} />
-          <Typography variant="body2" noWrap>
-            {linkedCompanyName || "Sans societe"}
-          </Typography>
-        </Box>
-      </TableCell>
-
-      {/* Assigné à */}
-      {isAdminOrManager && (
-        <TableCell>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, maxWidth: 130 }}>
-            <PersonOutlineIcon
-              sx={{ fontSize: 14, color: alpha(THEME.primary, 0.6), flexShrink: 0 }}
-            />
-            {prospect.assigned_to_name ? (
-              <Chip
-                label={prospect.assigned_to_name}
-                size="small"
-                sx={{
-                  bgcolor: alpha(THEME.primary, 0.08),
-                  color: THEME.primaryDark,
-                  borderRadius: 1,
-                  fontSize: "0.72rem",
-                  height: 22,
-                }}
-              />
-            ) : (
-              <Typography variant="caption" color="textSecondary">
-                Non assigné
+            {prospect.title && (
+              <Typography variant="caption" color="textSecondary" noWrap display="block">
+                {prospect.title}
               </Typography>
             )}
           </Box>
-        </TableCell>
-      )}
-
-      {/* Évaluation */}
-      <TableCell align="center">
-        {prospect.evaluation ? (
-          <StyledChip
-            label={getEvaluationLabel(prospect.evaluation)}
-            evaluation={prospect.evaluation}
-            size="small"
-          />
-        ) : (
-          <Typography variant="caption" color="textSecondary">
-            -
-          </Typography>
-        )}
+        </Box>
       </TableCell>
 
-      {/* Statut */}
+      <TableCell>
+        <Stack spacing={0.55} sx={{ minWidth: 0 }}>
+          <Typography variant="body2" fontWeight={700} noWrap>
+            {linkedCompanyName || "Sans société"}
+          </Typography>
+          <Box display="flex" gap={0.5} flexWrap="wrap">
+            <ContactIconLink
+              href={prospect.email ? `mailto:${prospect.email}` : ""}
+              label="Email"
+              copyText={prospect.email}
+              icon={EmailIcon}
+              color={THEME.primary}
+            />
+            <ContactIconLink
+              href={prospect.phone ? `tel:${prospect.phone}` : ""}
+              label="Téléphone"
+              copyText={prospect.phone}
+              icon={PhoneIcon}
+              color="#455a64"
+            />
+            <ContactIconLink
+              href={prospect.linkedin_url}
+              label="LinkedIn"
+              icon={LinkedInIcon}
+              color="#0077b5"
+            />
+            <ContactIconLink
+              href={prospect.facebook_url}
+              label="Facebook"
+              icon={FacebookIcon}
+              color="#1877f2"
+            />
+            <ContactIconLink
+              href={prospect.instagram_url}
+              label="Instagram"
+              icon={InstagramIcon}
+              color="#e1306c"
+            />
+            <ContactIconLink
+              href={prospect.website}
+              label="Site web"
+              icon={LanguageIcon}
+              color="#1976d2"
+            />
+          </Box>
+        </Stack>
+      </TableCell>
+
+      <TableCell align="center">
+        <CompactScoreBadge prospect={prospect} />
+      </TableCell>
+
       <TableCell align="center">
         <Chip
           label={getStatusLabel(prospect.status)}
@@ -918,86 +1244,58 @@ const ProspectTableRow = ({
             bgcolor: alpha(getStatusColor(prospect.status), 0.1),
             color: getStatusColor(prospect.status),
             borderRadius: 1,
-            fontWeight: 500,
+            fontWeight: 700,
+            "& .MuiChip-icon": { fontSize: 14 },
           }}
         />
       </TableCell>
 
-      {/* Prochaine tache */}
       <TableCell>
-        {prospect.next_task ? (
-          <Chip
-            size="small"
-            label={prospect.next_task.title}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
+          <Avatar
             sx={{
-              maxWidth: 190,
-              borderRadius: 1,
-              bgcolor: alpha(THEME.primary, 0.08),
-              color: THEME.primaryDark,
-              border: `1px solid ${alpha(THEME.primary, 0.25)}`,
-              fontWeight: 600,
-              "& .MuiChip-label": {
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              },
+              width: 28,
+              height: 28,
+              bgcolor: prospect.assigned_to_name ? alpha("#0f766e", 0.12) : alpha("#64748b", 0.12),
+              color: prospect.assigned_to_name ? "#0f766e" : "#64748b",
+              fontSize: "0.72rem",
+              fontWeight: 900,
+              flexShrink: 0,
             }}
-          />
-        ) : (
-          <Typography variant="caption" color="textSecondary">
-            Aucune
-          </Typography>
-        )}
-      </TableCell>
-
-      {/* Source */}
-      <TableCell>
-        <Stack spacing={0.75} sx={{ minWidth: 150 }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
-            {prospect.source ? (
-              <SourceBadge source={prospect.source} />
-            ) : (
-              <Typography variant="caption" color="textSecondary">
-                —
-              </Typography>
-            )}
-            {sourceLinks.slice(0, 4).map(({ href, icon: Icon, label, color }) => (
-              <Tooltip key={`${label}-${href}`} title={label}>
-                <IconButton
-                  component="a"
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  size="small"
-                  onClick={(e) => e.stopPropagation()}
-                  sx={{
-                    width: 24,
-                    height: 24,
-                    color,
-                    bgcolor: alpha(color, 0.08),
-                    border: `1px solid ${alpha(color, 0.22)}`,
-                  }}
-                >
-                  <Icon sx={{ fontSize: 14 }} />
-                </IconButton>
-              </Tooltip>
-            ))}
+          >
+            {(prospect.assigned_to_name || "?").slice(0, 1).toUpperCase()}
+          </Avatar>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography
+              variant="body2"
+              fontWeight={800}
+              noWrap
+              sx={{ color: prospect.assigned_to_name ? "text.primary" : "text.secondary" }}
+            >
+              {prospect.assigned_to_name || "Non assigné"}
+            </Typography>
+            <Typography variant="caption" color="textSecondary" noWrap display="block">
+              Responsable
+            </Typography>
           </Box>
-        </Stack>
+        </Box>
       </TableCell>
 
-      {/* Création */}
       <TableCell>
-        <Typography variant="caption" noWrap>
-          {formatDate(prospect.created_at)}
-        </Typography>
+        <ProspectSourceBadges prospect={prospect} />
       </TableCell>
 
-      {/* ✅ Actions — sans Restaurer */}
       <TableCell align="center">
         <Box sx={{ display: "flex", justifyContent: "center", gap: 0.5 }}>
           {[
             {
-              title: "Voir",
+              title: "Voir dossier 360",
+              color: "#0f766e",
+              icon: <OpenInNewIcon sx={{ fontSize: 16 }} />,
+              onClick: () => onOpenDossier(prospect.id),
+            },
+            {
+              title: "Voir les détails",
               color: "#0288d1",
               icon: <VisibilityIcon sx={{ fontSize: 16 }} />,
               onClick: () => onView(prospect),
@@ -1009,12 +1307,6 @@ const ProspectTableRow = ({
               onClick: () => onEdit(prospect),
             },
             {
-              title: "Archiver",
-              color: "#ff9800",
-              icon: <ArchiveIcon sx={{ fontSize: 16 }} />,
-              onClick: () => onArchive(prospect.id),
-            },
-            {
               title: "Supprimer",
               color: THEME.primary,
               icon: <DeleteIcon sx={{ fontSize: 16 }} />,
@@ -1024,6 +1316,7 @@ const ProspectTableRow = ({
             <Tooltip key={btn.title} title={btn.title}>
               <IconButton
                 size="small"
+                aria-label={btn.title}
                 onClick={btn.onClick}
                 sx={{ color: btn.color, bgcolor: alpha(btn.color, 0.1), width: 30, height: 30 }}
               >
@@ -1039,15 +1332,12 @@ const ProspectTableRow = ({
 ProspectTableRow.propTypes = {
   prospect: PropTypes.object.isRequired,
   companyName: PropTypes.string,
-  currentUser: PropTypes.object,
   onView: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
-  onArchive: PropTypes.func.isRequired,
-  onRestore: PropTypes.func.isRequired,
   onDelete: PropTypes.func.isRequired,
   onContextMenu: PropTypes.func.isRequired,
+  onOpenDossier: PropTypes.func.isRequired,
 };
-
 // ==============================
 // ProspectCard
 // ==============================
@@ -1060,6 +1350,9 @@ const ProspectCard = ({
   onArchive,
   onRestore,
   onDelete,
+  onScore,
+  onScoreDetails,
+  scoring,
 }) => {
   const isAdminOrManager = currentUser && ["ADMIN", "MANAGER"].includes(currentUser.role);
   const googleMapsUrl = prospect.google_maps_url;
@@ -1104,11 +1397,8 @@ const ProspectCard = ({
               borderRadius: 1,
             }}
           />
-          {prospect.source === "google_maps" ? (
-            <Chip size="small" color="success" label="Google Maps" sx={{ borderRadius: 1 }} />
-          ) : (
-            prospect.source && <SourceBadge source={prospect.source} />
-          )}
+          <ProspectSourceBadges prospect={prospect} maxVisible={2} />
+          <ScoreBadge prospect={prospect} onDetails={() => onScoreDetails(prospect)} />
         </Box>
         <Divider sx={{ my: 2 }} />
         <Stack spacing={1.5}>
@@ -1211,6 +1501,17 @@ const ProspectCard = ({
               fn: () => onRestore(prospect.id),
             },
             {
+              title: scoring ? "Calcul en cours" : "Calculer le score",
+              color: "#00695c",
+              icon: scoring ? (
+                <CircularProgress size={14} color="inherit" />
+              ) : (
+                <AssessmentIcon fontSize="small" />
+              ),
+              fn: () => onScore(prospect),
+              disabled: scoring,
+            },
+            {
               title: "Supprimer",
               color: THEME.primary,
               icon: <DeleteIcon fontSize="small" />,
@@ -1221,6 +1522,7 @@ const ProspectCard = ({
               <IconButton
                 size="small"
                 onClick={b.fn}
+                disabled={b.disabled}
                 sx={{ color: b.color, bgcolor: alpha(b.color, 0.1) }}
               >
                 {b.icon}
@@ -1241,6 +1543,9 @@ ProspectCard.propTypes = {
   onArchive: PropTypes.func.isRequired,
   onRestore: PropTypes.func.isRequired,
   onDelete: PropTypes.func.isRequired,
+  onScore: PropTypes.func.isRequired,
+  onScoreDetails: PropTypes.func.isRequired,
+  scoring: PropTypes.bool,
 };
 
 // ==============================
@@ -1964,25 +2269,404 @@ ActivityTimeline.propTypes = { prospect: PropTypes.object.isRequired };
 
 // ==============================
 // ProspectDetailsDrawer (COMPOSANT PRINCIPAL)
-// ==============================
-const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser }) => {
+const ProspectDrawerSection = ({ title, children, action }) => (
+  <Paper
+    elevation={0}
+    sx={{
+      p: 1.5,
+      borderRadius: 1.5,
+      bgcolor: "#fff",
+      border: `1px solid ${alpha("#000", 0.08)}`,
+      boxShadow: `0 4px 14px ${alpha("#000", 0.035)}`,
+    }}
+  >
+    <Box display="flex" alignItems="center" justifyContent="space-between" gap={1} mb={1}>
+      <Typography variant="subtitle2" sx={{ fontSize: "0.78rem", fontWeight: 800 }}>
+        {title}
+      </Typography>
+      {action}
+    </Box>
+    {children}
+  </Paper>
+);
+ProspectDrawerSection.propTypes = {
+  title: PropTypes.string.isRequired,
+  children: PropTypes.node.isRequired,
+  action: PropTypes.node,
+};
+
+const CompactInfoRow = ({ icon, label, value }) => {
+  if (!value) return null;
+  return (
+    <Box display="flex" alignItems="center" gap={1} minWidth={0}>
+      {icon}
+      <Box minWidth={0}>
+        <Typography variant="caption" color="textSecondary" display="block" lineHeight={1.1}>
+          {label}
+        </Typography>
+        <Typography variant="body2" fontWeight={600} sx={{ wordBreak: "break-word" }}>
+          {value}
+        </Typography>
+      </Box>
+    </Box>
+  );
+};
+CompactInfoRow.propTypes = {
+  icon: PropTypes.node,
+  label: PropTypes.string.isRequired,
+  value: PropTypes.node,
+};
+
+const OnlineLinkChip = ({ href, icon: Icon, label, color }) => {
+  if (!href) return null;
+  return (
+    <Button
+      component="a"
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      size="small"
+      startIcon={<Icon sx={{ fontSize: 15 }} />}
+      aria-label={`Ouvrir ${label}`}
+      sx={{
+        minHeight: 30,
+        px: 1.1,
+        borderRadius: 1,
+        textTransform: "none",
+        fontSize: "0.74rem",
+        fontWeight: 700,
+        color,
+        bgcolor: alpha(color, 0.08),
+        border: `1px solid ${alpha(color, 0.22)}`,
+        "&:hover": { bgcolor: alpha(color, 0.13), borderColor: alpha(color, 0.4) },
+      }}
+    >
+      {label}
+    </Button>
+  );
+};
+OnlineLinkChip.propTypes = {
+  href: PropTypes.string,
+  icon: PropTypes.elementType.isRequired,
+  label: PropTypes.string.isRequired,
+  color: PropTypes.string.isRequired,
+};
+
+const ProspectInfoTab = ({ prospect, companyName }) => {
+  const onlineLinks = [
+    { href: prospect.linkedin_url, icon: LinkedInIcon, label: "LinkedIn", color: "#0077b5" },
+    { href: prospect.facebook_url, icon: FacebookIcon, label: "Facebook", color: "#1877f2" },
+    { href: prospect.instagram_url, icon: InstagramIcon, label: "Instagram", color: "#e1306c" },
+    { href: prospect.website, icon: LanguageIcon, label: "Site web", color: "#1976d2" },
+    { href: prospect.google_maps_url, icon: LocationOnIcon, label: "Maps", color: "#d32f2f" },
+    { href: prospect.source_url, icon: OpenInNewIcon, label: "Source", color: THEME.primary },
+  ].filter((item) => item.href);
+  const crmRows = [
+    ["Statut", STATUS_LABELS[prospect.status] || prospect.status],
+    ["Assigné à", prospect.assigned_to_name || "Non assigné"],
+    ["Créé le", formatDate(prospect.created_at)],
+    ["Source", prospect.source ? SOURCE_CONFIG[prospect.source]?.label || prospect.source : null],
+    ["Modifié le", formatDate(prospect.updated_at)],
+    ["Origine", prospect.origin ? getOriginLabel(prospect.origin) : null],
+  ].filter(([, value]) => value);
+
+  return (
+    <Stack spacing={1.5} pt={1}>
+      <ProspectDrawerSection title="Coordonnées">
+        <Grid container spacing={1.25}>
+          <Grid item xs={12} sm={6}>
+            <CompactInfoRow
+              icon={<EmailIcon sx={{ fontSize: 17, color: alpha(THEME.primary, 0.7) }} />}
+              label="Email"
+              value={prospect.email}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <CompactInfoRow
+              icon={<PhoneIcon sx={{ fontSize: 17, color: alpha(THEME.primary, 0.7) }} />}
+              label="Téléphone"
+              value={prospect.phone}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <CompactInfoRow
+              icon={<LocationOnIcon sx={{ fontSize: 17, color: alpha(THEME.primary, 0.7) }} />}
+              label="Localisation"
+              value={[prospect.city, prospect.country].filter(Boolean).join(", ")}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <CompactInfoRow
+              icon={<BusinessIcon sx={{ fontSize: 17, color: alpha(THEME.primary, 0.7) }} />}
+              label="Société"
+              value={companyName || "Prospect sans entreprise"}
+            />
+          </Grid>
+          {prospect.address && (
+            <Grid item xs={12}>
+              <CompactInfoRow
+                icon={<LocationOnIcon sx={{ fontSize: 17, color: alpha(THEME.primary, 0.7) }} />}
+                label="Adresse"
+                value={prospect.address}
+              />
+            </Grid>
+          )}
+        </Grid>
+      </ProspectDrawerSection>
+
+      {onlineLinks.length > 0 && (
+        <ProspectDrawerSection title="Présence en ligne">
+          <Box display="flex" gap={0.75} flexWrap="wrap">
+            {onlineLinks.map((link) => (
+              <OnlineLinkChip key={`${link.label}-${link.href}`} {...link} />
+            ))}
+          </Box>
+        </ProspectDrawerSection>
+      )}
+
+      {prospect.description && (
+        <ProspectDrawerSection title="Description">
+          <Typography variant="body2" color="textSecondary" sx={{ whiteSpace: "pre-wrap" }}>
+            {prospect.description}
+          </Typography>
+        </ProspectDrawerSection>
+      )}
+
+      {prospect.notes && (
+        <ProspectDrawerSection title="Notes internes">
+          <Typography variant="body2" color="textSecondary" sx={{ whiteSpace: "pre-wrap" }}>
+            {prospect.notes}
+          </Typography>
+        </ProspectDrawerSection>
+      )}
+
+      <ProspectDrawerSection title="Informations CRM">
+        <Grid container spacing={1}>
+          {crmRows.map(([label, value]) => (
+            <Grid item xs={12} sm={6} key={label}>
+              <Typography variant="caption" color="textSecondary" display="block">
+                {label}
+              </Typography>
+              <Typography variant="body2" fontWeight={700}>
+                {value}
+              </Typography>
+            </Grid>
+          ))}
+        </Grid>
+      </ProspectDrawerSection>
+    </Stack>
+  );
+};
+ProspectInfoTab.propTypes = {
+  prospect: PropTypes.object.isRequired,
+  companyName: PropTypes.string,
+};
+
+const ProspectQualificationTab = ({ prospect, onScore, scoring }) => {
+  const score = getProspectScoreValue(prospect);
+  const reasons = prospect.score_reasons || prospect.raison_score || "";
+  const criteria = reasons
+    .split(/\n|;|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return (
+    <Stack spacing={1.5} pt={1}>
+      <ProspectDrawerSection
+        title="Qualification"
+        action={
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={scoring ? <CircularProgress size={13} /> : <AssessmentIcon />}
+            onClick={() => onScore?.(prospect)}
+            disabled={scoring || !onScore}
+            aria-label={hasCalculatedScore(prospect) ? "Recalculer le score" : "Calculer le score"}
+            sx={{ minHeight: 30, textTransform: "none", borderRadius: 1, fontWeight: 700 }}
+          >
+            {hasCalculatedScore(prospect) ? "Recalculer" : "Calculer le score"}
+          </Button>
+        }
+      >
+        {hasCalculatedScore(prospect) ? (
+          <Box display="flex" alignItems="center" gap={1.25} flexWrap="wrap">
+            <Typography
+              variant="h4"
+              fontWeight={800}
+              color={getEvaluationColor(prospect.evaluation)}
+            >
+              {score === null ? "-" : score}
+              <Typography component="span" variant="body2" color="textSecondary">
+                {" "}
+                / 100
+              </Typography>
+            </Typography>
+            <StyledChip
+              size="small"
+              label={getEvaluationLabel(prospect.evaluation)}
+              evaluation={prospect.evaluation}
+            />
+          </Box>
+        ) : (
+          <Box>
+            <Typography variant="h6" fontWeight={800}>
+              Non calculé
+            </Typography>
+            <Typography variant="body2" color="textSecondary">
+              Le score de ce prospect n&apos;a pas encore été calculé.
+            </Typography>
+          </Box>
+        )}
+      </ProspectDrawerSection>
+
+      {hasCalculatedScore(prospect) && (
+        <ProspectDrawerSection title="Critères">
+          {criteria.length ? (
+            <Stack spacing={0.75}>
+              {criteria.map((criterion) => (
+                <Box key={criterion} display="flex" alignItems="flex-start" gap={0.75}>
+                  <CheckCircleIcon sx={{ fontSize: 16, color: THEME.success, mt: 0.15 }} />
+                  <Typography variant="body2">{criterion}</Typography>
+                </Box>
+              ))}
+            </Stack>
+          ) : (
+            <Typography variant="body2" color="textSecondary">
+              Aucun détail de score enregistré.
+            </Typography>
+          )}
+        </ProspectDrawerSection>
+      )}
+    </Stack>
+  );
+};
+ProspectQualificationTab.propTypes = {
+  prospect: PropTypes.object.isRequired,
+  onScore: PropTypes.func,
+  scoring: PropTypes.bool,
+};
+
+const ProspectAgentTab = ({ prospect, onSources }) => {
+  const discoverySources = normalizeProspectSources(prospect);
+  const rows = [
+    ["Origine", prospect.origin ? getOriginLabel(prospect.origin) : null],
+    ["Source principale", discoverySources[0]?.fullLabel],
+    ["Date de découverte", prospect.created_at ? formatDate(prospect.created_at) : null],
+    ["Lien source", prospect.source_url],
+    ["Google Maps", prospect.google_maps_url],
+    ["Requête", prospect.discovery_query || prospect.agent_query || prospect.query],
+    ["Message préparé", prospect.generated_message],
+  ].filter(([, value]) => value);
+
+  return (
+    <Stack spacing={1.5} pt={1}>
+      <ProspectDrawerSection title="Agent IA">
+        {rows.length ? (
+          <Stack spacing={1}>
+            {rows.map(([label, value]) => {
+              const isUrl = typeof value === "string" && /^https?:\/\//i.test(value);
+              return (
+                <Box key={label}>
+                  <Typography variant="caption" color="textSecondary" display="block">
+                    {label}
+                  </Typography>
+                  {isUrl ? (
+                    <Button
+                      component="a"
+                      href={value}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      size="small"
+                      startIcon={<OpenInNewIcon />}
+                      aria-label={`Ouvrir ${label}`}
+                      sx={{ px: 0, minHeight: 28, textTransform: "none", color: THEME.primary }}
+                    >
+                      Ouvrir
+                    </Button>
+                  ) : (
+                    <Typography variant="body2" fontWeight={700} sx={{ whiteSpace: "pre-wrap" }}>
+                      {value}
+                    </Typography>
+                  )}
+                </Box>
+              );
+            })}
+          </Stack>
+        ) : (
+          <Typography variant="body2" color="textSecondary">
+            Aucune donnée Agent IA enregistrée pour ce prospect.
+          </Typography>
+        )}
+      </ProspectDrawerSection>
+      <ProspectDrawerSection title="Sources de découverte">
+        <Stack direction="row" gap={0.75} flexWrap="wrap">
+          {discoverySources.map((source) => (
+            <Chip
+              key={source.fullLabel}
+              size="small"
+              label={source.fullLabel}
+              sx={{
+                borderRadius: 1,
+                bgcolor: alpha(source.color, 0.1),
+                color: source.color,
+                border: `1px solid ${alpha(source.color, 0.35)}`,
+                fontWeight: 700,
+              }}
+            />
+          ))}
+        </Stack>
+      </ProspectDrawerSection>
+      <ProspectDrawerSection
+        title="Sources"
+        action={
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<InfoIcon />}
+            onClick={() => onSources?.(prospect)}
+            sx={{ minHeight: 30, textTransform: "none", borderRadius: 1, fontWeight: 700 }}
+          >
+            Voir les sources
+          </Button>
+        }
+      >
+        <Typography variant="body2" color="textSecondary">
+          Consultez les URLs et champs de provenance enregistrés pour ce prospect.
+        </Typography>
+      </ProspectDrawerSection>
+    </Stack>
+  );
+};
+ProspectAgentTab.propTypes = {
+  prospect: PropTypes.object.isRequired,
+  onSources: PropTypes.func,
+};
+
+const ProspectDetailsDrawer = ({
+  open,
+  onClose,
+  prospect,
+  companies,
+  onEdit,
+  onDelete,
+  onScore,
+  onSources,
+  scoring,
+}) => {
   const [activeTab, setActiveTab] = useState(0);
   const [showPlanCall, setShowPlanCall] = useState(false);
   const [taskToRecord, setTaskToRecord] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [socialAnalysis, setSocialAnalysis] = useState(null);
-  const [socialAnalysisLoading, setSocialAnalysisLoading] = useState(false);
-  const [socialAnalysisError, setSocialAnalysisError] = useState("");
+  const [actionsAnchor, setActionsAnchor] = useState(null);
 
   useEffect(() => {
     if (open) {
       setActiveTab(0);
       setShowPlanCall(false);
       setTaskToRecord(null);
-      setSocialAnalysis(prospect?.social_profile_analysis || null);
-      setSocialAnalysisError("");
+      setActionsAnchor(null);
     }
-  }, [open, prospect?.id, prospect?.social_profile_analysis]);
+  }, [open, prospect?.id]);
 
   const getCompanyName = useCallback(
     (id) => {
@@ -1994,11 +2678,18 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
 
   if (!prospect) return null;
 
-  const evalColor =
-    { hot: THEME.error, warm: THEME.warning, cold: THEME.info }[prospect.evaluation] || "#9e9e9e";
+  const companyName =
+    getCompanyName(prospect.prospect_company) ||
+    prospect.prospect_company_detail?.name ||
+    "Prospect sans entreprise";
   const statColor = STATUS_COLORS[prospect.status] || "#9e9e9e";
+  const score = getProspectScoreValue(prospect);
+  const scoreLabel = hasCalculatedScore(prospect)
+    ? `${score === null ? "-" : score} / 100 · ${getEvaluationLabel(prospect.evaluation)}`
+    : "Score non calculé";
+  const tabs = ["Informations", "Activités", "Qualification", "Agent IA"];
 
-  const handleCallCreated = (task) => {
+  const handleCallCreated = () => {
     setShowPlanCall(false);
     setRefreshKey((k) => k + 1);
     setActiveTab(1);
@@ -2007,32 +2698,10 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
   const handleResultDone = () => {
     setTaskToRecord(null);
     setRefreshKey((k) => k + 1);
-    setActiveTab(2);
+    setActiveTab(1);
   };
 
-  const handleAnalyzeSocial = async () => {
-    if (!prospect?.id) return;
-
-    setSocialAnalysisLoading(true);
-    setSocialAnalysisError("");
-
-    try {
-      const res = await engagementApi.post(`/prospects/${prospect.id}/analyze-social/`, {});
-      const analysis = res.data?.analysis || {};
-      setSocialAnalysis(analysis);
-      if (!res.data?.success) {
-        setSocialAnalysisError(res.data?.error || "Analyse sociale indisponible.");
-      }
-    } catch (err) {
-      setSocialAnalysisError(
-        err.response?.data?.error || err.message || "Erreur pendant l'analyse sociale."
-      );
-    } finally {
-      setSocialAnalysisLoading(false);
-    }
-  };
-
-  const tabs = ["Informations", "Tâches & Appels", "Activités", "Agent IA"];
+  const closeActions = () => setActionsAnchor(null);
 
   return (
     <Drawer
@@ -2041,112 +2710,137 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
       onClose={onClose}
       PaperProps={{
         sx: {
-          width: "min(720px, 95vw)",
-          maxWidth: "95vw",
-          overflowY: "auto",
-          overflowX: "hidden",
-          wordBreak: "break-word",
-          whiteSpace: "normal",
-          borderTopLeftRadius: 24,
-          borderBottomLeftRadius: 24,
+          width: { xs: "100%", sm: 560, md: 620 },
+          maxWidth: "100vw",
+          overflow: "hidden",
+          borderTopLeftRadius: { xs: 0, sm: 18 },
+          borderBottomLeftRadius: { xs: 0, sm: 18 },
+          bgcolor: "#fafafa",
         },
       }}
     >
       <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-        <Box sx={{ p: 3, pb: 2, flexShrink: 0 }}>
-          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-            <Typography
-              variant="h6"
-              sx={{
-                fontWeight: 700,
-                background: THEME.gradient,
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-              }}
-            >
-              Fiche prospect
-            </Typography>
-            <IconButton onClick={onClose} sx={{ bgcolor: alpha(THEME.primary, 0.08) }}>
-              <CloseIcon sx={{ color: THEME.primary, fontSize: 20 }} />
-            </IconButton>
+        <Box
+          sx={{
+            px: { xs: 2, sm: 2.5 },
+            pt: 2,
+            pb: 1.25,
+            flexShrink: 0,
+            bgcolor: "#fff",
+            borderBottom: `1px solid ${alpha("#000", 0.08)}`,
+          }}
+        >
+          <Box display="flex" justifyContent="flex-end" gap={0.5} mb={0.75}>
+            <Tooltip title="Actions">
+              <IconButton
+                size="small"
+                aria-label="Actions prospect"
+                onClick={(event) => setActionsAnchor(event.currentTarget)}
+              >
+                <MoreVertIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Fermer">
+              <IconButton size="small" aria-label="Fermer la fiche prospect" onClick={onClose}>
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           </Box>
 
-          <Paper
-            elevation={0}
-            sx={{
-              p: 2,
-              borderRadius: 3,
-              bgcolor: alpha(THEME.primary, 0.02),
-              border: `1px solid ${alpha(THEME.primary, 0.1)}`,
-              mb: 2,
-            }}
-          >
-            <Box display="flex" alignItems="center" gap={2}>
-              <Avatar
-                sx={{
-                  width: 56,
-                  height: 56,
-                  background: THEME.gradient,
-                  fontSize: "1.4rem",
-                  fontWeight: 700,
-                }}
-              >
-                {getProspectInitials(prospect)}
-              </Avatar>
-              <Box flex={1} minWidth={0}>
-                <Typography variant="h6" fontWeight={700} noWrap>
-                  {getProspectDisplayName(prospect)}
-                </Typography>
-                <Typography variant="caption" color="textSecondary" noWrap display="block">
-                  {prospect.title || "Sans titre"}{" "}
-                  {getCompanyName(prospect.prospect_company)
-                    ? `· ${getCompanyName(prospect.prospect_company)}`
-                    : ""}
-                </Typography>
-                <Stack direction="row" spacing={0.75} mt={0.75} flexWrap="wrap">
-                  {prospect.evaluation && (
-                    <Chip
-                      label={EVALUATION_LABELS[prospect.evaluation] || prospect.evaluation}
-                      size="small"
-                      sx={{
-                        height: 20,
-                        fontSize: "0.68rem",
-                        bgcolor: alpha(evalColor, 0.1),
-                        color: evalColor,
-                        border: `1px solid ${evalColor}`,
-                        fontWeight: 600,
-                      }}
-                    />
-                  )}
-                  <Chip
-                    label={STATUS_LABELS[prospect.status] || prospect.status}
-                    size="small"
-                    sx={{
-                      height: 20,
-                      fontSize: "0.68rem",
-                      bgcolor: alpha(statColor, 0.1),
-                      color: statColor,
-                      border: `1px solid ${statColor}`,
-                    }}
-                  />
-                </Stack>
+          <Box display="flex" gap={1.5} alignItems="flex-start">
+            <Avatar
+              sx={{
+                width: 48,
+                height: 48,
+                background: THEME.gradient,
+                fontSize: "1rem",
+                fontWeight: 800,
+                flexShrink: 0,
+              }}
+            >
+              {getProspectInitials(prospect)}
+            </Avatar>
+            <Box flex={1} minWidth={0}>
+              <Typography variant="h6" fontWeight={800} lineHeight={1.15} noWrap>
+                {getProspectDisplayName(prospect)}
+              </Typography>
+              <Typography variant="body2" color="textSecondary" noWrap>
+                {prospect.title || "Sans titre"}
+              </Typography>
+              <Typography variant="body2" color="textSecondary" noWrap>
+                {companyName}
+              </Typography>
+              <Box display="flex" gap={0.75} flexWrap="wrap" mt={0.9}>
+                <Chip
+                  label={STATUS_LABELS[prospect.status] || prospect.status}
+                  size="small"
+                  sx={{
+                    height: 22,
+                    borderRadius: 1,
+                    fontSize: "0.68rem",
+                    bgcolor: alpha(statColor, 0.1),
+                    color: statColor,
+                    border: `1px solid ${alpha(statColor, 0.35)}`,
+                    fontWeight: 700,
+                  }}
+                />
+                <Chip
+                  label={scoreLabel}
+                  size="small"
+                  sx={{
+                    height: 22,
+                    borderRadius: 1,
+                    fontSize: "0.68rem",
+                    bgcolor: hasCalculatedScore(prospect)
+                      ? alpha(getEvaluationColor(prospect.evaluation), 0.1)
+                      : alpha(THEME.info, 0.08),
+                    color: hasCalculatedScore(prospect)
+                      ? getEvaluationColor(prospect.evaluation)
+                      : THEME.info,
+                    border: `1px solid ${alpha(
+                      hasCalculatedScore(prospect)
+                        ? getEvaluationColor(prospect.evaluation)
+                        : THEME.info,
+                      0.28
+                    )}`,
+                    fontWeight: 700,
+                  }}
+                />
               </Box>
             </Box>
-          </Paper>
+          </Box>
 
           {!showPlanCall && !taskToRecord && (
-            <GradientButton
-              fullWidth
-              startIcon={<TaskIcon />}
-              onClick={() => setShowPlanCall(true)}
-              sx={{ mb: 1.5 }}
-            >
-              Planifier une tache
-            </GradientButton>
+            <Box display="flex" alignItems="center" gap={1} mt={1.5}>
+              <GradientButton
+                size="small"
+                startIcon={<TaskIcon />}
+                onClick={() => setShowPlanCall(true)}
+                sx={{ minHeight: 34, px: 1.75, borderRadius: 1.2, textTransform: "none" }}
+              >
+                Planifier une tâche
+              </GradientButton>
+              <Tooltip title="Plus d'actions">
+                <IconButton
+                  size="small"
+                  aria-label="Plus d'actions prospect"
+                  onClick={(event) => setActionsAnchor(event.currentTarget)}
+                  sx={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 1.2,
+                    border: `1px solid ${alpha(THEME.primary, 0.22)}`,
+                    color: THEME.primary,
+                  }}
+                >
+                  <MoreVertIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
           )}
 
           {showPlanCall && (
-            <Box mb={1.5}>
+            <Box mt={1.5}>
               <PlanCallForm
                 prospect={prospect}
                 onCreated={handleCallCreated}
@@ -2156,7 +2850,7 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
           )}
 
           {taskToRecord && (
-            <Box mb={1.5}>
+            <Box mt={1.5}>
               <CallResultForm
                 task={taskToRecord}
                 prospect={prospect}
@@ -2167,25 +2861,31 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
           )}
 
           <Box
+            role="tablist"
+            aria-label="Sections de la fiche prospect"
             display="flex"
-            gap={0.5}
-            sx={{ borderBottom: `1px solid ${alpha(THEME.primary, 0.1)}`, pb: 0 }}
+            gap={0.25}
+            mt={1.5}
+            sx={{ overflowX: "auto", borderBottom: `1px solid ${alpha("#000", 0.08)}` }}
           >
-            {tabs.map((tab, i) => (
+            {tabs.map((tab, index) => (
               <Button
                 key={tab}
-                onClick={() => setActiveTab(i)}
+                role="tab"
+                aria-selected={activeTab === index}
+                onClick={() => setActiveTab(index)}
                 size="small"
                 sx={{
+                  minHeight: 34,
+                  px: 1.1,
+                  whiteSpace: "nowrap",
                   textTransform: "none",
-                  fontWeight: activeTab === i ? 700 : 400,
-                  fontSize: "0.82rem",
-                  color: activeTab === i ? THEME.primary : "text.secondary",
+                  fontWeight: activeTab === index ? 800 : 600,
+                  fontSize: "0.76rem",
+                  color: activeTab === index ? THEME.primary : "text.secondary",
                   borderRadius: 0,
-                  pb: 1,
                   borderBottom:
-                    activeTab === i ? `2px solid ${THEME.primary}` : "2px solid transparent",
-                  transition: "all .15s",
+                    activeTab === index ? `2px solid ${THEME.primary}` : "2px solid transparent",
                 }}
               >
                 {tab}
@@ -2194,460 +2894,100 @@ const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, currentUser
           </Box>
         </Box>
 
-        <Box sx={{ flex: 1, overflowY: "auto", px: 3, pb: 3 }}>
-          {activeTab === 0 && (
-            <Stack spacing={2} pt={1}>
-              <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                <Typography
-                  variant="subtitle2"
-                  sx={{ color: THEME.primary, mb: 1.5, fontWeight: 600 }}
-                >
-                  Coordonnées
-                </Typography>
-                <Stack spacing={1.25}>
-                  {prospect.email && (
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <EmailIcon sx={{ fontSize: 18, color: alpha(THEME.primary, 0.6) }} />
-                      <Typography variant="body2">{prospect.email}</Typography>
-                    </Box>
-                  )}
-                  {prospect.phone && (
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <PhoneIcon sx={{ fontSize: 18, color: alpha(THEME.primary, 0.6) }} />
-                      <Typography variant="body2">{prospect.phone}</Typography>
-                    </Box>
-                  )}
-                  {(prospect.city || prospect.country) && (
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <LocationOnIcon sx={{ fontSize: 18, color: alpha(THEME.primary, 0.6) }} />
-                      <Typography variant="body2">
-                        {[prospect.city, prospect.country].filter(Boolean).join(", ")}
-                      </Typography>
-                    </Box>
-                  )}
-                  {prospect.address && (
-                    <Box display="flex" alignItems="flex-start" gap={1}>
-                      <LocationOnIcon
-                        sx={{ fontSize: 18, color: alpha(THEME.primary, 0.6), mt: 0.25 }}
-                      />
-                      <Typography variant="body2">{prospect.address}</Typography>
-                    </Box>
-                  )}
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <BusinessIcon sx={{ fontSize: 18, color: alpha(THEME.primary, 0.6) }} />
-                    <Typography variant="body2">
-                      {getCompanyName(prospect.prospect_company) ||
-                        prospect.prospect_company_detail?.name ||
-                        "Sans societe"}
-                    </Typography>
-                  </Box>
-                </Stack>
-              </Card>
+        <Menu anchorEl={actionsAnchor} open={Boolean(actionsAnchor)} onClose={closeActions}>
+          <MenuItem
+            onClick={() => {
+              closeActions();
+              onEdit?.(prospect);
+            }}
+          >
+            <ListItemIcon>
+              <EditIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Modifier</ListItemText>
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              closeActions();
+              onScore?.(prospect);
+              setActiveTab(2);
+            }}
+            disabled={scoring || !onScore}
+          >
+            <ListItemIcon>
+              {scoring ? <CircularProgress size={18} /> : <AssessmentIcon fontSize="small" />}
+            </ListItemIcon>
+            <ListItemText>
+              {hasCalculatedScore(prospect) ? "Recalculer le score" : "Calculer le score"}
+            </ListItemText>
+          </MenuItem>
+          <MenuItem
+            component={prospect.email ? "a" : "li"}
+            href={prospect.email ? `mailto:${prospect.email}` : undefined}
+            disabled={!prospect.email}
+            onClick={closeActions}
+          >
+            <ListItemIcon>
+              <SendIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Envoyer un message</ListItemText>
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              closeActions();
+              onDelete?.(prospect.id);
+            }}
+          >
+            <ListItemIcon>
+              <DeleteIcon fontSize="small" sx={{ color: THEME.error }} />
+            </ListItemIcon>
+            <ListItemText>Supprimer</ListItemText>
+          </MenuItem>
+        </Menu>
 
-              {(prospect.source_url ||
-                prospect.google_maps_url ||
-                prospect.website ||
-                prospect.linkedin_url ||
-                prospect.facebook_url ||
-                prospect.instagram_url) && (
-                <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                  <Typography
-                    variant="subtitle2"
-                    sx={{ color: THEME.primary, mb: 1.5, fontWeight: 600 }}
-                  >
-                    Présence en ligne
-                  </Typography>
-                  <Stack spacing={1}>
-                    <SocialLink
-                      href={prospect.source_url}
-                      icon={OpenInNewIcon}
-                      label="Lien source"
-                      color={THEME.primary}
-                    />
-                    <SocialLink
-                      href={prospect.google_maps_url}
-                      icon={LocationOnIcon}
-                      label="Google Maps"
-                      color="#d32f2f"
-                    />
-                    <SocialLink
-                      href={prospect.website}
-                      icon={LanguageIcon}
-                      label="Site web"
-                      color="#1976d2"
-                    />
-                    <SocialLink
-                      href={prospect.linkedin_url}
-                      icon={LinkedInIcon}
-                      label="LinkedIn"
-                      color="#0077b5"
-                    />
-                    <SocialLink
-                      href={prospect.facebook_url}
-                      icon={FacebookIcon}
-                      label="Facebook"
-                      color="#1877f2"
-                    />
-                    <SocialLink
-                      href={prospect.instagram_url}
-                      icon={InstagramIcon}
-                      label="Instagram"
-                      color="#e1306c"
-                    />
-                  </Stack>
-                </Card>
-              )}
-
-              {prospect.description && (
-                <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                  <Typography
-                    variant="subtitle2"
-                    sx={{ color: THEME.primary, mb: 1.5, fontWeight: 600 }}
-                  >
-                    Description du prospect
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary" sx={{ whiteSpace: "pre-wrap" }}>
-                    {prospect.description}
-                  </Typography>
-                </Card>
-              )}
-
-              <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  gap={1.5}
-                  mb={1.5}
-                >
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <AssessmentIcon sx={{ fontSize: 18, color: THEME.primary }} />
-                    <Typography variant="subtitle2" sx={{ color: THEME.primary, fontWeight: 700 }}>
-                      Analyse sociale IA
-                    </Typography>
-                  </Box>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={handleAnalyzeSocial}
-                    disabled={socialAnalysisLoading}
-                    startIcon={
-                      socialAnalysisLoading ? <CircularProgress size={14} /> : <RefreshIcon />
-                    }
-                    sx={{
-                      textTransform: "none",
-                      borderColor: alpha(THEME.primary, 0.3),
-                      color: THEME.primary,
-                      fontWeight: 700,
-                    }}
-                  >
-                    Relancer
-                  </Button>
-                </Box>
-
-                {socialAnalysisError && (
-                  <Alert severity="warning" sx={{ mb: 1.5, borderRadius: 2 }}>
-                    {socialAnalysisError}
-                  </Alert>
-                )}
-
-                {socialAnalysis?.summary ? (
-                  <Stack spacing={1.2}>
-                    <Typography variant="body2" color="textSecondary">
-                      {socialAnalysis.summary}
-                    </Typography>
-
-                    {socialAnalysis.description && (
-                      <Typography
-                        variant="body2"
-                        color="textSecondary"
-                        sx={{ whiteSpace: "pre-wrap" }}
-                      >
-                        {socialAnalysis.description}
-                      </Typography>
-                    )}
-
-                    {socialAnalysis.profile_type && (
-                      <Chip
-                        size="small"
-                        label={socialAnalysis.profile_type}
-                        sx={{
-                          alignSelf: "flex-start",
-                          bgcolor: alpha(THEME.primary, 0.08),
-                          color: THEME.primaryDark,
-                          fontWeight: 600,
-                        }}
-                      />
-                    )}
-
-                    {Boolean(socialAnalysis.interests?.length) && (
-                      <Box display="flex" gap={0.75} flexWrap="wrap">
-                        {socialAnalysis.interests.map((interest) => (
-                          <Chip
-                            key={interest}
-                            size="small"
-                            label={interest}
-                            sx={{
-                              bgcolor: alpha(THEME.primary, 0.08),
-                              color: THEME.primaryDark,
-                              fontWeight: 600,
-                            }}
-                          />
-                        ))}
-                      </Box>
-                    )}
-
-                    {Boolean(socialAnalysis.recent_topics?.length) && (
-                      <Box display="flex" gap={0.75} flexWrap="wrap">
-                        {socialAnalysis.recent_topics.map((topic) => (
-                          <Chip key={topic} size="small" label={topic} variant="outlined" />
-                        ))}
-                      </Box>
-                    )}
-
-                    <Stack spacing={0.75}>
-                      {[
-                        ["Activite", socialAnalysis.activity_level],
-                        ["Ton recommande", socialAnalysis.communication_tone],
-                        ["Pertinence", socialAnalysis.commercial_relevance],
-                      ].map(([label, value]) => (
-                        <Box key={label} display="flex" justifyContent="space-between" gap={2}>
-                          <Typography variant="caption" color="textSecondary">
-                            {label}
-                          </Typography>
-                          <Typography variant="caption" fontWeight={700}>
-                            {value || "unknown"}
-                          </Typography>
-                        </Box>
-                      ))}
-                    </Stack>
-
-                    {socialAnalysis.personalized_hook && (
-                      <Box
-                        sx={{
-                          p: 1.25,
-                          borderRadius: 2,
-                          bgcolor: alpha(THEME.primary, 0.04),
-                          border: `1px solid ${alpha(THEME.primary, 0.12)}`,
-                        }}
-                      >
-                        <Typography variant="caption" color="textSecondary" display="block">
-                          Accroche proposee
-                        </Typography>
-                        <Typography variant="body2" fontWeight={600}>
-                          {socialAnalysis.personalized_hook}
-                        </Typography>
-                      </Box>
-                    )}
-                  </Stack>
-                ) : (
-                  <Typography variant="body2" color="textSecondary">
-                    Aucune analyse sociale disponible pour ce prospect.
-                  </Typography>
-                )}
-              </Card>
-
-              {prospect.notes && (
-                <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                  <Typography
-                    variant="subtitle2"
-                    sx={{ color: THEME.primary, mb: 1.5, fontWeight: 600 }}
-                  >
-                    Notes internes
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary" sx={{ whiteSpace: "pre-wrap" }}>
-                    {prospect.notes}
-                  </Typography>
-                </Card>
-              )}
-
-              <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                <Typography
-                  variant="subtitle2"
-                  sx={{ color: THEME.primary, mb: 1.5, fontWeight: 600 }}
-                >
-                  Informations CRM
-                </Typography>
-                <Stack spacing={1}>
-                  {[
-                    { label: "Statut", value: STATUS_LABELS[prospect.status] || prospect.status },
-                    { label: "Évaluation", value: EVALUATION_LABELS[prospect.evaluation] || "—" },
-                    { label: "Assigné à", value: prospect.assigned_to_name || "Non assigné" },
-                    { label: "Créé le", value: formatDate(prospect.created_at) },
-                    { label: "Modifié le", value: formatDate(prospect.updated_at) },
-                  ].map(({ label, value }) => (
-                    <Box key={label} display="flex" justifyContent="space-between">
-                      <Typography variant="body2" color="textSecondary">
-                        {label}
-                      </Typography>
-                      <Typography variant="body2" fontWeight={600}>
-                        {value}
-                      </Typography>
-                    </Box>
-                  ))}
-                  <Box display="flex" justifyContent="space-between" alignItems="center">
-                    <Typography variant="body2" color="textSecondary">
-                      Source
-                    </Typography>
-                    {prospect.source ? (
-                      <SourceBadge source={prospect.source} />
-                    ) : (
-                      <Typography variant="body2" fontWeight={600}>
-                        —
-                      </Typography>
-                    )}
-                  </Box>
-                </Stack>
-              </Card>
-            </Stack>
-          )}
+        <Box sx={{ flex: 1, overflowY: "auto", px: { xs: 2, sm: 2.5 }, pb: 2.5 }}>
+          {activeTab === 0 && <ProspectInfoTab prospect={prospect} companyName={companyName} />}
 
           {activeTab === 1 && (
-            <Box pt={1}>
-              <ProspectTasksList
-                key={refreshKey}
-                prospect={prospect}
-                onRecordResult={(task) => {
-                  setTaskToRecord(task);
-                  setActiveTab(1);
-                }}
-              />
-            </Box>
+            <Stack spacing={1.5} pt={1}>
+              {prospect.next_task && (
+                <ProspectDrawerSection title="Prochaine tâche">
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <TaskIcon sx={{ fontSize: 17, color: THEME.primary }} />
+                    <Box minWidth={0}>
+                      <Typography variant="body2" fontWeight={800}>
+                        {prospect.next_task.title}
+                      </Typography>
+                      {prospect.next_task.due_date && (
+                        <Typography variant="caption" color="textSecondary">
+                          {formatDateTime(prospect.next_task.due_date)}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Box>
+                </ProspectDrawerSection>
+              )}
+              <ProspectDrawerSection title="Tâches et appels">
+                <ProspectTasksList
+                  key={`tasks-${refreshKey}`}
+                  prospect={prospect}
+                  onRecordResult={(task) => {
+                    setTaskToRecord(task);
+                    setActiveTab(1);
+                  }}
+                />
+              </ProspectDrawerSection>
+              <ProspectDrawerSection title="Historique">
+                <ActivityTimeline key={`timeline-${refreshKey}`} prospect={prospect} />
+              </ProspectDrawerSection>
+            </Stack>
           )}
 
           {activeTab === 2 && (
-            <Box pt={1}>
-              <ActivityTimeline key={refreshKey} prospect={prospect} />
-            </Box>
+            <ProspectQualificationTab prospect={prospect} onScore={onScore} scoring={scoring} />
           )}
 
-          {activeTab === 3 && (
-            <Stack spacing={2} pt={1}>
-              <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5}>
-                  <Typography variant="subtitle2" sx={{ color: THEME.primary, fontWeight: 600 }}>
-                    Resume social IA
-                  </Typography>
-                  <Button
-                    size="small"
-                    onClick={runSocialAnalysis}
-                    disabled={socialAnalysisLoading}
-                    sx={{
-                      textTransform: "none",
-                      borderColor: alpha(THEME.primary, 0.3),
-                      color: THEME.primary,
-                      fontWeight: 700,
-                    }}
-                  >
-                    Relancer analyse
-                  </Button>
-                </Box>
-                {socialAnalysisError && (
-                  <Alert severity="warning" sx={{ mb: 1.5, borderRadius: 2 }}>
-                    {socialAnalysisError}
-                  </Alert>
-                )}
-                <Box
-                  sx={{
-                    bgcolor: "#fff",
-                    border: "1px solid #fee2e2",
-                    borderRadius: 2,
-                    p: 1.5,
-                    lineHeight: 1.6,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    overflowWrap: "anywhere",
-                  }}
-                >
-                  <Typography variant="body2" color="textSecondary" sx={{ whiteSpace: "pre-wrap" }}>
-                    {socialAnalysis?.summary || "Aucune analyse sociale disponible pour ce prospect."}
-                  </Typography>
-                </Box>
-              </Card>
-
-              <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                <Typography variant="subtitle2" sx={{ color: THEME.primary, mb: 1.5, fontWeight: 600 }}>
-                  Description IA
-                </Typography>
-                <Box
-                  sx={{
-                    bgcolor: "#fff",
-                    border: "1px solid #fee2e2",
-                    borderRadius: 2,
-                    p: 1.5,
-                    lineHeight: 1.6,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    overflowWrap: "anywhere",
-                  }}
-                >
-                  <Typography variant="body2" color="textSecondary" sx={{ whiteSpace: "pre-wrap" }}>
-                    {socialAnalysis?.description || prospect.social_profile_description || "-"}
-                  </Typography>
-                </Box>
-              </Card>
-
-              <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                <Typography variant="subtitle2" sx={{ color: THEME.primary, mb: 1.5, fontWeight: 600 }}>
-                  Interets et sujets recents
-                </Typography>
-                <Stack spacing={1.5}>
-                  <Box display="flex" gap={1} flexWrap="wrap">
-                    {(socialAnalysis?.interests || prospect.social_profile_interests || []).length ? (
-                      (socialAnalysis?.interests || prospect.social_profile_interests || []).map((interest) => (
-                        <Chip key={interest} size="small" label={interest} />
-                      ))
-                    ) : (
-                      <Typography variant="body2" color="textSecondary">-</Typography>
-                    )}
-                  </Box>
-                  <Box display="flex" gap={1} flexWrap="wrap">
-                    {(socialAnalysis?.recent_topics || prospect.social_profile_topics || []).length ? (
-                      (socialAnalysis?.recent_topics || prospect.social_profile_topics || []).map((topic) => (
-                        <Chip key={topic} size="small" label={topic} variant="outlined" />
-                      ))
-                    ) : (
-                      <Typography variant="body2" color="textSecondary">-</Typography>
-                    )}
-                  </Box>
-                </Stack>
-              </Card>
-
-              <Card variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                <Typography variant="subtitle2" sx={{ color: THEME.primary, mb: 1.5, fontWeight: 600 }}>
-                  Recommandations IA
-                </Typography>
-                <Stack spacing={1}>
-                  {[
-                    ["Niveau d'activite", socialAnalysis?.activity_level || prospect.social_profile_activity_level],
-                    ["Pertinence commerciale", socialAnalysis?.commercial_relevance || prospect.social_profile_relevance],
-                    ["Accroche recommandee", socialAnalysis?.personalized_hook || prospect.social_profile_hook],
-                    ["Message prepare", prospect.generated_message],
-                  ].map(([label, value]) => (
-                    <Box key={label}>
-                      <Typography variant="caption" color="textSecondary">
-                        {label}
-                      </Typography>
-                      <Box
-                        sx={{
-                          mt: 0.5,
-                          bgcolor: "#fff",
-                          border: "1px solid #fee2e2",
-                          borderRadius: 2,
-                          p: 1.25,
-                          whiteSpace: "pre-wrap",
-                          wordBreak: "break-word",
-                          overflowWrap: "anywhere",
-                        }}
-                      >
-                        <Typography variant="body2">{value || "-"}</Typography>
-                      </Box>
-                    </Box>
-                  ))}
-                </Stack>
-              </Card>
-            </Stack>
-          )}
+          {activeTab === 3 && <ProspectAgentTab prospect={prospect} onSources={onSources} />}
         </Box>
       </Box>
     </Drawer>
@@ -2659,7 +2999,11 @@ ProspectDetailsDrawer.propTypes = {
   onClose: PropTypes.func.isRequired,
   prospect: PropTypes.object,
   companies: PropTypes.array.isRequired,
-  currentUser: PropTypes.object,
+  onEdit: PropTypes.func,
+  onDelete: PropTypes.func,
+  onScore: PropTypes.func,
+  onSources: PropTypes.func,
+  scoring: PropTypes.bool,
 };
 
 // ==============================
@@ -3802,8 +4146,14 @@ export default function Prospects() {
   const [agentResult, setAgentResult] = useState(null);
   const [agentError, setAgentError] = useState("");
   const [agentOpen, setAgentOpen] = useState(false);
-  const [socialSessions, setSocialSessions] = useState({});
-  const [socialSessionsLoading, setSocialSessionsLoading] = useState(false);
+  const [lastDiscoveryRun, setLastDiscoveryRun] = useState(null);
+  const [reportDownloading, setReportDownloading] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [sourcesLoading, setSourcesLoading] = useState(false);
+  const [sourcesRows, setSourcesRows] = useState([]);
+  const [sourcesProspect, setSourcesProspect] = useState(null);
+  const [scoringProspectId, setScoringProspectId] = useState(null);
+  const [scoreDetailsProspect, setScoreDetailsProspect] = useState(null);
 
   const [showForm, setShowForm] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -3881,19 +4231,26 @@ export default function Prospects() {
 
   useEffect(() => {
     setHookFilters(hookFilters);
-  }, [hookFilters]);
+  }, [hookFilters, setHookFilters]);
 
-  // ── Init ──
-  useEffect(() => {
-    const tok = localStorage.getItem("token");
-    if (!tok) {
-      navigate("/sign-in");
-      return;
+  const fetchCompanies = useCallback(async () => {
+    try {
+      const res = await api.get("/prospect-companies/");
+      setCompanies(Array.isArray(res.data) ? res.data : res.data?.results || []);
+    } catch {}
+  }, []);
+
+  const fetchCommercials = useCallback(async (tok) => {
+    try {
+      const res = await axios.get(API_ASSIGNABLE, { headers: { Authorization: `Bearer ${tok}` } });
+      const data = res.data;
+      setCommercials(Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : []);
+    } catch {
+      setCommercials([]);
     }
-    fetchCurrentUser(tok);
-  }, [navigate]);
+  }, []);
 
-  const fetchCurrentUser = async (tok) => {
+  const fetchCurrentUser = useCallback(async (tok) => {
     try {
       const res = await axios.get(API_USER_ME, { headers: { Authorization: `Bearer ${tok}` } });
       setCurrentUser(res.data);
@@ -3905,24 +4262,17 @@ export default function Prospects() {
         navigate("/sign-in");
       }
     }
-  };
+  }, [fetchCommercials, fetchCompanies, navigate]);
 
-  const fetchCompanies = async () => {
-    try {
-      const res = await api.get("/prospect-companies/");
-      setCompanies(Array.isArray(res.data) ? res.data : res.data?.results || []);
-    } catch {}
-  };
-
-  const fetchCommercials = async (tok) => {
-    try {
-      const res = await axios.get(API_ASSIGNABLE, { headers: { Authorization: `Bearer ${tok}` } });
-      const data = res.data;
-      setCommercials(Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : []);
-    } catch {
-      setCommercials([]);
+  // ── Init ──
+  useEffect(() => {
+    const tok = localStorage.getItem("token");
+    if (!tok) {
+      navigate("/sign-in");
+      return;
     }
-  };
+    fetchCurrentUser(tok);
+  }, [fetchCurrentUser, navigate]);
 
   const getCompanyNameById = useCallback(
     (id) => {
@@ -3931,6 +4281,7 @@ export default function Prospects() {
     },
     [companies]
   );
+
   const crmMapProspects = useMemo(
     () =>
       prospectsList
@@ -3959,64 +4310,50 @@ export default function Prospects() {
   const showSnackbar = (msg, sev = "success") =>
     setSnackbar({ open: true, message: msg, severity: sev });
 
-  const refreshSocialSessions = useCallback(async ({ silent = false } = {}) => {
-    setSocialSessionsLoading(true);
-    try {
-      const response = await getSocialSessions();
-      const next = normalizeSocialSessions(response.data);
-      console.log("[prospects-agent] social sessions", next);
-      setSocialSessions(next);
-      if (!silent) showSnackbar("Sessions sociales rafraichies", "success");
-      return next;
-    } catch (error) {
-      console.error("[prospects-agent] social sessions error", error);
-      if (!silent) showSnackbar("Impossible de rafraichir les sessions sociales", "error");
-      return {};
-    } finally {
-      setSocialSessionsLoading(false);
+  const getProspectionErrorMessage = (err, fallback = "Erreur pendant la prospection") => {
+    if (err.response?.status === 401) {
+      return "Votre session a expiré. Veuillez vous reconnecter.";
     }
-  }, []);
-
-  useEffect(() => {
-    if (agentOpen) {
-      refreshSocialSessions({ silent: true });
+    const data = err.response?.data || {};
+    if (
+      data.error === "MAPS_REQUEST_DENIED" ||
+      data.details?.reason === "API_KEY_SERVICE_BLOCKED" ||
+      data.details?.reason === "MAPS_REQUEST_DENIED"
+    ) {
+      return "Google Maps est indisponible ou mal configuré. Vérifiez Places API (New).";
     }
-  }, [agentOpen, refreshSocialSessions]);
+    return data.detail || data.message || err.message || fallback;
+  };
 
   // ── Stats ──
-  const loginRequired = Boolean(
-    agentResult?.logs?.some((item) => item.step === "login_required") ||
-      agentResult?.scrape_debug_events?.some((item) => item.requires_login) ||
-      agentResult?.errors?.some((item) => item.step === "login_required")
-  );
-  const loginPlatforms = [
-    ...new Set(
-      [
-        ...(agentResult?.logs || [])
-          .filter((item) => item.step === "login_required")
-          .map((item) => item.platform),
-        ...(agentResult?.scrape_debug_events || [])
-          .filter((item) => item.requires_login)
-          .map((item) => item.platform),
-      ].filter(Boolean)
-    ),
-  ];
+  const openScoreDetails = (prospect) => {
+    if (!hasCalculatedScore(prospect)) return;
+    setScoreDetailsProspect(prospect);
+  };
 
-  const requiredAgentPlatforms = useMemo(() => {
-    return getRequiredPlatformsFromAgentQuery(agentQuery);
-  }, [agentQuery]);
-
-  const missingRequiredAgentPlatforms = useMemo(
-    () => requiredAgentPlatforms.filter((platform) => !isSessionReady(socialSessions?.[platform])),
-    [requiredAgentPlatforms, socialSessions]
-  );
-
-  useEffect(() => {
-    console.log("[prospects-agent] required platforms", requiredAgentPlatforms);
-    console.log("[prospects-agent] missing platforms", missingRequiredAgentPlatforms);
-  }, [requiredAgentPlatforms, missingRequiredAgentPlatforms]);
-
-  const canLaunchProspecting = missingRequiredAgentPlatforms.length === 0;
+  const handleCalculateScore = async (prospect) => {
+    if (!prospect?.id || scoringProspectId) return;
+    setScoringProspectId(prospect.id);
+    try {
+      const data = await calculateProspectScore(prospect.id);
+      showSnackbar("Score du prospect calcule avec succes.", "success");
+      const scoredProspect = data.prospect || { ...prospect, ...data };
+      setScoreDetailsProspect(scoredProspect);
+      setSelectedProspect((current) =>
+        current?.id === prospect.id ? { ...current, ...scoredProspect } : current
+      );
+      await refresh();
+    } catch (err) {
+      const data = err.response?.data || {};
+      const fallback =
+        err.response?.status === 404
+          ? "Prospect introuvable."
+          : "Erreur pendant le calcul du score.";
+      showSnackbar(data.message || data.detail || fallback, "error");
+    } finally {
+      setScoringProspectId(null);
+    }
+  };
 
   const runAgentFromProspects = async () => {
     const query = agentQuery.trim();
@@ -4025,30 +4362,78 @@ export default function Prospects() {
       return;
     }
 
-    if (!canLaunchProspecting) {
-      const messageText = `Connectez d'abord : ${missingRequiredAgentPlatforms.join(", ")}`;
-      setAgentError(messageText);
-      showSnackbar(messageText, "warning");
-      return;
-    }
-
     setAgentLoading(true);
     setAgentError("");
     setAgentResult(null);
 
     try {
-      const data = await runProspectionAgent(query);
+      const data = await runDiscovery({ query });
       setAgentResult(data);
+      setLastDiscoveryRun(data.report_available ? data : null);
       await refresh();
       await fetchCompanies();
-      showSnackbar(data.message || "Prospection terminee", "success");
+      const imported = discoveryImportedCount(data);
+      showSnackbar(
+        data.message ||
+          `${
+            imported || Number(data.companies_found || 0) + Number(data.persons_found || 0)
+          } prospect(s) trouve(s).`,
+        "success"
+      );
     } catch (err) {
-      const messageText =
-        err.response?.data?.message || err.message || "Erreur pendant la prospection";
+      const messageText = getProspectionErrorMessage(err);
       setAgentError(messageText);
       showSnackbar(messageText, "error");
     } finally {
       setAgentLoading(false);
+    }
+  };
+
+  const downloadDiscoveryReport = async (run = lastDiscoveryRun) => {
+    if (!run?.report_url || reportDownloading) return;
+    setReportDownloading(true);
+    try {
+      const blob = await getDiscoveryReportBlob(run.report_url);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const stamp = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "-");
+      link.href = url;
+      link.download = `Rapport_Prospection_${stamp}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      showSnackbar("Rapport PDF téléchargé.", "success");
+    } catch (err) {
+      showSnackbar(getProspectionErrorMessage(err, "Rapport PDF indisponible"), "error");
+    } finally {
+      setReportDownloading(false);
+    }
+  };
+
+  const openProspectSources = async (prospect) => {
+    setSourcesProspect(prospect);
+    setSourcesOpen(true);
+    setSourcesLoading(true);
+    try {
+      const data = await getProspectSources(prospect.id);
+      const sources = data.sources || {};
+      setSourcesRows(
+        Object.entries(sources)
+          .filter(([, value]) => value)
+          .map(([key, value]) => ({
+            id: key,
+            source_type: key.replace("_url", ""),
+            source_title: key,
+            source_snippet: String(value),
+            source_url: String(value).startsWith("http") ? value : "",
+          }))
+      );
+    } catch (err) {
+      setSourcesRows([]);
+      showSnackbar(getProspectionErrorMessage(err, "Sources indisponibles"), "error");
+    } finally {
+      setSourcesLoading(false);
     }
   };
 
@@ -4361,6 +4746,7 @@ export default function Prospects() {
     if (apiFilters.date_to) count++;
     return count;
   }, [apiFilters]);
+  const agentStats = useMemo(() => discoveryStats(agentResult || {}), [agentResult]);
 
   return (
     <DashboardLayout>
@@ -4433,215 +4819,190 @@ export default function Prospects() {
           >
             Nouveau prospect
           </GradientButton>
+          <Button
+            variant="contained"
+            startIcon={<SearchIcon />}
+            onClick={() => setAgentOpen(true)}
+            sx={{ ml: 1, borderRadius: 2, textTransform: "none" }}
+          >
+            Rechercher des prospects avec IA
+          </Button>
         </Box>
 
-        {agentOpen && (
-          <StyledCard
-            sx={{
-              position: "fixed",
-              right: { xs: 16, md: 32 },
-              bottom: { xs: 88, md: 104 },
-              width: { xs: "calc(100vw - 32px)", sm: 440 },
-              maxHeight: "calc(100vh - 140px)",
-              overflow: "auto",
-              zIndex: 1300,
-              mb: 0,
-            }}
-          >
-            <CardContent>
-              <Stack spacing={2}>
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  gap={2}
-                  flexWrap="wrap"
-                >
-                  <Box>
-                    <Typography variant="h6" fontWeight={700}>
-                      Agent de prospection
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Lancez une recherche, puis la liste des prospects et societes se rafraichit
-                      automatiquement.
-                    </Typography>
-                  </Box>
-                  {agentResult?.company_id && (
-                    <Chip
-                      size="small"
-                      color="primary"
-                      label={`Workspace #${agentResult.company_id}`}
-                    />
-                  )}
-                  <Tooltip title="Fermer l'agent">
-                    <IconButton size="small" onClick={() => setAgentOpen(false)}>
-                      <CloseIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
+        <Dialog
+          open={agentOpen}
+          onClose={() => !agentLoading && setAgentOpen(false)}
+          fullWidth
+          maxWidth="sm"
+        >
+          <DialogTitle>Recherche de prospects</DialogTitle>
+          <DialogContent dividers>
+            <Stack spacing={2}>
+              <TextField
+                fullWidth
+                multiline
+                minRows={3}
+                label="Décrivez les prospects recherchés"
+                value={agentQuery}
+                onChange={(e) => setAgentQuery(e.target.value)}
+                placeholder="Trouver 5 marques de cosmétique en Tunisie actives en publicité Facebook"
+                disabled={agentLoading}
+                error={Boolean(agentError && !agentQuery.trim())}
+                helperText={agentError && !agentQuery.trim() ? agentError : ""}
+              />
 
-                <SocialConnectionBox
-                  sessions={socialSessions}
-                  title="Connexions sociales pour la prospection"
-                  compact
-                  requiredPlatforms={requiredAgentPlatforms}
-                  onStatusChange={(sessions) => {
-                    const next = normalizeSocialSessions(sessions);
-                    console.log("[prospects-agent] social sessions", next);
-                    setSocialSessions(next);
-                  }}
-                />
+              {agentLoading && (
+                <Alert severity="info" icon={<CircularProgress size={18} />}>
+                  Recherche de prospects en cours...
+                </Alert>
+              )}
 
-                {missingRequiredAgentPlatforms.length > 0 && (
-                  <Alert severity="warning">
-                    Connectez les plateformes suivantes avant de lancer l&apos;agent :{" "}
-                    {missingRequiredAgentPlatforms.join(", ")}
+              {agentError && agentQuery.trim() && <Alert severity="error">{agentError}</Alert>}
+
+              {agentResult && (
+                <Stack spacing={1.5}>
+                  <Alert severity={agentResult.errors?.length ? "warning" : "success"}>
+                    {discoveryResultMessage(agentResult)} {agentStats.acceptedCount} prospect(s)
+                    valide(s), {agentStats.importedCount} ajouté(s) ou mis à jour dans le CRM.
                   </Alert>
-                )}
-
-                <TextField
-                  fullWidth
-                  multiline
-                  minRows={2}
-                  value={agentQuery}
-                  onChange={(e) => setAgentQuery(e.target.value)}
-                  placeholder="Exemple : trouve des restaurants a Tunis avec telephone et Facebook"
-                  disabled={agentLoading}
-                />
-
-                <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                  <Button
-                    variant="outlined"
-                    startIcon={
-                      socialSessionsLoading ? <CircularProgress size={16} /> : <RefreshIcon />
-                    }
-                    onClick={() => refreshSocialSessions()}
-                    disabled={socialSessionsLoading || agentLoading}
-                    sx={{ textTransform: "none", borderRadius: 2 }}
-                  >
-                    Rafraichir les sessions
-                  </Button>
-                  <GradientButton
-                    startIcon={
-                      agentLoading ? <CircularProgress size={16} color="inherit" /> : <SendIcon />
-                    }
-                    onClick={runAgentFromProspects}
-                    disabled={agentLoading || !canLaunchProspecting}
-                  >
-                    {agentLoading ? "Prospection en cours..." : "Lancer l'agent"}
-                  </GradientButton>
-                  {agentError && (
-                    <Alert severity="error" sx={{ py: 0 }}>
-                      {agentError}
+                  {agentResult.gemini_fallback_used && (
+                    <Typography variant="caption" color="text.secondary">
+                      Recherche effectuée en mode de secours IA.
+                    </Typography>
+                  )}
+                  <Grid container spacing={1}>
+                    {[
+                      ["Résultats bruts", agentStats.rawResultsCount],
+                      ["Prospects valides", agentStats.acceptedCount],
+                      ["Nouveaux prospects", agentStats.newCount],
+                      ["Déjà existants", agentStats.existingCount],
+                      ["Rejetés", agentStats.rejectedCount],
+                      ["Importés", agentStats.importedCount],
+                      ["Échecs import", agentStats.importFailedCount],
+                    ].map(([label, value]) => (
+                      <Grid item xs={6} sm={4} key={label}>
+                        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
+                          <Typography variant="caption" color="text.secondary">
+                            {label}
+                          </Typography>
+                          <Typography variant="h6" fontWeight={800}>
+                            {value}
+                          </Typography>
+                        </Paper>
+                      </Grid>
+                    ))}
+                  </Grid>
+                  {discoverySummarySources(agentResult).length > 0 && (
+                    <Box>
+                      <Typography variant="caption" color="textSecondary" fontWeight={800}>
+                        Sources utilisées
+                      </Typography>
+                      <Stack direction="row" gap={0.75} flexWrap="wrap" mt={0.75}>
+                        {discoverySummarySources(agentResult).map((source) => (
+                          <Chip
+                            key={source.fullLabel}
+                            size="small"
+                            label={source.fullLabel}
+                            sx={{
+                              borderRadius: 1,
+                              bgcolor: alpha(source.color, 0.1),
+                              color: source.color,
+                              border: `1px solid ${alpha(source.color, 0.35)}`,
+                              fontWeight: 700,
+                            }}
+                          />
+                        ))}
+                      </Stack>
+                    </Box>
+                  )}
+                  {agentResult.errors?.length > 0 && (
+                    <Alert severity="warning">
+                      {agentResult.errors.slice(0, 3).map(formatDiscoveryMessage).join(" · ")}
                     </Alert>
                   )}
-                </Box>
+                  {agentResult.report_available && (
+                    <Box display="flex" gap={1} flexWrap="wrap">
+                      <Button
+                        variant="outlined"
+                        startIcon={<PeopleIcon />}
+                        onClick={() => setAgentOpen(false)}
+                        disabled={!agentStats.hasProspects}
+                        sx={{ textTransform: "none", borderRadius: 1.5 }}
+                      >
+                        Voir les prospects
+                      </Button>
+                      <GradientButton
+                        startIcon={
+                          reportDownloading ? (
+                            <CircularProgress size={16} color="inherit" />
+                          ) : (
+                            <PdfIcon />
+                          )
+                        }
+                        onClick={() => downloadDiscoveryReport(agentResult)}
+                        disabled={reportDownloading}
+                      >
+                        Télécharger le rapport PDF
+                      </GradientButton>
+                    </Box>
+                  )}
+                </Stack>
+              )}
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setAgentOpen(false)} disabled={agentLoading}>
+              Annuler
+            </Button>
+            <GradientButton
+              startIcon={
+                agentLoading ? <CircularProgress size={16} color="inherit" /> : <SearchIcon />
+              }
+              onClick={runAgentFromProspects}
+              disabled={agentLoading || !agentQuery.trim()}
+            >
+              {agentLoading ? "Recherche..." : "Rechercher"}
+            </GradientButton>
+          </DialogActions>
+        </Dialog>
 
-                {loginRequired && (
-                  <Alert severity="warning">
-                    Connexion {loginPlatforms.join(", ") || "reseau social"} requise. Utilisez le
-                    panneau Connexions sociales pour ouvrir la fenetre de connexion, puis cliquez
-                    sur Verifier session.
-                  </Alert>
-                )}
-
-                {agentResult && (
-                  <Box>
-                    <Grid container spacing={1}>
-                      {[
-                        ["Entreprises trouvees", agentResult.companies_found || 0],
-                        ["Personnes trouvees", agentResult.persons_found || 0],
-                        ["Societes creees", agentResult.import_stats?.companies_created || 0],
-                        ["Societes mises a jour", agentResult.import_stats?.companies_updated || 0],
-                        ["Prospects crees", agentResult.import_stats?.persons_created || 0],
-                        ["Prospects mis a jour", agentResult.import_stats?.persons_updated || 0],
-                        ["Pages crawlees", agentResult.crawled_pages || 0],
-                        ["Resultats rejetes", agentResult.rejected_results || 0],
-                      ].map(([label, value]) => (
-                        <Grid item xs={6} md={3} key={label}>
-                          <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
-                            <Typography variant="caption" color="text.secondary">
-                              {label}
-                            </Typography>
-                            <Typography variant="h6" fontWeight={800}>
-                              {value}
-                            </Typography>
-                          </Paper>
-                        </Grid>
-                      ))}
-                    </Grid>
-
-                    <AgentResultsPreview result={agentResult} />
-
-                    <Collapse
-                      in={Boolean(
-                        agentResult.logs?.length ||
-                          agentResult.gemini_decisions?.length ||
-                          agentResult.scraping_debug?.length ||
-                          agentResult.errors?.length
-                      )}
-                    >
-                      <Box mt={2}>
-                        <details>
-                          <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
-                            Details techniques
-                          </summary>
-                          <Box
-                            component="pre"
-                            sx={{
-                              mt: 1,
-                              p: 1.5,
-                              bgcolor: alpha(THEME.primary, 0.04),
-                              borderRadius: 2,
-                              maxHeight: 260,
-                              overflow: "auto",
-                              fontSize: 12,
-                              whiteSpace: "pre-wrap",
-                            }}
-                          >
-                            {JSON.stringify(
-                              {
-                                logs: agentResult.logs || [],
-                                gemini_decisions: agentResult.gemini_decisions || [],
-                                scraping_debug: agentResult.scraping_debug || [],
-                                errors: agentResult.errors || [],
-                              },
-                              null,
-                              2
-                            )}
-                          </Box>
-                        </details>
-                      </Box>
-                    </Collapse>
-                  </Box>
-                )}
-              </Stack>
-            </CardContent>
-          </StyledCard>
-        )}
-
-        <Tooltip title={agentOpen ? "Agent ouvert" : "Ouvrir l'agent de prospection"}>
-          <IconButton
-            onClick={() => setAgentOpen((open) => !open)}
+        {lastDiscoveryRun?.report_available && (
+          <Paper
+            variant="outlined"
             sx={{
-              position: "fixed",
-              right: { xs: 16, md: 32 },
-              bottom: { xs: 20, md: 28 },
-              zIndex: 1301,
-              width: 58,
-              height: 58,
-              color: "white",
-              background: THEME.gradient,
-              boxShadow: `0 12px 28px ${alpha(THEME.primary, 0.35)}`,
-              "&:hover": {
-                background: THEME.gradient,
-                transform: "translateY(-2px)",
-              },
+              p: 1.5,
+              mb: 2,
+              borderRadius: 2,
+              bgcolor: alpha(THEME.primary, 0.025),
+              borderColor: alpha(THEME.primary, 0.16),
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 1,
+              flexWrap: "wrap",
             }}
           >
-            {agentLoading ? <CircularProgress size={24} color="inherit" /> : <TriggerIcon />}
-          </IconButton>
-        </Tooltip>
+            <Box>
+              <Typography variant="subtitle2" fontWeight={800}>
+                Dernière recherche IA
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                {lastDiscoveryRun.found || 0} prospects trouvés · {lastDiscoveryRun.imported || 0}{" "}
+                importés
+              </Typography>
+            </Box>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={reportDownloading ? <CircularProgress size={14} /> : <PdfIcon />}
+              onClick={() => downloadDiscoveryReport(lastDiscoveryRun)}
+              disabled={reportDownloading}
+              sx={{ textTransform: "none", borderRadius: 1.5 }}
+            >
+              Rapport PDF
+            </Button>
+          </Paper>
+        )}
 
         {/* Stats */}
         <Grid container spacing={2} sx={{ mb: 3 }}>
@@ -4754,7 +5115,11 @@ export default function Prospects() {
                   size="small"
                   icon={<LocationOnIcon />}
                   label="Carte"
-                  sx={{ borderRadius: 1, bgcolor: alpha(THEME.primary, 0.08), color: THEME.primary }}
+                  sx={{
+                    borderRadius: 1,
+                    bgcolor: alpha(THEME.primary, 0.08),
+                    color: THEME.primary,
+                  }}
                 />
               </Box>
               <ProspectLocationsMap prospects={crmMapProspects} />
@@ -5033,22 +5398,17 @@ export default function Prospects() {
               <Table>
                 <StyledTableHead>
                   <TableRow>
-                    <TableCell sx={{ width: 190 }}>Prospect</TableCell>
-                    <TableCell sx={{ width: 210 }}>Contact</TableCell>
-                    <TableCell sx={{ width: 120 }}>Localisation</TableCell>
-
-                    <TableCell sx={{ width: 140 }}>Société</TableCell>
-                    {isAdminOrManager && <TableCell sx={{ width: 140 }}>Assigné à</TableCell>}
-                    <TableCell sx={{ width: 100 }} align="center">
-                      Évaluation
+                    <TableCell sx={{ width: "24%" }}>Prospect</TableCell>
+                    <TableCell sx={{ width: "24%" }}>Société / Contact</TableCell>
+                    <TableCell sx={{ width: 110 }} align="center">
+                      Score
                     </TableCell>
-                    <TableCell sx={{ width: 100 }} align="center">
+                    <TableCell sx={{ width: 120 }} align="center">
                       Statut
                     </TableCell>
-                    <TableCell sx={{ width: 210 }}>Prochaine tache</TableCell>
-                    <TableCell sx={{ width: 180 }}>Source</TableCell>
-                    <TableCell sx={{ width: 100 }}>Création</TableCell>
-                    <TableCell sx={{ width: 200 }} align="center">
+                    <TableCell sx={{ width: 150 }}>Assigné à</TableCell>
+                    <TableCell sx={{ width: 120 }}>Source</TableCell>
+                    <TableCell sx={{ width: 120 }} align="center">
                       Actions
                     </TableCell>
                   </TableRow>
@@ -5056,7 +5416,7 @@ export default function Prospects() {
                 <TableBody>
                   {prospectsList.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={isAdminOrManager ? 11 : 10} align="center" sx={{ py: 5 }}>
+                      <TableCell colSpan={7} align="center" sx={{ py: 5 }}>
                         <Box textAlign="center">
                           <PeopleIcon
                             sx={{ fontSize: 48, color: alpha(THEME.primary, 0.3), mb: 2 }}
@@ -5084,13 +5444,11 @@ export default function Prospects() {
                         key={p.id}
                         prospect={p}
                         companyName={getCompanyNameById(p.prospect_company)}
-                        currentUser={currentUser}
                         onView={handleViewDetails}
                         onEdit={handleEdit}
-                        onArchive={handleArchive}
-                        onRestore={handleRestore}
                         onDelete={handleDeleteClick}
                         onContextMenu={handleContextMenu}
+                        onOpenDossier={(prospectId) => navigate(`/prospects/${prospectId}`)}
                       />
                     ))
                   )}
@@ -5124,6 +5482,9 @@ export default function Prospects() {
                     onArchive={handleArchive}
                     onRestore={handleRestore}
                     onDelete={handleDeleteClick}
+                    onScore={handleCalculateScore}
+                    onScoreDetails={openScoreDetails}
+                    scoring={scoringProspectId === p.id}
                   />
                 </Grid>
               ))}
@@ -5239,8 +5600,103 @@ export default function Prospects() {
           onClose={() => setDetailsDrawerOpen(false)}
           prospect={selectedProspect}
           companies={companies}
-          currentUser={currentUser}
+          onEdit={handleEdit}
+          onDelete={handleDeleteClick}
+          onScore={handleCalculateScore}
+          onSources={openProspectSources}
+          scoring={scoringProspectId === selectedProspect?.id}
         />
+
+        <Dialog
+          open={Boolean(scoreDetailsProspect)}
+          onClose={() => setScoreDetailsProspect(null)}
+          fullWidth
+          maxWidth="sm"
+        >
+          <DialogTitle>Details du score</DialogTitle>
+          <DialogContent dividers>
+            {scoreDetailsProspect && (
+              <Stack spacing={2}>
+                <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                  <Typography variant="h6">
+                    {getProspectDisplayName(scoreDetailsProspect)}
+                  </Typography>
+                  <ScoreBadge prospect={scoreDetailsProspect} />
+                  {scoreDetailsProspect.evaluation && (
+                    <StyledChip
+                      size="small"
+                      label={getEvaluationLabel(scoreDetailsProspect.evaluation)}
+                      evaluation={scoreDetailsProspect.evaluation}
+                    />
+                  )}
+                </Box>
+                <Alert severity="info">
+                  {scoreDetailsProspect.score_reasons ||
+                    scoreDetailsProspect.raison_score ||
+                    "Aucun detail de score enregistre."}
+                </Alert>
+              </Stack>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setScoreDetailsProspect(null)}>Fermer</Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog open={sourcesOpen} onClose={() => setSourcesOpen(false)} fullWidth maxWidth="md">
+          <DialogTitle>
+            Sources de decouverte - {sourcesProspect ? getProspectDisplayName(sourcesProspect) : ""}
+          </DialogTitle>
+          <DialogContent dividers>
+            {sourcesLoading ? (
+              <Box display="flex" justifyContent="center" py={4}>
+                <CircularProgress />
+              </Box>
+            ) : sourcesRows.length === 0 ? (
+              <Alert severity="info">Aucune source de decouverte enregistree.</Alert>
+            ) : (
+              <Stack spacing={1.25}>
+                {sourcesRows.map((source) => (
+                  <Paper key={source.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                    <Stack spacing={0.75}>
+                      <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                        <SourceBadge source={source.source_type} />
+                        <Typography variant="caption">Run {source.run_id || "-"}</Typography>
+                        <Typography variant="caption">{formatDate(source.date)}</Typography>
+                      </Box>
+                      <Typography variant="subtitle2">
+                        {source.source_title || "Sans titre"}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {source.source_snippet || "-"}
+                      </Typography>
+                      <Box display="flex" gap={1} alignItems="center">
+                        <Typography variant="caption">
+                          Confiance: {source.discovery_confidence ?? "-"}
+                        </Typography>
+                        {source.source_url && (
+                          <Button
+                            size="small"
+                            component="a"
+                            href={source.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            startIcon={<OpenInNewIcon />}
+                          >
+                            Ouvrir la source
+                          </Button>
+                        )}
+                      </Box>
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setSourcesOpen(false)}>Fermer</Button>
+          </DialogActions>
+        </Dialog>
 
         <Dialog
           open={deleteDialogOpen}

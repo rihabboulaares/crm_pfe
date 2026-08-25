@@ -71,6 +71,33 @@ const PRIORITIES = [
   { value: "critical", label: "Critique", color: "#C62828", bg: "#ffebee" },
 ];
 
+const TASK_PRIORITIES = PRIORITIES.filter((priority) => priority.value !== "critical");
+
+const TASK_TYPES = [
+  { value: "classic", label: "Tâche classique" },
+  { value: "quota", label: "Objectif" },
+  { value: "call", label: "Appel" },
+  { value: "linkedin_message", label: "Message LinkedIn" },
+  { value: "email", label: "Email" },
+  { value: "facebook_message", label: "Message Facebook" },
+  { value: "instagram_message", label: "Message Instagram" },
+  { value: "follow_up", label: "Relance" },
+  { value: "meeting", label: "RDV" },
+  { value: "note", label: "Note" },
+  { value: "other", label: "Autre" },
+];
+
+const TASK_STATUSES = [
+  { value: "todo", label: "A faire" },
+  { value: "pending", label: "En attente" },
+  { value: "ready", label: "Prête" },
+  { value: "in_progress", label: "En cours" },
+  { value: "done", label: "Terminée" },
+  { value: "completed", label: "Complétée" },
+  { value: "cancelled", label: "Annulée" },
+  { value: "failed", label: "Échouée" },
+];
+
 const REMINDER_OPTIONS = [
   { value: 15, label: "15 minutes avant" },
   { value: 30, label: "30 minutes avant" },
@@ -101,6 +128,8 @@ const DEFAULT_FORM = {
   all_day: false,
   event_type: "task",
   priority: "medium",
+  task_type: "classic",
+  status: "todo",
   color: "#C62828",
   task: null,
   opportunity: null,
@@ -273,6 +302,9 @@ export default function EventModal({
   onCreate,
   onUpdate,
   onDelete,
+  onCreateTask,
+  onUpdateTask,
+  onDeleteTask,
   onSaved,
   fetchTasks,
   fetchPipelines,
@@ -280,13 +312,17 @@ export default function EventModal({
   fetchUsers,
 }) {
   const isEdit = Boolean(event?.id);
-  const isAutoSync =
-    isEdit && (event?.isVirtualTaskEvent || ["activity", "pipeline_alert"].includes(event?.eventType));
+  const isTaskMode = event?.eventType === "task" || (!isEdit && !event);
+  const taskRecordId = event?.taskRecordId || (event?.isVirtualTaskEvent ? event?.task : null);
+  const isExistingTask = Boolean(isEdit && isTaskMode && taskRecordId);
+  const isAutoSync = isEdit && ["activity", "pipeline_alert"].includes(event?.eventType);
 
   const [form, setForm] = useState(DEFAULT_FORM);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [delConf, setDelConf] = useState(false);
+  const isTaskForm = form.event_type === "task";
+  const shouldPersistAsTask = isTaskForm && (!isEdit || isExistingTask);
 
   // Données dynamiques
   const [tasks, setTasks] = useState([]);
@@ -308,7 +344,12 @@ export default function EventModal({
         end: toLocalInput(event.end),
         all_day: event.allDay || false,
         event_type: event.eventType || "task",
-        priority: event.priority || "medium",
+        priority:
+          event.priority === "critical" && event.eventType === "task"
+            ? "high"
+            : event.priority || "medium",
+        task_type: event.taskType || "classic",
+        status: event.taskStatus || "todo",
         color: event.color || "#C62828",
         // Liaisons CRM
         task: event.task ? { id: event.task, title: event.taskTitle || "" } : null,
@@ -367,7 +408,13 @@ export default function EventModal({
   }, [form._pipeline, fetchStages]);
 
   const set = (key, value) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => {
+      const next = { ...prev, [key]: value };
+      if (key === "event_type" && value === "task" && next.priority === "critical") {
+        next.priority = "high";
+      }
+      return next;
+    });
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: "" }));
   };
 
@@ -385,27 +432,40 @@ export default function EventModal({
     if (!validate()) return;
     setLoading(true);
 
-    // On n'envoie JAMAIS task_activity / pipeline_alert / opportunity_pipeline
-    // ces champs sont gérés uniquement par les signaux Django
-    const payload = {
-      title: form.title.trim(),
-      description: form.description,
-      start: fromLocalInput(form.start),
-      end: form.end ? fromLocalInput(form.end) : null,
-      all_day: form.all_day,
-      event_type: form.event_type,
-      priority: form.priority,
-      color: form.color,
-      task: form.task?.id || null,
-      opportunity: form.opportunity?.id || null,
-      pipeline_stage: form.pipeline_stage?.id || null,
-      assigned_to: form.assigned_to?.id || null,
-      reminder: form.reminder || null,
-    };
-
     try {
-      if (isEdit) await onUpdate(event.id, payload);
-      else await onCreate(payload);
+      if (shouldPersistAsTask) {
+        const taskPayload = {
+          title: form.title.trim(),
+          description: form.description,
+          due_date: fromLocalInput(form.start),
+          task_type: form.task_type || "classic",
+          status: form.status || "todo",
+          priority: form.priority === "critical" ? "high" : form.priority,
+          assigned_to: form.assigned_to?.id || null,
+        };
+        if (isExistingTask) await onUpdateTask(taskRecordId, taskPayload);
+        else await onCreateTask(taskPayload);
+      } else {
+        // On n'envoie JAMAIS task_activity / pipeline_alert / opportunity_pipeline
+        // ces champs sont gérés uniquement par les signaux Django
+        const payload = {
+          title: form.title.trim(),
+          description: form.description,
+          start: fromLocalInput(form.start),
+          end: form.end ? fromLocalInput(form.end) : null,
+          all_day: form.all_day,
+          event_type: form.event_type,
+          priority: form.priority,
+          color: form.color,
+          task: form.task?.id || null,
+          opportunity: form.opportunity?.id || null,
+          pipeline_stage: form.pipeline_stage?.id || null,
+          assigned_to: form.assigned_to?.id || null,
+          reminder: form.reminder || null,
+        };
+        if (isEdit) await onUpdate(event.id, payload);
+        else await onCreate(payload);
+      }
       onSaved?.();
     } catch (err) {
       setErrors({ submit: err?.response?.data?.detail || "Une erreur est survenue" });
@@ -421,7 +481,8 @@ export default function EventModal({
     }
     setLoading(true);
     try {
-      await onDelete(event.id);
+      if (shouldPersistAsTask && isExistingTask) await onDeleteTask(taskRecordId);
+      else await onDelete(event.id);
       onSaved?.();
     } catch {
       setErrors({ submit: "Erreur lors de la suppression" });
@@ -457,7 +518,13 @@ export default function EventModal({
             </Box>
             <Box>
               <Typography variant="h6" fontWeight={700} color="#fff" lineHeight={1.2}>
-                {isEdit ? "Modifier l'événement" : "Nouvel événement"}
+                {isTaskForm
+                  ? isEdit
+                    ? "Modifier la tâche"
+                    : "Nouvelle tâche"
+                  : isEdit
+                  ? "Modifier l'événement"
+                  : "Nouvel événement"}
               </Typography>
               <Stack direction="row" spacing={1} mt={0.5}>
                 <TypeBadge type={form.event_type} />
@@ -511,7 +578,7 @@ export default function EventModal({
                 value={form.event_type}
                 label="Type"
                 onChange={(e) => set("event_type", e.target.value)}
-                disabled={isAutoSync}
+                disabled={isAutoSync || isExistingTask}
               >
                 {EVENT_TYPES
                   // En création : masquer les types readOnly (activity, pipeline_alert)
@@ -539,7 +606,7 @@ export default function EventModal({
                 label="Priorité"
                 onChange={(e) => set("priority", e.target.value)}
               >
-                {PRIORITIES.map((p) => (
+                {(isTaskForm ? TASK_PRIORITIES : PRIORITIES).map((p) => (
                   <MenuItem key={p.value} value={p.value}>
                     <Stack direction="row" alignItems="center" spacing={1}>
                       <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: p.color }} />
@@ -551,29 +618,69 @@ export default function EventModal({
             </FormControl>
           </Stack>
 
+          {isTaskForm && (
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+              <FormControl fullWidth size="small" sx={inputSx}>
+                <InputLabel>Nature de la tâche</InputLabel>
+                <Select
+                  value={form.task_type}
+                  label="Nature de la tâche"
+                  onChange={(e) => set("task_type", e.target.value)}
+                  disabled={isAutoSync}
+                >
+                  {TASK_TYPES.map((type) => (
+                    <MenuItem key={type.value} value={type.value}>
+                      {type.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControl fullWidth size="small" sx={inputSx}>
+                <InputLabel>Statut</InputLabel>
+                <Select
+                  value={form.status}
+                  label="Statut"
+                  onChange={(e) => set("status", e.target.value)}
+                  disabled={isAutoSync}
+                >
+                  {TASK_STATUSES.map((status) => (
+                    <MenuItem key={status.value} value={status.value}>
+                      {status.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Stack>
+          )}
+
           <Divider sx={{ borderColor: CRM_RED.border }} />
 
           {/* Dates */}
-          <Section icon={<EventIcon fontSize="small" />} label="Date et Heure">
+          <Section
+            icon={<EventIcon fontSize="small" />}
+            label={isTaskForm ? "Échéance" : "Date et Heure"}
+          >
             <Stack spacing={1.5}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={form.all_day}
-                    onChange={(e) => set("all_day", e.target.checked)}
-                    sx={{
-                      "& .MuiSwitch-switchBase.Mui-checked": { color: CRM_RED.main },
-                      "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
-                        bgcolor: CRM_RED.light,
-                      },
-                    }}
-                  />
-                }
-                label={<Typography variant="body2">Journée entière</Typography>}
-              />
+              {!isTaskForm && (
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={form.all_day}
+                      onChange={(e) => set("all_day", e.target.checked)}
+                      sx={{
+                        "& .MuiSwitch-switchBase.Mui-checked": { color: CRM_RED.main },
+                        "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
+                          bgcolor: CRM_RED.light,
+                        },
+                      }}
+                    />
+                  }
+                  label={<Typography variant="body2">Journée entière</Typography>}
+                />
+              )}
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
                 <TextField
-                  label="Début *"
+                  label={isTaskForm ? "Date limite *" : "Début *"}
                   type={form.all_day ? "date" : "datetime-local"}
                   fullWidth
                   size="small"
@@ -584,18 +691,20 @@ export default function EventModal({
                   InputLabelProps={{ shrink: true }}
                   sx={inputSx}
                 />
-                <TextField
-                  label="Fin"
-                  type={form.all_day ? "date" : "datetime-local"}
-                  fullWidth
-                  size="small"
-                  value={form.all_day ? form.end?.slice(0, 10) : form.end}
-                  onChange={(e) => set("end", e.target.value)}
-                  error={Boolean(errors.end)}
-                  helperText={errors.end}
-                  InputLabelProps={{ shrink: true }}
-                  sx={inputSx}
-                />
+                {!isTaskForm && (
+                  <TextField
+                    label="Fin"
+                    type={form.all_day ? "date" : "datetime-local"}
+                    fullWidth
+                    size="small"
+                    value={form.all_day ? form.end?.slice(0, 10) : form.end}
+                    onChange={(e) => set("end", e.target.value)}
+                    error={Boolean(errors.end)}
+                    helperText={errors.end}
+                    InputLabelProps={{ shrink: true }}
+                    sx={inputSx}
+                  />
+                )}
               </Stack>
             </Stack>
           </Section>
@@ -603,7 +712,7 @@ export default function EventModal({
           <Divider sx={{ borderColor: CRM_RED.border }} />
 
           {/* Liaison CRM — masquée pour les events auto-sync */}
-          {!isAutoSync && (
+          {!isAutoSync && !isTaskForm && (
             <Section icon={<LinkIcon fontSize="small" />} label="Liaison CRM">
               <Stack spacing={1.5}>
                 {/* Tâche */}
@@ -712,7 +821,7 @@ export default function EventModal({
             </Section>
           )}
 
-          {!isAutoSync && <Divider sx={{ borderColor: CRM_RED.border }} />}
+          {!isAutoSync && !isTaskForm && <Divider sx={{ borderColor: CRM_RED.border }} />}
 
           {/* Assigné à */}
           <Section icon={<PersonIcon fontSize="small" />} label="Assigné à">
@@ -753,30 +862,34 @@ export default function EventModal({
             />
           </Section>
 
-          <Divider sx={{ borderColor: CRM_RED.border }} />
+          {!isTaskForm && (
+            <>
+              <Divider sx={{ borderColor: CRM_RED.border }} />
 
-          {/* Rappel */}
-          <Section icon={<NotificationsIcon fontSize="small" />} label="Rappel">
-            <FormControl fullWidth size="small" sx={inputSx}>
-              <InputLabel>Rappel avant l&apos;événement</InputLabel>
-              <Select
-                value={form.reminder}
-                label="Rappel avant l'événement"
-                onChange={(e) => set("reminder", e.target.value)}
-              >
-                <MenuItem value="">
-                  <em>Pas de rappel</em>
-                </MenuItem>
-                {REMINDER_OPTIONS.map((r) => (
-                  <MenuItem key={r.value} value={r.value}>
-                    {r.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Section>
+              {/* Rappel */}
+              <Section icon={<NotificationsIcon fontSize="small" />} label="Rappel">
+                <FormControl fullWidth size="small" sx={inputSx}>
+                  <InputLabel>Rappel avant l&apos;événement</InputLabel>
+                  <Select
+                    value={form.reminder}
+                    label="Rappel avant l'événement"
+                    onChange={(e) => set("reminder", e.target.value)}
+                  >
+                    <MenuItem value="">
+                      <em>Pas de rappel</em>
+                    </MenuItem>
+                    {REMINDER_OPTIONS.map((r) => (
+                      <MenuItem key={r.value} value={r.value}>
+                        {r.label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Section>
 
-          <Divider sx={{ borderColor: CRM_RED.border }} />
+              <Divider sx={{ borderColor: CRM_RED.border }} />
+            </>
+          )}
 
           {/* Description */}
           <TextField
@@ -791,74 +904,75 @@ export default function EventModal({
             sx={inputSx}
           />
 
-          {/* Couleur */}
-          <Stack direction="row" alignItems="center" spacing={2}>
-            <Typography variant="body2" color="text.secondary">
-              Couleur :
-            </Typography>
-            <Stack direction="row" spacing={1}>
-              {[
-                "#C62828",
-                "#7b1fa2",
-                "#0288d1",
-                "#388e3c",
-                "#f57c00",
-                "#455a64",
-                "#00695c",
-                "#bf360c",
-              ].map((c) => (
-                <Tooltip key={c} title={c}>
-                  <Box
-                    onClick={() => set("color", c)}
-                    sx={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: "50%",
-                      bgcolor: c,
-                      cursor: "pointer",
-                      border: form.color === c ? `3px solid ${c}` : "3px solid transparent",
-                      outline: form.color === c ? `2px solid ${c}40` : "none",
-                      transition: "all 0.15s",
-                      "&:hover": { transform: "scale(1.2)" },
-                    }}
-                  />
-                </Tooltip>
-              ))}
-              {/* Couleur personnalisée */}
-              <Tooltip title="Couleur personnalisée">
-                <Box sx={{ position: "relative", width: 24, height: 24 }}>
-                  <input
-                    type="color"
-                    value={form.color}
-                    onChange={(e) => set("color", e.target.value)}
-                    style={{
-                      position: "absolute",
-                      opacity: 0,
-                      width: "100%",
-                      height: "100%",
-                      cursor: "pointer",
-                    }}
-                  />
-                  <Box
-                    sx={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: "50%",
-                      border: "2px dashed #bbb",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 12,
-                      color: "#bbb",
-                      pointerEvents: "none",
-                    }}
-                  >
-                    +
+          {!isTaskForm && (
+            <Stack direction="row" alignItems="center" spacing={2}>
+              <Typography variant="body2" color="text.secondary">
+                Couleur :
+              </Typography>
+              <Stack direction="row" spacing={1}>
+                {[
+                  "#C62828",
+                  "#7b1fa2",
+                  "#0288d1",
+                  "#388e3c",
+                  "#f57c00",
+                  "#455a64",
+                  "#00695c",
+                  "#bf360c",
+                ].map((c) => (
+                  <Tooltip key={c} title={c}>
+                    <Box
+                      onClick={() => set("color", c)}
+                      sx={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: "50%",
+                        bgcolor: c,
+                        cursor: "pointer",
+                        border: form.color === c ? `3px solid ${c}` : "3px solid transparent",
+                        outline: form.color === c ? `2px solid ${c}40` : "none",
+                        transition: "all 0.15s",
+                        "&:hover": { transform: "scale(1.2)" },
+                      }}
+                    />
+                  </Tooltip>
+                ))}
+                {/* Couleur personnalisée */}
+                <Tooltip title="Couleur personnalisée">
+                  <Box sx={{ position: "relative", width: 24, height: 24 }}>
+                    <input
+                      type="color"
+                      value={form.color}
+                      onChange={(e) => set("color", e.target.value)}
+                      style={{
+                        position: "absolute",
+                        opacity: 0,
+                        width: "100%",
+                        height: "100%",
+                        cursor: "pointer",
+                      }}
+                    />
+                    <Box
+                      sx={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: "50%",
+                        border: "2px dashed #bbb",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 12,
+                        color: "#bbb",
+                        pointerEvents: "none",
+                      }}
+                    >
+                      +
+                    </Box>
                   </Box>
-                </Box>
-              </Tooltip>
+                </Tooltip>
+              </Stack>
             </Stack>
-          </Stack>
+          )}
         </Stack>
       </DialogContent>
 
@@ -877,7 +991,7 @@ export default function EventModal({
               ...(delConf && { bgcolor: "#d32f2f", "&:hover": { bgcolor: "#b71c1c" } }),
             }}
           >
-            {delConf ? "Confirmer la suppression" : "Supprimer"}
+            {delConf ? "Confirmer la suppression" : isTaskForm ? "Supprimer la tâche" : "Supprimer"}
           </Button>
         ) : (
           <Box />
@@ -920,7 +1034,13 @@ export default function EventModal({
               "&:hover": { bgcolor: CRM_RED.dark },
             }}
           >
-            {isEdit ? "Enregistrer" : "Créer l'événement"}
+            {isTaskForm
+              ? isEdit
+                ? "Enregistrer la tâche"
+                : "Créer la tâche"
+              : isEdit
+              ? "Enregistrer"
+              : "Créer l'événement"}
           </Button>
         </Stack>
       </DialogActions>
@@ -936,6 +1056,9 @@ EventModal.propTypes = {
   onCreate: PropTypes.func.isRequired,
   onUpdate: PropTypes.func.isRequired,
   onDelete: PropTypes.func.isRequired,
+  onCreateTask: PropTypes.func.isRequired,
+  onUpdateTask: PropTypes.func.isRequired,
+  onDeleteTask: PropTypes.func.isRequired,
   onSaved: PropTypes.func,
   fetchTasks: PropTypes.func,
   fetchPipelines: PropTypes.func,

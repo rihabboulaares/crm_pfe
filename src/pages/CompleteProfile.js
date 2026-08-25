@@ -360,12 +360,16 @@ function CompleteProfile() {
         submitData.append("logo", formData.companyLogo);
       }
 
-      await axios.put("/api/users/complete-profile/", submitData, {
+      const { data } = await axios.put("/api/users/complete-profile/", submitData, {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "multipart/form-data",
         },
       });
+
+      if (data?.user) {
+        localStorage.setItem("user", JSON.stringify(data.user));
+      }
 
       setShowTrialMessage(true);
 

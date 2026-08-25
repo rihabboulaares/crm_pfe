@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 // src/pages/Profile.jsx — v4 — Horizontal Tabs, Red CRM Theme
-import React, { useEffect, useState, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import PropTypes from "prop-types";
 import {
   Grid,
@@ -417,18 +417,21 @@ export default function Profile() {
   const [saving, setSaving] = useState(false);
 
   const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
-  const show = (msg, sev = "success") => setSnackbar({ open: true, message: msg, severity: sev });
-  const auth = { headers: { Authorization: `Bearer ${token}` } };
-
-  useEffect(() => {
-    if (!token) {
-      navigate("/sign-in");
-      return;
-    }
-    fetchAll();
+  const show = useCallback((msg, sev = "success") => {
+    setSnackbar({ open: true, message: msg, severity: sev });
   }, []);
+  const auth = useMemo(() => ({ headers: { Authorization: `Bearer ${token}` } }), [token]);
 
-  const fetchAll = async () => {
+  const fetchTeamMembers = useCallback(async (id) => {
+    try {
+      const { data } = await axios.get(`${API_BASE}/teams/${id}/members/`, auth);
+      setMembers(data);
+    } catch {
+      setMembers([]);
+    }
+  }, [auth]);
+
+  const fetchAll = useCallback(async () => {
     try {
       setLoading(true);
       const { data: u } = await axios.get(`${API_BASE}/me/`, auth);
@@ -463,16 +466,15 @@ export default function Profile() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [auth, fetchTeamMembers, navigate, show]);
 
-  const fetchTeamMembers = async (id) => {
-    try {
-      const { data } = await axios.get(`${API_BASE}/teams/${id}/members/`, auth);
-      setMembers(data);
-    } catch {
-      setMembers([]);
+  useEffect(() => {
+    if (!token) {
+      navigate("/sign-in");
+      return;
     }
-  };
+    fetchAll();
+  }, [fetchAll, navigate, token]);
 
   const handlePhotoUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -498,6 +500,11 @@ export default function Profile() {
     return user.profile_picture.startsWith("http")
       ? user.profile_picture
       : `${MEDIA_URL}${user.profile_picture}`;
+  };
+
+  const getCompanyLogoUrl = () => {
+    if (!company?.logo) return null;
+    return company.logo.startsWith("http") ? company.logo : `${MEDIA_URL}${company.logo}`;
   };
 
   const handleSaveProfile = async () => {
@@ -1137,6 +1144,8 @@ export default function Profile() {
               >
                 <Stack direction="row" alignItems="center" spacing={2.5}>
                   <Avatar
+                    src={getCompanyLogoUrl()}
+                    variant="rounded"
                     sx={{
                       width: 64,
                       height: 64,

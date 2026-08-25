@@ -216,6 +216,7 @@ function AcceptInvite() {
       const response = await axios.post(`/api/users/accept-invite/${token}/`, {
         username,
         password,
+        terms_accepted: true,
       });
 
       if (response.data?.email) {
@@ -343,8 +344,8 @@ function AcceptInvite() {
               <Box className="auth-panel-badge">Invitation equipe</Box>
               <Typography component="h1">Finalisez votre acces en quelques instants.</Typography>
               <Typography>
-                Creez votre compte, verifiez votre adresse email et rejoignez directement l&apos;espace
-                de travail de votre equipe.
+                Creez votre compte, verifiez votre adresse email et rejoignez directement
+                l&apos;espace de travail de votre equipe.
               </Typography>
               <Box className="auth-panel-features">
                 {[
@@ -480,7 +481,9 @@ function AcceptInvite() {
                               {Object.entries(passwordValidations).map(([key, valid]) => (
                                 <Box
                                   key={key}
-                                  className={valid ? "invite-password-rule valid" : "invite-password-rule"}
+                                  className={
+                                    valid ? "invite-password-rule valid" : "invite-password-rule"
+                                  }
                                 >
                                   <CheckCircle fontSize="inherit" />
                                   {passwordValidationLabels[key]}

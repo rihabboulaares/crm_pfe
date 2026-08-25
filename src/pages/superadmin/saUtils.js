@@ -72,7 +72,8 @@ export const getApiErrorMessage = (error, fallback = "Impossible de charger les 
 export const formatNumber = (value) => Number(value || 0).toLocaleString("fr-FR");
 export const formatCurrency = (value) =>
   `${Number(value || 0).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} TND`;
-export const percent = (value, total) => `${total ? Math.round((Number(value || 0) / total) * 100) : 0}%`;
+export const percent = (value, total) =>
+  `${total ? Math.round((Number(value || 0) / total) * 100) : 0}%`;
 export const formatDate = (value) => (value ? new Date(value).toLocaleDateString("fr-FR") : "—");
 export const formatDateTime = (value) =>
   value ? new Date(value).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—";

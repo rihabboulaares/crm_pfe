@@ -431,7 +431,9 @@ const loadGoogleMapsScript = (apiKey) => {
     const existing = document.querySelector('script[data-google-maps="crm-dashboard"]');
     if (existing) {
       existing.addEventListener("load", () => resolve(window.google.maps));
-      existing.addEventListener("error", () => reject(new Error("Chargement Google Maps impossible")));
+      existing.addEventListener("error", () =>
+        reject(new Error("Chargement Google Maps impossible"))
+      );
       return;
     }
 
@@ -452,9 +454,9 @@ const TUNISIA_CITY_COORDS = {
   tunis: { lat: 36.8065, lng: 10.1815 },
   ariana: { lat: 36.8665, lng: 10.1647 },
   ben_arous: { lat: 36.7468, lng: 10.2319 },
-  manouba: { lat: 36.8080, lng: 10.0972 },
+  manouba: { lat: 36.808, lng: 10.0972 },
   nabeul: { lat: 36.4561, lng: 10.7376 },
-  hammamet: { lat: 36.4000, lng: 10.6167 },
+  hammamet: { lat: 36.4, lng: 10.6167 },
   sousse: { lat: 35.8256, lng: 10.63699 },
   monastir: { lat: 35.7643, lng: 10.8113 },
   mahdia: { lat: 35.5047, lng: 11.0622 },
@@ -466,9 +468,9 @@ const TUNISIA_CITY_COORDS = {
   kairouan: { lat: 35.6781, lng: 10.0963 },
   kasserine: { lat: 35.1676, lng: 8.8365 },
   sidi_bouzid: { lat: 35.0382, lng: 9.4849 },
-  gafsa: { lat: 34.4250, lng: 8.7842 },
+  gafsa: { lat: 34.425, lng: 8.7842 },
   tozeur: { lat: 33.9197, lng: 8.1335 },
-  kebili: { lat: 33.7050, lng: 8.9650 },
+  kebili: { lat: 33.705, lng: 8.965 },
   beja: { lat: 36.7256, lng: 9.1817 },
   jendouba: { lat: 36.5011, lng: 8.7802 },
   kef: { lat: 36.1742, lng: 8.7049 },
@@ -540,14 +542,20 @@ function GeoProspects({ prospects = [] }) {
   }, {});
 
   const cities = Object.values(cityStats).sort((a, b) => b.count - a.count);
-  const visibleProspects = selectedCity === "all"
-    ? geoProspects
-    : geoProspects.filter((p) => (p.city || p.ville || p.region || p.country || "Localisation détectée") === selectedCity);
+  const visibleProspects =
+    selectedCity === "all"
+      ? geoProspects
+      : geoProspects.filter(
+          (p) =>
+            (p.city || p.ville || p.region || p.country || "Localisation détectée") === selectedCity
+        );
 
   useEffect(() => {
     if (!prospects.length) return;
     if (!apiKey) {
-      setMapError("Ajoute REACT_APP_GOOGLE_MAPS_API_KEY dans le fichier .env du frontend pour afficher Google Maps.");
+      setMapError(
+        "Ajoute REACT_APP_GOOGLE_MAPS_API_KEY dans le fichier .env du frontend pour afficher Google Maps."
+      );
       return;
     }
 
@@ -619,7 +627,8 @@ function GeoProspects({ prospects = [] }) {
         const source = p.source || p.origin || p.channel || "Non précisée";
         const score = p.ai_score ?? p.score ?? p.relevance ?? null;
         const city = p.city || p.ville || p.region || p.country || "—";
-        const owner = p.assigned_to_detail?.username || p.owner?.username || p.created_by_name || "—";
+        const owner =
+          p.assigned_to_detail?.username || p.owner?.username || p.created_by_name || "—";
 
         infoWindowRef.current.setContent(`
           <div style="min-width:220px;font-family:Arial,sans-serif">
@@ -627,9 +636,21 @@ function GeoProspects({ prospects = [] }) {
             <div style="font-size:12px;color:#4b5563;margin-bottom:4px"><b>Ville :</b> ${city}</div>
             <div style="font-size:12px;color:#4b5563;margin-bottom:4px"><b>Source :</b> ${source}</div>
             <div style="font-size:12px;color:#4b5563;margin-bottom:4px"><b>Commercial :</b> ${owner}</div>
-            ${score !== null ? `<div style="font-size:12px;color:#4b5563;margin-bottom:4px"><b>Score IA :</b> ${Math.round(score)}%</div>` : ""}
-            <div style="font-size:11px;color:${p.coordinates.source === "exact" ? "#16a34a" : "#2563eb"};margin-top:6px">
-              ${p.coordinates.source === "exact" ? "Coordonnées exactes" : "Position estimée depuis la ville"}
+            ${
+              score !== null
+                ? `<div style="font-size:12px;color:#4b5563;margin-bottom:4px"><b>Score IA :</b> ${Math.round(
+                    score
+                  )}%</div>`
+                : ""
+            }
+            <div style="font-size:11px;color:${
+              p.coordinates.source === "exact" ? "#16a34a" : "#2563eb"
+            };margin-top:6px">
+              ${
+                p.coordinates.source === "exact"
+                  ? "Coordonnées exactes"
+                  : "Position estimée depuis la ville"
+              }
             </div>
           </div>
         `);
@@ -711,7 +732,12 @@ function GeoProspects({ prospects = [] }) {
           </Stack>
         )}
         {mapError && (
-          <Stack alignItems="center" justifyContent="center" sx={{ height: "100%", p: 3, textAlign: "center" }} spacing={1}>
+          <Stack
+            alignItems="center"
+            justifyContent="center"
+            sx={{ height: "100%", p: 3, textAlign: "center" }}
+            spacing={1}
+          >
             <LocationOn sx={{ fontSize: 42, color: C.amber }} />
             <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.n700 }}>
               Google Maps n&apos;est pas encore configuré
@@ -750,8 +776,22 @@ function GeoProspects({ prospects = [] }) {
                   {city.count} · {pct}%
                 </Typography>
               </Stack>
-              <Box sx={{ height: 5, borderRadius: 8, bgcolor: alpha(C.n400, 0.12), overflow: "hidden" }}>
-                <Box sx={{ height: "100%", width: `${pct}%`, borderRadius: 8, bgcolor: active ? C.red : C.blue }} />
+              <Box
+                sx={{
+                  height: 5,
+                  borderRadius: 8,
+                  bgcolor: alpha(C.n400, 0.12),
+                  overflow: "hidden",
+                }}
+              >
+                <Box
+                  sx={{
+                    height: "100%",
+                    width: `${pct}%`,
+                    borderRadius: 8,
+                    bgcolor: active ? C.red : C.blue,
+                  }}
+                />
               </Box>
             </Box>
           );
@@ -770,8 +810,8 @@ function GeoProspects({ prospects = [] }) {
           }}
         >
           <Typography sx={{ fontSize: 11, color: C.n600 }}>
-            {missingLocation} prospects ne sont pas affichés sur la carte. Ajoute <b>latitude</b> et <b>longitude</b>,
-            ou au minimum une ville tunisienne connue.
+            {missingLocation} prospects ne sont pas affichés sur la carte. Ajoute <b>latitude</b> et{" "}
+            <b>longitude</b>, ou au minimum une ville tunisienne connue.
           </Typography>
         </Paper>
       )}
@@ -876,14 +916,20 @@ function TeamScoreCard({ leaderboard = [] }) {
 TeamScoreCard.propTypes = { leaderboard: PropTypes.array };
 TeamScoreCard.defaultProps = { leaderboard: [] };
 
-
 // ─── COMPOSANT : CENTRE IA CRM ────────────────────────────────────────────
 function AiCenter({ data = {}, prospects = [], opportunities = [], tasks = [] }) {
   const aiStats = data.ai_stats || data.agents || data.agent_stats || {};
 
   const isAiProspect = (p) => {
-    const raw = `${p.source || ""} ${p.origin || ""} ${p.created_by_type || ""} ${p.created_by || ""}`.toLowerCase();
-    return raw.includes("ia") || raw.includes("ai") || raw.includes("agent") || raw.includes("prospection");
+    const raw = `${p.source || ""} ${p.origin || ""} ${p.created_by_type || ""} ${
+      p.created_by || ""
+    }`.toLowerCase();
+    return (
+      raw.includes("ia") ||
+      raw.includes("ai") ||
+      raw.includes("agent") ||
+      raw.includes("prospection")
+    );
   };
 
   const aiProspects = prospects.filter(isAiProspect);
@@ -892,8 +938,12 @@ function AiCenter({ data = {}, prospects = [], opportunities = [], tasks = [] })
     const score = Number(p.score || p.ai_score || p.relevance || 0);
     return s.includes("qualified") || s.includes("qualifié") || score >= 70;
   });
-  const messagesReady = prospects.filter((p) => `${p.engagement_status || p.status || ""}`.toLowerCase().includes("message_ready"));
-  const repliedProspects = prospects.filter((p) => `${p.engagement_status || p.status || ""}`.toLowerCase().includes("replied"));
+  const messagesReady = prospects.filter((p) =>
+    `${p.engagement_status || p.status || ""}`.toLowerCase().includes("message_ready")
+  );
+  const repliedProspects = prospects.filter((p) =>
+    `${p.engagement_status || p.status || ""}`.toLowerCase().includes("replied")
+  );
 
   const cards = [
     {
@@ -919,7 +969,10 @@ function AiCenter({ data = {}, prospects = [], opportunities = [], tasks = [] })
     },
     {
       label: "Qualification IA",
-      value: `${Math.round(aiStats.qualification_rate ?? (prospects.length ? (qualifiedProspects.length / prospects.length) * 100 : 0))}%`,
+      value: `${Math.round(
+        aiStats.qualification_rate ??
+          (prospects.length ? (qualifiedProspects.length / prospects.length) * 100 : 0)
+      )}%`,
       sub: `${qualifiedProspects.length} prospects qualifiés`,
       color: C.purple,
       icon: <EmojiEvents />,
@@ -942,7 +995,11 @@ function AiCenter({ data = {}, prospects = [], opportunities = [], tasks = [] })
         </Stack>
         <Chip
           size="small"
-          icon={<FiberManualRecord sx={{ fontSize: "10px !important", color: `${C.green} !important` }} />}
+          icon={
+            <FiberManualRecord
+              sx={{ fontSize: "10px !important", color: `${C.green} !important` }}
+            />
+          }
           label="Actif"
           sx={{ bgcolor: alpha(C.green, 0.1), color: C.green, fontSize: 11, fontWeight: 700 }}
         />
@@ -961,15 +1018,35 @@ function AiCenter({ data = {}, prospects = [], opportunities = [], tasks = [] })
             >
               <Stack direction="row" alignItems="flex-start" justifyContent="space-between">
                 <Box>
-                  <Typography sx={{ fontSize: 10, color: C.n400, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7 }}>
+                  <Typography
+                    sx={{
+                      fontSize: 10,
+                      color: C.n400,
+                      fontWeight: 800,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.7,
+                    }}
+                  >
                     {c.label}
                   </Typography>
-                  <Typography sx={{ fontSize: 28, fontWeight: 900, color: c.color, lineHeight: 1.1, mt: 0.7 }}>
+                  <Typography
+                    sx={{ fontSize: 28, fontWeight: 900, color: c.color, lineHeight: 1.1, mt: 0.7 }}
+                  >
                     {c.value}
                   </Typography>
                   <Typography sx={{ fontSize: 11, color: C.n500, mt: 0.6 }}>{c.sub}</Typography>
                 </Box>
-                <Box sx={{ width: 40, height: 40, borderRadius: 12, bgcolor: alpha(c.color, 0.13), display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Box
+                  sx={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 12,
+                    bgcolor: alpha(c.color, 0.13),
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
                   {React.cloneElement(c.icon, { sx: { fontSize: 20, color: c.color } })}
                 </Box>
               </Stack>
@@ -1017,7 +1094,8 @@ function SourceDistribution({ prospects = [] }) {
   const data = Object.values(
     prospects.reduce((acc, p) => {
       const name = normalizeSource(p.source || p.origin || p.channel);
-      if (!acc[name]) acc[name] = { name, value: 0, color: sourceColor[name.toLowerCase()] || C.n400 };
+      if (!acc[name])
+        acc[name] = { name, value: 0, color: sourceColor[name.toLowerCase()] || C.n400 };
       acc[name].value += 1;
       return acc;
     }, {})
@@ -1036,7 +1114,15 @@ function SourceDistribution({ prospects = [] }) {
     <Box>
       <ResponsiveContainer width="100%" height={190}>
         <PieChart>
-          <Pie data={data} cx="50%" cy="50%" innerRadius={48} outerRadius={76} paddingAngle={3} dataKey="value">
+          <Pie
+            data={data}
+            cx="50%"
+            cy="50%"
+            innerRadius={48}
+            outerRadius={76}
+            paddingAngle={3}
+            dataKey="value"
+          >
             {data.map((entry) => (
               <Cell key={entry.name} fill={entry.color} />
             ))}
@@ -1049,9 +1135,13 @@ function SourceDistribution({ prospects = [] }) {
           <Stack key={s.name} direction="row" alignItems="center" justifyContent="space-between">
             <Stack direction="row" alignItems="center" spacing={1}>
               <Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: s.color }} />
-              <Typography sx={{ fontSize: 12, color: C.n700, fontWeight: 600 }}>{s.name}</Typography>
+              <Typography sx={{ fontSize: 12, color: C.n700, fontWeight: 600 }}>
+                {s.name}
+              </Typography>
             </Stack>
-            <Typography sx={{ fontSize: 12, color: s.color, fontWeight: 800 }}>{s.value}</Typography>
+            <Typography sx={{ fontSize: 12, color: s.color, fontWeight: 800 }}>
+              {s.value}
+            </Typography>
           </Stack>
         ))}
       </Stack>
@@ -1072,18 +1162,33 @@ function RevenueForecast({ opportunities = [] }) {
     lost: 0,
   };
   const total = opportunities.reduce((s, o) => s + Number(o.amount || 0), 0);
-  const forecast = opportunities.reduce((s, o) => s + Number(o.amount || 0) * (probability[o.stage] ?? 0.25), 0);
-  const won = opportunities.filter((o) => o.stage === "won").reduce((s, o) => s + Number(o.amount || 0), 0);
+  const forecast = opportunities.reduce(
+    (s, o) => s + Number(o.amount || 0) * (probability[o.stage] ?? 0.25),
+    0
+  );
+  const won = opportunities
+    .filter((o) => o.stage === "won")
+    .reduce((s, o) => s + Number(o.amount || 0), 0);
   const ratio = total > 0 ? Math.round((forecast / total) * 100) : 0;
 
   return (
     <Box>
       <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2}>
         <Box>
-          <Typography sx={{ fontSize: 11, color: C.n400, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7 }}>
+          <Typography
+            sx={{
+              fontSize: 11,
+              color: C.n400,
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: 0.7,
+            }}
+          >
             Prévision CA pondérée
           </Typography>
-          <Typography sx={{ fontSize: 28, fontWeight: 900, color: C.amber, lineHeight: 1.1, mt: 0.5 }}>
+          <Typography
+            sx={{ fontSize: 28, fontWeight: 900, color: C.amber, lineHeight: 1.1, mt: 0.5 }}
+          >
             {fmtTND(forecast)}
           </Typography>
         </Box>
@@ -1098,12 +1203,19 @@ function RevenueForecast({ opportunities = [] }) {
           <Box key={x.label}>
             <Stack direction="row" justifyContent="space-between" mb={0.4}>
               <Typography sx={{ fontSize: 11, color: C.n500 }}>{x.label}</Typography>
-              <Typography sx={{ fontSize: 12, color: x.color, fontWeight: 800 }}>{fmtTND(x.value)}</Typography>
+              <Typography sx={{ fontSize: 12, color: x.color, fontWeight: 800 }}>
+                {fmtTND(x.value)}
+              </Typography>
             </Stack>
             <LinearProgress
               variant="determinate"
               value={total > 0 ? Math.min(100, (x.value / total) * 100) : 0}
-              sx={{ height: 6, borderRadius: 3, bgcolor: alpha(x.color, 0.1), "& .MuiLinearProgress-bar": { bgcolor: x.color, borderRadius: 3 } }}
+              sx={{
+                height: 6,
+                borderRadius: 3,
+                bgcolor: alpha(x.color, 0.1),
+                "& .MuiLinearProgress-bar": { bgcolor: x.color, borderRadius: 3 },
+              }}
             />
           </Box>
         ))}
@@ -1120,22 +1232,52 @@ function SmartRecommendations({ prospects = [], opportunities = [], tasks = [] }
 
   prospects.forEach((p) => {
     const score = Number(p.score || p.ai_score || p.relevance || 0);
-    const name = `${p.first_name || ""} ${p.last_name || ""}`.trim() || p.name || p.email || "Prospect";
+    const name =
+      `${p.first_name || ""} ${p.last_name || ""}`.trim() || p.name || p.email || "Prospect";
     const hasTask = tasks.some((t) => `${t.prospect || t.prospect_id || ""}` === `${p.id}`);
-    const hasOpportunity = opportunities.some((o) => `${o.prospect || o.prospect_id || ""}` === `${p.id}`);
+    const hasOpportunity = opportunities.some(
+      (o) => `${o.prospect || o.prospect_id || ""}` === `${p.id}`
+    );
     const engagementStatus = `${p.engagement_status || p.status || ""}`.toLowerCase();
 
     if (score >= 80 && !hasTask) {
-      recs.push({ type: "hot", color: C.red, title: name, sub: `Score IA ${score}%`, action: "Créer une tâche de contact aujourd’hui" });
+      recs.push({
+        type: "hot",
+        color: C.red,
+        title: name,
+        sub: `Score IA ${score}%`,
+        action: "Créer une tâche de contact aujourd’hui",
+      });
     }
-    if ((engagementStatus.includes("message_ready") || engagementStatus.includes("ready")) && recs.length < 8) {
-      recs.push({ type: "message", color: C.blue, title: name, sub: "Message IA prêt", action: "Valider et envoyer le message" });
+    if (
+      (engagementStatus.includes("message_ready") || engagementStatus.includes("ready")) &&
+      recs.length < 8
+    ) {
+      recs.push({
+        type: "message",
+        color: C.blue,
+        title: name,
+        sub: "Message IA prêt",
+        action: "Valider et envoyer le message",
+      });
     }
     if (engagementStatus.includes("replied") && recs.length < 8) {
-      recs.push({ type: "reply", color: C.green, title: name, sub: "Réponse prospect détectée", action: "Analyser la conversation et répondre" });
+      recs.push({
+        type: "reply",
+        color: C.green,
+        title: name,
+        sub: "Réponse prospect détectée",
+        action: "Analyser la conversation et répondre",
+      });
     }
     if (score >= 70 && !hasOpportunity && recs.length < 8) {
-      recs.push({ type: "deal", color: C.amber, title: name, sub: "Prospect qualifié", action: "Créer une opportunité commerciale" });
+      recs.push({
+        type: "deal",
+        color: C.amber,
+        title: name,
+        sub: "Prospect qualifié",
+        action: "Créer une opportunité commerciale",
+      });
     }
   });
 
@@ -1143,11 +1285,21 @@ function SmartRecommendations({ prospects = [], opportunities = [], tasks = [] }
     const updated = new Date(o.updated_at || o.created_at || Date.now());
     const inactiveDays = Math.floor((Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24));
     if (!["won", "lost"].includes(o.stage) && inactiveDays >= 7 && recs.length < 8) {
-      recs.push({ type: "risk", color: C.purple, title: o.name || o.title || "Opportunité", sub: `Inactive depuis ${inactiveDays} jours`, action: "Planifier une relance" });
+      recs.push({
+        type: "risk",
+        color: C.purple,
+        title: o.name || o.title || "Opportunité",
+        sub: `Inactive depuis ${inactiveDays} jours`,
+        action: "Planifier une relance",
+      });
     }
   });
 
-  const unique = recs.filter((r, i, arr) => i === arr.findIndex((x) => `${x.type}-${x.title}` === `${r.type}-${r.title}`)).slice(0, 6);
+  const unique = recs
+    .filter(
+      (r, i, arr) => i === arr.findIndex((x) => `${x.type}-${x.title}` === `${r.type}-${r.title}`)
+    )
+    .slice(0, 6);
 
   if (!unique.length) {
     return (
@@ -1161,15 +1313,39 @@ function SmartRecommendations({ prospects = [], opportunities = [], tasks = [] }
   return (
     <Stack spacing={1.2}>
       {unique.map((r, i) => (
-        <Box key={`${r.type}-${i}`} sx={{ p: 1.5, borderRadius: 3, bgcolor: alpha(r.color, 0.045), border: `1px solid ${alpha(r.color, 0.16)}`, borderLeft: `3px solid ${r.color}` }}>
+        <Box
+          key={`${r.type}-${i}`}
+          sx={{
+            p: 1.5,
+            borderRadius: 3,
+            bgcolor: alpha(r.color, 0.045),
+            border: `1px solid ${alpha(r.color, 0.16)}`,
+            borderLeft: `3px solid ${r.color}`,
+          }}
+        >
           <Stack direction="row" alignItems="flex-start" spacing={1.2}>
-            <Box sx={{ width: 32, height: 32, borderRadius: 10, bgcolor: alpha(r.color, 0.12), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Box
+              sx={{
+                width: 32,
+                height: 32,
+                borderRadius: 10,
+                bgcolor: alpha(r.color, 0.12),
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
               <FlashOn sx={{ fontSize: 16, color: r.color }} />
             </Box>
             <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography sx={{ fontSize: 12, fontWeight: 800, color: C.n800 }}>{r.title}</Typography>
+              <Typography sx={{ fontSize: 12, fontWeight: 800, color: C.n800 }}>
+                {r.title}
+              </Typography>
               <Typography sx={{ fontSize: 10.5, color: C.n400, mt: 0.1 }}>{r.sub}</Typography>
-              <Typography sx={{ fontSize: 11.5, color: r.color, fontWeight: 800, mt: 0.6 }}>{r.action}</Typography>
+              <Typography sx={{ fontSize: 11.5, color: r.color, fontWeight: 800, mt: 0.6 }}>
+                {r.action}
+              </Typography>
             </Box>
           </Stack>
         </Box>
@@ -1194,11 +1370,17 @@ function ProspectHeatmap({ prospects = [] }) {
       if (Number(p.score || p.ai_score || p.relevance || 0) >= 70) acc[city].hot += 1;
       return acc;
     }, {})
-  ).sort((a, b) => b.count - a.count).slice(0, 7);
+  )
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 7);
   const max = Math.max(...rows.map((r) => r.count), 1);
 
   if (!rows.length) {
-    return <Typography sx={{ fontSize: 12, color: C.n400, textAlign: "center", py: 4 }}>Aucune ville disponible</Typography>;
+    return (
+      <Typography sx={{ fontSize: 12, color: C.n400, textAlign: "center", py: 4 }}>
+        Aucune ville disponible
+      </Typography>
+    );
   }
 
   return (
@@ -1210,14 +1392,22 @@ function ProspectHeatmap({ prospects = [] }) {
             <Stack direction="row" alignItems="center" justifyContent="space-between" mb={0.4}>
               <Stack direction="row" alignItems="center" spacing={0.7}>
                 <LocationOn sx={{ fontSize: 13, color: C.red }} />
-                <Typography sx={{ fontSize: 12, fontWeight: 700, color: C.n700 }}>{r.city}</Typography>
+                <Typography sx={{ fontSize: 12, fontWeight: 700, color: C.n700 }}>
+                  {r.city}
+                </Typography>
               </Stack>
-              <Typography sx={{ fontSize: 11, fontWeight: 800, color: C.red }}>{r.count}</Typography>
+              <Typography sx={{ fontSize: 11, fontWeight: 800, color: C.red }}>
+                {r.count}
+              </Typography>
             </Stack>
-            <Box sx={{ height: 8, bgcolor: alpha(C.red, 0.08), borderRadius: 4, overflow: "hidden" }}>
+            <Box
+              sx={{ height: 8, bgcolor: alpha(C.red, 0.08), borderRadius: 4, overflow: "hidden" }}
+            >
               <Box sx={{ height: "100%", width: `${pct}%`, bgcolor: C.red, borderRadius: 4 }} />
             </Box>
-            <Typography sx={{ fontSize: 10, color: C.n400, mt: 0.25 }}>{r.hot} prospects chauds</Typography>
+            <Typography sx={{ fontSize: 10, color: C.n400, mt: 0.25 }}>
+              {r.hot} prospects chauds
+            </Typography>
           </Box>
         );
       })}
@@ -2448,7 +2638,12 @@ export default function AdminDashboard({ data, onRefresh }) {
 
           <Grid container spacing={2.5} mb={2.5}>
             <Grid item xs={12}>
-              <AiCenter data={effectiveData} prospects={prospects} opportunities={opportunities} tasks={tasks} />
+              <AiCenter
+                data={effectiveData}
+                prospects={prospects}
+                opportunities={opportunities}
+                tasks={tasks}
+              />
             </Grid>
             <Grid item xs={12} md={4}>
               <Card accent={C.blue} sx={{ height: "100%" }}>
@@ -2480,7 +2675,11 @@ export default function AdminDashboard({ data, onRefresh }) {
                     Suggestions intelligentes
                   </Typography>
                 </Stack>
-                <SmartRecommendations prospects={prospects} opportunities={opportunities} tasks={tasks} />
+                <SmartRecommendations
+                  prospects={prospects}
+                  opportunities={opportunities}
+                  tasks={tasks}
+                />
               </Card>
             </Grid>
           </Grid>

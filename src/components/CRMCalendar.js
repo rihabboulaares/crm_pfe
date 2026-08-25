@@ -30,6 +30,7 @@ import TodayIcon from "@mui/icons-material/Today";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import AddIcon from "@mui/icons-material/Add";
 
 import { useCalendarEvents, COLOR_MAP, PRIORITY_LABELS } from "hooks/useCalendarEvents";
 import EventModal from "./EventModal";
@@ -223,6 +224,9 @@ export default function CRMCalendar() {
     createEvent,
     updateEvent,
     deleteEvent,
+    createTask,
+    updateTask,
+    deleteTask,
   } = useCalendarEvents(filters);
 
   const handleDatesSet = useCallback(
@@ -251,9 +255,11 @@ export default function CRMCalendar() {
       isVirtualTaskEvent: ep.isVirtualTaskEvent,
       reminder: ep.reminder,
       // Task
+      taskRecordId: ep.taskRecordId,
       task: ep.task,
       taskTitle: ep.taskTitle,
       taskStatus: ep.taskStatus,
+      taskType: ep.taskType,
       taskIsOverdue: ep.taskIsOverdue,
       // Opportunity
       opportunity: ep.opportunity,
@@ -291,9 +297,24 @@ export default function CRMCalendar() {
     setModalOpen(true);
   };
 
+  const handleAddTask = () => {
+    const api = calendarRef.current?.getApi();
+    const start = api?.getDate?.() || new Date();
+    const end = new Date(start);
+    end.setMinutes(end.getMinutes() + 30);
+    setSelectedEvent(null);
+    setNewEventDates({ start: start.toISOString(), end: end.toISOString(), allDay: false });
+    setModalOpen(true);
+  };
+
   const handleEventDrop = async ({ event }) => {
     try {
-      await updateEvent(event.id, { start: event.startStr, end: event.endStr });
+      const taskRecordId = event.extendedProps?.taskRecordId;
+      if (taskRecordId) {
+        await updateTask(taskRecordId, { due_date: event.startStr });
+      } else {
+        await updateEvent(event.id, { start: event.startStr, end: event.endStr });
+      }
       const cal = calendarRef.current?.getApi();
       if (cal)
         await fetchEvents(cal.view.currentStart.toISOString(), cal.view.currentEnd.toISOString());
@@ -304,7 +325,12 @@ export default function CRMCalendar() {
 
   const handleEventResize = async ({ event }) => {
     try {
-      await updateEvent(event.id, { start: event.startStr, end: event.endStr });
+      const taskRecordId = event.extendedProps?.taskRecordId;
+      if (taskRecordId) {
+        await updateTask(taskRecordId, { due_date: event.startStr });
+      } else {
+        await updateEvent(event.id, { start: event.startStr, end: event.endStr });
+      }
       const cal = calendarRef.current?.getApi();
       if (cal)
         await fetchEvents(cal.view.currentStart.toISOString(), cal.view.currentEnd.toISOString());
@@ -683,6 +709,20 @@ export default function CRMCalendar() {
                     <RefreshIcon sx={{ fontSize: 18 }} />
                   </IconButton>
                 </Tooltip>
+                <Tooltip title="Ajouter une tache">
+                  <IconButton
+                    onClick={handleAddTask}
+                    size="small"
+                    sx={{
+                      bgcolor: CRM_RED.main,
+                      border: `1px solid ${CRM_RED.main}`,
+                      color: "#fff",
+                      "&:hover": { bgcolor: CRM_RED.dark },
+                    }}
+                  >
+                    <AddIcon sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Tooltip>
                 <Tooltip title={showFilters ? "Masquer les filtres" : "Afficher les filtres"}>
                   <Badge
                     badgeContent={activeFilterCount}
@@ -802,6 +842,9 @@ export default function CRMCalendar() {
           onCreate={createEvent}
           onUpdate={updateEvent}
           onDelete={deleteEvent}
+          onCreateTask={createTask}
+          onUpdateTask={updateTask}
+          onDeleteTask={deleteTask}
           onSaved={refreshCalendar}
           fetchTasks={fetchTasks}
           fetchPipelines={fetchPipelines}
@@ -812,7 +855,3 @@ export default function CRMCalendar() {
     </Fade>
   );
 }
-
-
-
-

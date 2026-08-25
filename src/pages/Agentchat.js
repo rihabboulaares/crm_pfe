@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import PropTypes from "prop-types";
 import ReactMarkdown from "react-markdown";
 
@@ -10,6 +10,12 @@ const AGENT_THEME = {
   redDeep: "#9B0D22",
   redSoft: "#FDEEF1",
   redBorder: "#F5C6CE",
+  ink: "#172033",
+  muted: "#64748b",
+  panel: "#ffffff",
+  line: "#e5e7eb",
+  cyan: "#0f766e",
+  amber: "#b45309",
 };
 
 const api = {
@@ -45,10 +51,34 @@ const api = {
 
 // ─── Suggestions rapides ──────────────────────────────────────────────────────
 const QUICK_ACTIONS = [
-  { icon: "📊", label: "Stats CRM", message: "Stats du CRM" },
-  { icon: "👤", label: "Prospects chauds", message: "Montre les prospects chauds" },
-  { icon: "💼", label: "Pipeline", message: "Aperçu du pipeline" },
-  { icon: "📋", label: "Mes tâches", message: "Montre mes tâches en cours" },
+  { icon: "📊", label: "Stats CRM", message: "Donne-moi un résumé intelligent du CRM" },
+  {
+    icon: "👤",
+    label: "Prospects chauds",
+    message: "Montre les prospects chauds non assignés et propose quoi faire",
+  },
+  {
+    icon: "💼",
+    label: "Pipeline",
+    message: "Aperçu du pipeline avec les risques et prochaines actions",
+  },
+  { icon: "📋", label: "Mes tâches", message: "Montre mes tâches en cours et celles en retard" },
+  {
+    icon: "✨",
+    label: "Créer prospect",
+    message: "Ajoute un prospect et assigne-le au commercial responsable",
+  },
+  {
+    icon: "📅",
+    label: "Planifier",
+    message: "Crée un rappel calendrier pour une action commerciale",
+  },
+];
+
+const CAPABILITY_CARDS = [
+  { k: "Créer", v: "Prospects, contacts, opportunités, tâches", tone: "red" },
+  { k: "Assigner", v: "Commercial ou admin dès la création", tone: "cyan" },
+  { k: "Piloter", v: "Pipeline, alertes, calendrier, performance", tone: "amber" },
 ];
 
 // ─── Parser la réponse de l'agent ─────────────────────────────────────────────
@@ -310,6 +340,43 @@ export default function AgentChat() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
+  const contextualActions = useMemo(() => {
+    const lastUserMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "user")
+      ?.content.toLowerCase();
+    if (lastUserMessage?.includes("prospect")) {
+      return [
+        {
+          icon: "🎯",
+          label: "Assigner prospect",
+          message: "Assigne ce prospect au meilleur commercial disponible",
+        },
+        {
+          icon: "📋",
+          label: "Créer relance",
+          message: "Crée une tâche de relance liée à ce prospect",
+        },
+        {
+          icon: "💼",
+          label: "Créer opportunité",
+          message: "Crée une opportunité pour ce prospect avec assignation",
+        },
+      ];
+    }
+    if (lastUserMessage?.includes("tâche") || lastUserMessage?.includes("tache")) {
+      return [
+        { icon: "✅", label: "Clôturer", message: "Clôture cette tâche avec un court rapport" },
+        {
+          icon: "👥",
+          label: "Réassigner",
+          message: "Réassigne cette tâche à un commercial disponible",
+        },
+        { icon: "📝", label: "Ajouter note", message: "Ajoute une activité note sur cette tâche" },
+      ];
+    }
+    return QUICK_ACTIONS;
+  }, [messages]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -318,6 +385,7 @@ export default function AgentChat() {
     } else {
       setIsAuthenticated(true);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -459,20 +527,26 @@ export default function AgentChat() {
           to   { opacity: 1; transform: translateY(0); }
         }
 
-        .chat-wrapper { display: flex; flex-direction: column; height: 100vh; max-width: 800px; margin: 0 auto; background: #f8fafc; }
-        .header { background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .chat-wrapper { display: grid; grid-template-rows: auto 1fr auto; height: 100vh; max-width: 1120px; margin: 0 auto; background: radial-gradient(circle at top left, #fff1f2 0, #f8fafc 38%, #eef2f7 100%); border-left: 1px solid rgba(148,163,184,0.18); border-right: 1px solid rgba(148,163,184,0.18); }
+        .header { background: rgba(255,255,255,0.9); backdrop-filter: blur(18px); border-bottom: 1px solid rgba(226,232,240,0.9); padding: 18px 24px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 18px 46px rgba(15,23,42,0.06); }
         .header-left { display: flex; align-items: center; gap: 12px; }
-        .agent-avatar { width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, ${AGENT_THEME.red}, ${AGENT_THEME.redDeep}); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 12px rgba(200,16,46,0.28); }
-        .agent-info h1 { font-size: 16px; font-weight: 600; color: #0f172a; font-family: 'DM Sans', sans-serif; }
+        .agent-avatar { width: 48px; height: 48px; border-radius: 14px; background: linear-gradient(135deg, ${AGENT_THEME.red}, ${AGENT_THEME.redDeep}); display: flex; align-items: center; justify-content: center; font-size: 21px; box-shadow: 0 12px 28px rgba(200,16,46,0.32); }
+        .agent-info h1 { font-size: 18px; font-weight: 800; color: #0f172a; font-family: 'DM Sans', sans-serif; letter-spacing: 0; }
         .agent-status { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #64748b; font-family: 'DM Mono', monospace; margin-top: 2px; }
         .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; }
         .auth-status { display: flex; align-items: center; gap: 5px; font-size: 11px; font-family: 'DM Mono', monospace; margin-top: 2px; }
-        .btn-reset { padding: 8px 14px; border-radius: 8px; border: 1px solid #e2e8f0; background: #ffffff; color: #64748b; font-size: 12px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; }
+        .header-actions { display: flex; align-items: center; gap: 10px; }
+        .agent-pill { height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; border-radius: 999px; background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; font-size: 12px; font-weight: 800; }
+        .btn-reset { padding: 8px 14px; border-radius: 10px; border: 1px solid #e2e8f0; background: #ffffff; color: #64748b; font-size: 12px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; }
         .btn-reset:hover { background: #fef2f2; border-color: #fca5a5; color: #dc2626; }
         .messages-area { flex: 1; overflow-y: auto; padding: 24px; scroll-behavior: smooth; }
         .messages-area::-webkit-scrollbar { width: 5px; }
         .messages-area::-webkit-scrollbar-track { background: transparent; }
         .messages-area::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .agent-dashboard { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+        .cap-card { min-height: 84px; border-radius: 16px; background: rgba(255,255,255,0.84); border: 1px solid rgba(226,232,240,0.95); padding: 14px; box-shadow: 0 12px 28px rgba(15,23,42,0.06); }
+        .cap-label { font-size: 13px; font-weight: 900; color: ${AGENT_THEME.ink}; margin-bottom: 6px; }
+        .cap-copy { font-size: 12px; color: ${AGENT_THEME.muted}; line-height: 1.45; }
         .quick-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; animation: fadeIn 0.4s ease; }
         .quick-btn { padding: 8px 14px; border-radius: 20px; border: 1px solid #e2e8f0; background: #ffffff; color: #475569; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-family: 'DM Sans', sans-serif; transition: all 0.15s; white-space: nowrap; }
         .quick-btn:hover:not(:disabled) { border-color: ${AGENT_THEME.red}; color: ${AGENT_THEME.red}; background: ${AGENT_THEME.redSoft}; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(200,16,46,0.15); }
@@ -488,6 +562,14 @@ export default function AgentChat() {
         .send-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
         .hint { font-size: 11px; color: #94a3b8; margin-top: 8px; font-family: 'DM Mono', monospace; }
         .msg-animate { animation: fadeIn 0.3s ease; }
+        @media (max-width: 760px) {
+          .chat-wrapper { max-width: none; border: none; }
+          .header { align-items: flex-start; gap: 14px; padding: 14px; }
+          .header-actions { flex-direction: column; align-items: flex-end; }
+          .agent-dashboard { grid-template-columns: 1fr; }
+          .messages-area { padding: 16px; }
+          .input-area { padding: 14px; }
+        }
       `}</style>
 
       <div className="chat-wrapper">
@@ -496,25 +578,37 @@ export default function AgentChat() {
           <div className="header-left">
             <div className="agent-avatar">🤖</div>
             <div className="agent-info">
-              <h1>Assistant CRM</h1>
+              <h1>Assistant CRM autonome</h1>
               <div className="agent-status">
                 <div className="status-dot" />
-                En ligne · Gemini 2.5 Flash
+                En ligne · Actions CRM + assignation intelligente
               </div>
               <div className="auth-status">
                 {isAuthenticated ? "✅ Authentifié" : "❌ Non authentifié"}
               </div>
             </div>
           </div>
-          <button className="btn-reset" onClick={handleReset}>
-            🗑️ Réinitialiser
-          </button>
+          <div className="header-actions">
+            <div className="agent-pill">Mode action</div>
+            <button className="btn-reset" onClick={handleReset}>
+              🗑️ Réinitialiser
+            </button>
+          </div>
         </div>
 
         {/* Messages */}
         <div className="messages-area">
+          <div className="agent-dashboard">
+            {CAPABILITY_CARDS.map((card) => (
+              <div key={card.k} className="cap-card">
+                <div className="cap-label">{card.k}</div>
+                <div className="cap-copy">{card.v}</div>
+              </div>
+            ))}
+          </div>
+
           <div className="quick-actions">
-            {QUICK_ACTIONS.map((a) => (
+            {contextualActions.map((a) => (
               <button
                 key={a.label}
                 className="quick-btn"

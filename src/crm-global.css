@@ -30,6 +30,21 @@
   --crm-shadow-md: 0 12px 30px rgba(15, 23, 42, 0.1);
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --crm-cream: #111827;
+  --crm-white: #111827;
+  --crm-red-soft: rgba(193, 18, 31, 0.18);
+  --crm-bg: #0f172a;
+  --crm-surface: #111827;
+  --crm-border: rgba(148, 163, 184, 0.22);
+  --crm-text: #f8fafc;
+  --crm-muted: #cbd5e1;
+  --crm-shadow-soft: 0 18px 45px rgba(0, 0, 0, 0.32);
+  --crm-shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.24);
+  --crm-shadow-md: 0 18px 38px rgba(0, 0, 0, 0.36);
+}
+
 .public-shell,
 .auth-shell {
   min-height: 100vh;
@@ -731,6 +746,11 @@ body {
   background: radial-gradient(circle at top right, rgba(193, 18, 31, 0.08), transparent 32rem),
     var(--crm-bg);
   color: var(--crm-text);
+}
+
+body[data-theme="dark"] {
+  background: radial-gradient(circle at top right, rgba(193, 18, 31, 0.16), transparent 32rem),
+    var(--crm-bg);
 }
 
 * {
@@ -1548,4 +1568,287 @@ body {
   .auth-page .auth-title {
     font-size: 28px !important;
   }
+}
+
+/* Dark mode compatibility for CRM screens with local MUI styles. */
+body[data-theme="dark"] .MuiCard-root,
+body[data-theme="dark"] .MuiPaper-root,
+body[data-theme="dark"] .MuiDialog-paper,
+body[data-theme="dark"] .MuiPopover-paper,
+body[data-theme="dark"] .MuiMenu-paper {
+  background: var(--crm-surface) !important;
+  background-color: var(--crm-surface) !important;
+  color: var(--crm-text) !important;
+  border-color: var(--crm-border) !important;
+}
+
+body[data-theme="dark"] .MuiListItemText-primary,
+body[data-theme="dark"] .MuiListItemText-secondary,
+body[data-theme="dark"] .MuiInputBase-input,
+body[data-theme="dark"] .MuiFormLabel-root,
+body[data-theme="dark"] .MuiSelect-select,
+body[data-theme="dark"] .MuiTableCell-root {
+  color: var(--crm-text) !important;
+}
+
+body[data-theme="dark"] .MuiTypography-colorText,
+body[data-theme="dark"] .MuiTypography-colorSecondary,
+body[data-theme="dark"] .MuiInputLabel-root,
+body[data-theme="dark"] .MuiFormHelperText-root {
+  color: var(--crm-muted) !important;
+}
+
+body[data-theme="dark"] .MuiOutlinedInput-root,
+body[data-theme="dark"] .MuiInputBase-root {
+  background: #0f172a !important;
+  color: var(--crm-text) !important;
+}
+
+body[data-theme="dark"] .MuiOutlinedInput-notchedOutline,
+body[data-theme="dark"] .MuiDivider-root {
+  border-color: var(--crm-border) !important;
+}
+
+body[data-theme="dark"] .MuiTableContainer-root {
+  background: var(--crm-surface) !important;
+  border-color: var(--crm-border) !important;
+  box-shadow: var(--crm-shadow-sm) !important;
+}
+
+body[data-theme="dark"] .MuiTableHead-root .MuiTableCell-root {
+  background: #0b1220 !important;
+  color: #e2e8f0 !important;
+  border-bottom: 1px solid rgba(239, 68, 68, 0.42) !important;
+  font-weight: 900 !important;
+}
+
+body[data-theme="dark"] .MuiTableBody-root .MuiTableRow-root {
+  background: transparent !important;
+}
+
+body[data-theme="dark"] .MuiTableBody-root .MuiTableCell-root {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16) !important;
+  color: var(--crm-text) !important;
+}
+
+body[data-theme="dark"] .MuiTableBody-root .MuiTableRow-root:hover {
+  background: rgba(193, 18, 31, 0.12) !important;
+}
+
+body[data-theme="dark"] .MuiTableFooter-root,
+body[data-theme="dark"] .MuiTablePagination-root,
+body[data-theme="dark"] .MuiPagination-root,
+body[data-theme="dark"] .MuiPaginationItem-root {
+  color: var(--crm-text) !important;
+}
+
+body[data-theme="dark"] .MuiChip-root {
+  border-color: var(--crm-border) !important;
+}
+
+body[data-theme="dark"] .MuiButton-outlinedPrimary,
+body[data-theme="dark"] .MuiButton-outlinedError {
+  background: rgba(15, 23, 42, 0.82) !important;
+  color: #fca5a5 !important;
+}
+
+body[data-theme="dark"] [class*="MuiBox-root"],
+body[data-theme="dark"] [class*="MuiGrid-root"] {
+  color: var(--crm-text);
+}
+
+body[data-theme="dark"] [style*="background: rgb(255, 255, 255)"],
+body[data-theme="dark"] [style*="background-color: rgb(255, 255, 255)"],
+body[data-theme="dark"] [style*="background:#fff"],
+body[data-theme="dark"] [style*="background: #fff"],
+body[data-theme="dark"] [style*="background-color:#fff"],
+body[data-theme="dark"] [style*="background-color: #fff"],
+body[data-theme="dark"] [style*="background: #ffffff"],
+body[data-theme="dark"] [style*="background-color: #ffffff"] {
+  background: var(--crm-surface) !important;
+  background-color: var(--crm-surface) !important;
+  color: var(--crm-text) !important;
+}
+
+body[data-theme="dark"] [style*="background: rgb(248, 249, 252)"],
+body[data-theme="dark"] [style*="background-color: rgb(248, 249, 252)"],
+body[data-theme="dark"] [style*="background: #F8F9FC"],
+body[data-theme="dark"] [style*="background-color: #F8F9FC"],
+body[data-theme="dark"] [style*="background: #f8f9fc"],
+body[data-theme="dark"] [style*="background-color: #f8f9fc"],
+body[data-theme="dark"] [style*="background: #FAFBFC"],
+body[data-theme="dark"] [style*="background-color: #FAFBFC"],
+body[data-theme="dark"] [style*="background: #fafbfc"],
+body[data-theme="dark"] [style*="background-color: #fafbfc"] {
+  background: #0f172a !important;
+  background-color: #0f172a !important;
+  color: var(--crm-text) !important;
+}
+
+body[data-theme="dark"] .MuiCard-root .MuiTypography-root,
+body[data-theme="dark"] .MuiPaper-root .MuiTypography-root,
+body[data-theme="dark"] .MuiTableContainer-root .MuiTypography-root,
+body[data-theme="dark"] .MuiCard-root .MuiSvgIcon-root,
+body[data-theme="dark"] .MuiPaper-root .MuiSvgIcon-root {
+  opacity: 1 !important;
+}
+
+body[data-theme="dark"] .MuiCard-root .MuiTypography-colorTextSecondary,
+body[data-theme="dark"] .MuiPaper-root .MuiTypography-colorTextSecondary,
+body[data-theme="dark"] .MuiTypography-colorTextSecondary,
+body[data-theme="dark"] .MuiTypography-colorSecondary {
+  color: var(--crm-muted) !important;
+}
+
+body[data-theme="dark"] .MuiTableCell-head {
+  color: #e2e8f0 !important;
+}
+
+body[data-theme="dark"] .public-shell,
+body[data-theme="dark"] .auth-shell,
+body[data-theme="dark"] .welcome-page,
+body[data-theme="dark"] .auth-page {
+  background: radial-gradient(circle at 12% 10%, rgba(193, 18, 31, 0.22), transparent 22rem),
+    radial-gradient(circle at 88% 22%, rgba(239, 68, 68, 0.12), transparent 24rem), var(--crm-bg) !important;
+  color: var(--crm-text) !important;
+}
+
+body[data-theme="dark"] .feature-card,
+body[data-theme="dark"] .pricing-card,
+body[data-theme="dark"] .about-card,
+body[data-theme="dark"] .welcome-card,
+body[data-theme="dark"] .auth-card,
+body[data-theme="dark"] .auth-benefit-card,
+body[data-theme="dark"] .profile-card,
+body[data-theme="dark"] .profile-hero,
+body[data-theme="dark"] .dashboard-preview-card,
+body[data-theme="dark"] .public-stats > div,
+body[data-theme="dark"] .dashboard-preview-metrics > div,
+body[data-theme="dark"] .pricing-state,
+body[data-theme="dark"] .complete-profile-card,
+body[data-theme="dark"] .password-card,
+body[data-theme="dark"] .invitation-card {
+  background: rgba(17, 24, 39, 0.94) !important;
+  border-color: var(--crm-border) !important;
+  color: var(--crm-text) !important;
+}
+
+body[data-theme="dark"] .auth-page .auth-header,
+body[data-theme="dark"] .auth-page .auth-form-area,
+body[data-theme="dark"] .auth-page .auth-form-area .auth-card,
+body[data-theme="dark"] .auth-page .invite-email-summary {
+  background: var(--crm-surface) !important;
+  border-color: var(--crm-border) !important;
+  color: var(--crm-text) !important;
+}
+
+body[data-theme="dark"] .auth-page .auth-title,
+body[data-theme="dark"] .auth-brand-title,
+body[data-theme="dark"] .welcome-title,
+body[data-theme="dark"] .welcome-brand,
+body[data-theme="dark"] .public-logo-text,
+body[data-theme="dark"] .profile-section-title,
+body[data-theme="dark"] .dashboard-preview-title {
+  color: var(--crm-text) !important;
+}
+
+body[data-theme="dark"] .auth-page .auth-subtitle,
+body[data-theme="dark"] .auth-brand-copy,
+body[data-theme="dark"] .welcome-subtitle,
+body[data-theme="dark"] .welcome-card-text,
+body[data-theme="dark"] .feature-card p,
+body[data-theme="dark"] .pricing-description,
+body[data-theme="dark"] .section-header p,
+body[data-theme="dark"] .public-description {
+  color: var(--crm-muted) !important;
+}
+
+/* CRM product shell: shared polished surfaces for operational screens. */
+body[data-theme="dark"] {
+  --crm-bg: #0b1120;
+  --crm-surface: #111827;
+  --crm-surface-raised: #162033;
+  --crm-border: rgba(148, 163, 184, 0.24);
+  --crm-text: #f8fafc;
+  --crm-muted: #cbd5e1;
+}
+
+body:not([data-theme="dark"]) {
+  --crm-surface-raised: #ffffff;
+}
+
+body[data-theme="dark"] .MuiTableContainer-root,
+body[data-theme="dark"] .crm-table-shell {
+  background: var(--crm-surface) !important;
+  border: 1px solid var(--crm-border) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--crm-shadow-sm) !important;
+}
+
+body[data-theme="dark"] .MuiTable-root {
+  background: transparent !important;
+}
+
+body[data-theme="dark"] .MuiTableHead-root .MuiTableCell-root,
+body[data-theme="dark"] .MuiTableCell-head {
+  background: #0f172a !important;
+  color: #e5e7eb !important;
+  border-bottom: 1px solid rgba(239, 68, 68, 0.46) !important;
+  font-size: 0.76rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  text-transform: uppercase !important;
+}
+
+body[data-theme="dark"] .MuiTableBody-root .MuiTableCell-root {
+  color: #f8fafc !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16) !important;
+}
+
+body[data-theme="dark"] .MuiTableBody-root .MuiTableRow-root:hover {
+  background: rgba(239, 68, 68, 0.09) !important;
+}
+
+body[data-theme="dark"] .MuiCard-root,
+body[data-theme="dark"] .MuiPaper-root,
+body[data-theme="dark"] .MuiDialog-paper,
+body[data-theme="dark"] .MuiPopover-paper,
+body[data-theme="dark"] .MuiMenu-paper {
+  background-color: var(--crm-surface) !important;
+  color: var(--crm-text) !important;
+  border-color: var(--crm-border) !important;
+}
+
+body[data-theme="dark"] .MuiCard-root .MuiTypography-root,
+body[data-theme="dark"] .MuiPaper-root .MuiTypography-root,
+body[data-theme="dark"] .MuiDialog-paper .MuiTypography-root {
+  color: inherit;
+}
+
+body[data-theme="dark"] .MuiTypography-colorTextSecondary,
+body[data-theme="dark"] .MuiTypography-colorSecondary,
+body[data-theme="dark"] .MuiFormHelperText-root,
+body[data-theme="dark"] .MuiInputLabel-root {
+  color: var(--crm-muted) !important;
+}
+
+body[data-theme="dark"] .MuiOutlinedInput-root,
+body[data-theme="dark"] .MuiInputBase-root {
+  background-color: #0f172a !important;
+  color: var(--crm-text) !important;
+}
+
+body[data-theme="dark"] .MuiOutlinedInput-notchedOutline,
+body[data-theme="dark"] .MuiDivider-root {
+  border-color: var(--crm-border) !important;
+}
+
+body[data-theme="dark"] .MuiButton-outlined,
+body[data-theme="dark"] .MuiIconButton-root {
+  border-color: rgba(148, 163, 184, 0.28);
+}
+
+body[data-theme="dark"] .MuiChip-root {
+  border-color: rgba(148, 163, 184, 0.28) !important;
 }

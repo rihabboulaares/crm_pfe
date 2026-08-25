@@ -44,6 +44,10 @@ export const T = {
   n500: "#6b7280",
   n700: "#374151",
   n800: "#1f2937",
+  text: "var(--crm-text)",
+  muted: "var(--crm-muted)",
+  surface: "var(--crm-surface)",
+  border: "var(--crm-border)",
 };
 
 // ─────────────────────────────────────────────
@@ -101,7 +105,7 @@ export function ScoreRing({ score = 0, size = 110, strokeWidth = 10, label = "Sc
         <Typography sx={{ fontSize: size > 90 ? 22 : 16, fontWeight: 800, color, lineHeight: 1 }}>
           {Math.round(score)}%
         </Typography>
-        <Typography sx={{ fontSize: 9, color: T.n500, mt: 0.3, textAlign: "center", px: 1 }}>
+        <Typography sx={{ fontSize: 9, color: T.muted, mt: 0.3, textAlign: "center", px: 1 }}>
           {label}
         </Typography>
       </Box>
@@ -126,7 +130,7 @@ export function KpiBar({ label, value = 0, color, icon }) {
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={0.5}>
         <Stack direction="row" alignItems="center" spacing={0.5}>
           {icon && React.cloneElement(icon, { sx: { fontSize: 13, color } })}
-          <Typography variant="caption" sx={{ color: T.n500, fontSize: 11 }}>
+          <Typography variant="caption" sx={{ color: T.muted, fontSize: 11 }}>
             {label}
           </Typography>
         </Stack>
@@ -200,9 +204,15 @@ export function ScoreBreakdownCard({ kpi }) {
 
   return (
     <Card
-      sx={{ borderRadius: 3, p: 2.5, bgcolor: "white", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
+      sx={{
+        borderRadius: 3,
+        p: 2.5,
+        bgcolor: "var(--crm-surface)",
+        border: "1px solid var(--crm-border)",
+        boxShadow: "var(--crm-shadow-sm)",
+      }}
     >
-      <Typography variant="subtitle2" sx={{ fontWeight: 700, color: T.n800, mb: 2 }}>
+      <Typography variant="subtitle2" sx={{ fontWeight: 700, color: T.text, mb: 2 }}>
         Décomposition du score
       </Typography>
 
@@ -227,7 +237,7 @@ export function ScoreBreakdownCard({ kpi }) {
             border: `1px solid ${alpha(T.n500, 0.12)}`,
           }}
         >
-          <Typography variant="caption" sx={{ color: T.n500, fontSize: 11 }}>
+          <Typography variant="caption" sx={{ color: T.muted, fontSize: 11 }}>
             Aucune activité enregistrée ce mois — les scores apparaîtront dès la première tâche
             terminée.
           </Typography>
@@ -255,7 +265,7 @@ export function ScoreBreakdownCard({ kpi }) {
           </Stack>
           <Typography
             variant="caption"
-            sx={{ color: T.n500, fontSize: 10, display: "block", mt: 0.5 }}
+            sx={{ color: T.muted, fontSize: 10, display: "block", mt: 0.5 }}
           >
             {(kpi.tasks_late || 0) > 0 && `${kpi.tasks_late} retard(s) × -10 pts`}
             {(kpi.tasks_late || 0) > 0 && (kpi.tasks_not_done || 0) > 0 && " · "}
@@ -295,7 +305,7 @@ export function ActivityCounters({ calls = 0, emails = 0, meetings = 0 }) {
           <Typography sx={{ fontSize: 18, fontWeight: 800, color: item.color, lineHeight: 1 }}>
             {item.value || 0}
           </Typography>
-          <Typography variant="caption" sx={{ color: T.n500, fontSize: 10 }}>
+          <Typography variant="caption" sx={{ color: T.muted, fontSize: 10 }}>
             {item.label}
           </Typography>
         </Box>
@@ -374,7 +384,7 @@ export function GoalRow({ goal }) {
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={0.5}>
         <Stack direction="row" alignItems="center" spacing={0.8}>
           {React.cloneElement(icon, { sx: { fontSize: 14, color } })}
-          <Typography variant="body2" sx={{ fontSize: 12, color: T.n700 }}>
+          <Typography variant="body2" sx={{ fontSize: 12, color: T.text }}>
             {goal.goal_type_display || goal.goal_type}
           </Typography>
         </Stack>
@@ -382,7 +392,7 @@ export function GoalRow({ goal }) {
           <Typography variant="caption" sx={{ fontWeight: 700, color }}>
             {current}/{target}
           </Typography>
-          <Typography variant="caption" sx={{ fontSize: 10, color: T.n500 }}>
+          <Typography variant="caption" sx={{ fontSize: 10, color: T.muted }}>
             ({pct}%)
           </Typography>
           {pct >= 100 && <Typography sx={{ fontSize: 12 }}>🎉</Typography>}
@@ -410,7 +420,7 @@ export function Sparkline({ data = [], color = T.red }) {
   if (!data || !data.length)
     return (
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: 44 }}>
-        <Typography variant="caption" sx={{ color: T.n500, fontSize: 10 }}>
+        <Typography variant="caption" sx={{ color: T.muted, fontSize: 10 }}>
           Pas encore de données historiques
         </Typography>
       </Box>
@@ -467,11 +477,11 @@ export function AlertRow({ type = "error", title, sub, action }) {
     >
       <Typography sx={{ fontSize: 14, flexShrink: 0 }}>{icons[type]}</Typography>
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="body2" sx={{ fontWeight: 600, color: T.n800, fontSize: 12 }} noWrap>
+        <Typography variant="body2" sx={{ fontWeight: 600, color: T.text, fontSize: 12 }} noWrap>
           {title}
         </Typography>
         {sub && (
-          <Typography variant="caption" sx={{ color: T.n500, fontSize: 11 }}>
+          <Typography variant="caption" sx={{ color: T.muted, fontSize: 11 }}>
             {sub}
           </Typography>
         )}
@@ -523,7 +533,7 @@ export function LeaderboardRow({ entry, isMe = false }) {
           width: 28,
           textAlign: "center",
           fontWeight: 700,
-          color: T.n500,
+          color: T.muted,
         }}
       >
         {rankDisplay}
@@ -553,7 +563,7 @@ export function LeaderboardRow({ entry, isMe = false }) {
             />
           )}
         </Stack>
-        <Typography variant="caption" sx={{ color: T.n500, fontSize: 10 }}>
+        <Typography variant="caption" sx={{ color: T.muted, fontSize: 10 }}>
           {tasks_done}/{tasks_total} tâches · {opportunities_won} deals
         </Typography>
       </Box>
@@ -580,10 +590,10 @@ export function FeedbackCard({ feedback }) {
   const starColor = rating >= 4 ? T.amber : rating >= 3 ? T.blue : T.red;
 
   return (
-    <Box sx={{ p: 2, bgcolor: T.n50, borderRadius: 2, border: `1px solid ${T.n200}` }}>
+    <Box sx={{ p: 2, bgcolor: T.surface, borderRadius: 2, border: `1px solid ${T.border}` }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={0.5}>
         <Typography sx={{ fontSize: 16, color: starColor, letterSpacing: 1 }}>{stars}</Typography>
-        <Typography variant="caption" sx={{ color: T.n500, fontSize: 10 }}>
+        <Typography variant="caption" sx={{ color: T.muted, fontSize: 10 }}>
           {feedback.period_label || ""}
           {feedback.given_by_username ? ` · ${feedback.given_by_username}` : ""}
         </Typography>
@@ -591,7 +601,7 @@ export function FeedbackCard({ feedback }) {
       {feedback.comment && (
         <Typography
           variant="body2"
-          sx={{ color: T.n700, fontStyle: "italic", fontSize: 12, lineHeight: 1.5 }}
+          sx={{ color: T.text, fontStyle: "italic", fontSize: 12, lineHeight: 1.5 }}
         >
           &ldquo;{feedback.comment}&rdquo;
         </Typography>

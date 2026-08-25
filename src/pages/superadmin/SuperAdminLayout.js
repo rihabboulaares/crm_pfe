@@ -33,13 +33,15 @@ import {
   CheckCircle,
   SmartToy,
   FactCheck,
+  DarkMode,
+  LightMode,
 } from "@mui/icons-material";
+import { useMaterialUIController, setDarkMode } from "context";
 
 const DRAWER_WIDTH = 260;
 const COLLAPSED_WIDTH = 96;
 const RED = "#C1121F";
-const SIDEBAR_BG =
-  "linear-gradient(180deg, #5A0002 0%, #780000 44%, #9B0008 100%)";
+const SIDEBAR_BG = "linear-gradient(180deg, #5A0002 0%, #780000 44%, #9B0008 100%)";
 const SIDEBAR_BORDER = "rgba(255,255,255,0.12)";
 const SIDEBAR_TEXT = "#ffffff";
 const SIDEBAR_MUTED = "rgba(255,255,255,0.84)";
@@ -216,6 +218,8 @@ NavItem.propTypes = {
 function SuperAdminLayout({ children }) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const [controller, dispatch] = useMaterialUIController();
+  const { darkMode } = controller;
   const [collapsed, setCollapsed] = useState(false);
 
   const handleLogout = () => {
@@ -226,7 +230,7 @@ function SuperAdminLayout({ children }) {
   const drawerWidth = collapsed ? COLLAPSED_WIDTH : DRAWER_WIDTH;
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "#F8F9FA" }}>
+    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "var(--crm-bg)" }}>
       <Drawer
         variant="permanent"
         sx={{
@@ -319,7 +323,14 @@ function SuperAdminLayout({ children }) {
                 >
                   V
                 </Avatar>
-                <IconButton onClick={() => setCollapsed(false)} sx={{ color: SIDEBAR_MUTED, p: 0.5, "&:hover": { color: "#fff", bgcolor: HOVER_BG } }}>
+                <IconButton
+                  onClick={() => setCollapsed(false)}
+                  sx={{
+                    color: SIDEBAR_MUTED,
+                    p: 0.5,
+                    "&:hover": { color: "#fff", bgcolor: HOVER_BG },
+                  }}
+                >
                   <Menu fontSize="small" />
                 </IconButton>
               </Box>
@@ -434,10 +445,33 @@ function SuperAdminLayout({ children }) {
           flex: 1,
           p: 3,
           overflow: "auto",
+          color: "var(--crm-text)",
           background:
-            "radial-gradient(circle at top right, rgba(193,18,31,0.07), transparent 28rem), #F8F9FA",
+            "radial-gradient(circle at top right, rgba(193,18,31,0.07), transparent 28rem), var(--crm-bg)",
         }}
       >
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
+          <Tooltip title={darkMode ? "Passer en mode clair" : "Passer en mode sombre"} arrow>
+            <IconButton
+              onClick={() => setDarkMode(dispatch, !darkMode)}
+              aria-label="Basculer le theme clair sombre"
+              sx={{
+                width: 42,
+                height: 42,
+                color: "var(--crm-text)",
+                bgcolor: "var(--crm-surface)",
+                border: "1px solid var(--crm-border)",
+                boxShadow: "var(--crm-shadow-sm)",
+                "&:hover": {
+                  bgcolor: "var(--crm-red-soft)",
+                  color: "var(--crm-red-700)",
+                },
+              }}
+            >
+              {darkMode ? <DarkMode fontSize="small" /> : <LightMode fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+        </Box>
         {children}
       </Box>
     </Box>

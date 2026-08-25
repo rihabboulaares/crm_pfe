@@ -1,5 +1,5 @@
 // src/pages/SubscriptionForm.jsx
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import axios from "axios";
 
@@ -237,28 +237,61 @@ const SubscriptionForm = () => {
 
   const token = localStorage.getItem("token");
 
-  const publicApi = axios.create({
-    baseURL: API_BASE,
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
+  const publicApi = useMemo(
+    () =>
+      axios.create({
+        baseURL: API_BASE,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }),
+    []
+  );
 
-  publicApi.interceptors.request.use((config) => {
-    if (config.headers) {
-      delete config.headers.Authorization;
-      delete config.headers.authorization;
+  useEffect(() => {
+    const interceptorId = publicApi.interceptors.request.use((config) => {
+      if (config.headers) {
+        delete config.headers.Authorization;
+        delete config.headers.authorization;
+      }
+      return config;
+    });
+    return () => publicApi.interceptors.request.eject(interceptorId);
+  }, [publicApi]);
+
+  const api = useMemo(
+    () =>
+      axios.create({
+        baseURL: API_BASE,
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      }),
+    [token]
+  );
+
+  const showNotification = useCallback((message, type = "success") => {
+    setNotification({ show: true, message, type });
+    setTimeout(() => setNotification({ show: false, message: "", type: "" }), 6000);
+  }, []);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [plansRes, currentRes] = await Promise.all([
+        publicApi.get("/subscriptions/plans/"),
+        api.get("/subscriptions/current/").catch(() => ({ data: null })),
+      ]);
+      setPlans(plansRes.data);
+      setCurrent(currentRes.data);
+    } catch (error) {
+      console.error("Erreur chargement", error);
+      showNotification("Erreur de chargement", "error");
+    } finally {
+      setLoading(false);
     }
-    return config;
-  });
-
-  const api = axios.create({
-    baseURL: API_BASE,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
+  }, [api, publicApi, showNotification]);
 
   // ── Retour depuis Stripe ──────────────────────────────────
   useEffect(() => {
@@ -274,33 +307,11 @@ const SubscriptionForm = () => {
       showNotification("Paiement annulé. Vous pouvez réessayer à tout moment.", "warning");
       window.history.replaceState({}, "", window.location.pathname);
     }
-  }, [location.search]);
+  }, [location.search, showNotification]);
 
   useEffect(() => {
     loadData();
-  }, []);
-
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [plansRes, currentRes] = await Promise.all([
-        publicApi.get("/subscriptions/plans/"),
-        api.get("/subscriptions/current/").catch(() => ({ data: null })),
-      ]);
-      setPlans(plansRes.data);
-      setCurrent(currentRes.data);
-    } catch (error) {
-      console.error("Erreur chargement", error);
-      showNotification("Erreur de chargement", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const showNotification = (message, type = "success") => {
-    setNotification({ show: true, message, type });
-    setTimeout(() => setNotification({ show: false, message: "", type: "" }), 6000);
-  };
+  }, [loadData]);
 
   // ── Sélectionner un plan ──────────────────────────────────
   const handleSelectPlan = async (planName) => {

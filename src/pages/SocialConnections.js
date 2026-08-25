@@ -44,7 +44,9 @@ const STATUS = {
 };
 
 const formatDate = (value) =>
-  value ? new Date(value).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "Jamais";
+  value
+    ? new Date(value).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })
+    : "Jamais";
 
 export default function SocialConnections() {
   const [sessions, setSessions] = useState({});
@@ -63,7 +65,9 @@ export default function SocialConnections() {
         });
         setSessions(next);
       })
-      .catch(() => setNotice({ type: "error", text: "Impossible de charger les connexions sociales." }))
+      .catch(() =>
+        setNotice({ type: "error", text: "Impossible de charger les connexions sociales." })
+      )
       .finally(() => setLoading(false));
   };
 
@@ -92,7 +96,10 @@ export default function SocialConnections() {
     setBusy(platform);
     checkSocialSession(platform)
       .then((res) => {
-        setNotice({ type: res.data?.ok ? "success" : "warning", text: res.data?.message || "Vérification terminée." });
+        setNotice({
+          type: res.data?.ok ? "success" : "warning",
+          text: res.data?.message || "Vérification terminée.",
+        });
         load();
       })
       .catch(() => setNotice({ type: "error", text: "Vérification impossible." }))
@@ -161,17 +168,35 @@ export default function SocialConnections() {
         ) : (
           <Grid container spacing={3}>
             {PLATFORMS.map((platform) => {
-              const session = sessions[platform.key] || { platform: platform.key, status: "not_connected" };
+              const session = sessions[platform.key] || {
+                platform: platform.key,
+                status: "not_connected",
+              };
               const status = STATUS[session.status] || STATUS.error;
               const isBusy = busy === platform.key;
               return (
                 <Grid item xs={12} md={4} key={platform.key}>
-                  <Card sx={{ borderRadius: 3, p: 3, height: "100%", boxShadow: "0 10px 30px rgba(15,23,42,0.08)" }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={2}>
+                  <Card
+                    sx={{
+                      borderRadius: 3,
+                      p: 3,
+                      height: "100%",
+                      boxShadow: "0 10px 30px rgba(15,23,42,0.08)",
+                    }}
+                  >
+                    <Stack
+                      direction="row"
+                      justifyContent="space-between"
+                      alignItems="flex-start"
+                      mb={2}
+                    >
                       <Avatar sx={{ bgcolor: alpha(platform.color, 0.12), color: platform.color }}>
                         {platform.icon}
                       </Avatar>
-                      <Chip label={status.label} sx={{ bgcolor: status.bg, color: status.color, fontWeight: 800 }} />
+                      <Chip
+                        label={status.label}
+                        sx={{ bgcolor: status.bg, color: status.color, fontWeight: 800 }}
+                      />
                     </Stack>
                     <Typography variant="h6" sx={{ fontWeight: 800 }}>
                       {platform.label}
@@ -197,17 +222,34 @@ export default function SocialConnections() {
                     <Stack spacing={1.2} mt={3}>
                       <Button
                         variant="contained"
-                        startIcon={isBusy ? <CircularProgress size={16} color="inherit" /> : <UploadFile />}
+                        startIcon={
+                          isBusy ? <CircularProgress size={16} color="inherit" /> : <UploadFile />
+                        }
                         onClick={() => fileInputs.current[platform.key]?.click()}
                         disabled={isBusy}
-                        sx={{ bgcolor: RED, textTransform: "none", "&:hover": { bgcolor: "#9B0D22" } }}
+                        sx={{
+                          bgcolor: RED,
+                          textTransform: "none",
+                          "&:hover": { bgcolor: "#9B0D22" },
+                        }}
                       >
                         Importer session
                       </Button>
-                      <Button startIcon={<Refresh />} disabled={isBusy} onClick={() => handleCheck(platform.key)} sx={{ textTransform: "none" }}>
+                      <Button
+                        startIcon={<Refresh />}
+                        disabled={isBusy}
+                        onClick={() => handleCheck(platform.key)}
+                        sx={{ textTransform: "none" }}
+                      >
                         Vérifier session
                       </Button>
-                      <Button color="error" startIcon={<Delete />} disabled={isBusy} onClick={() => handleDelete(platform.key)} sx={{ textTransform: "none" }}>
+                      <Button
+                        color="error"
+                        startIcon={<Delete />}
+                        disabled={isBusy}
+                        onClick={() => handleDelete(platform.key)}
+                        sx={{ textTransform: "none" }}
+                      >
                         Supprimer session
                       </Button>
                     </Stack>

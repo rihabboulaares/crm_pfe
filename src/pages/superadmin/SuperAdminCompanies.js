@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 // src/pages/superadmin/SuperAdminCompanies.js
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useState, useMemo } from "react";
 import PropTypes from "prop-types";
 import axios from "axios";
 import {
@@ -279,13 +279,7 @@ const CompanyDetailsDialog = ({ open, onClose, companyId }) => {
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState(null);
 
-  useEffect(() => {
-    if (open && companyId) {
-      fetchDetails();
-    }
-  }, [open, companyId]);
-
-  const fetchDetails = async () => {
+  const fetchDetails = useCallback(async () => {
     setLoading(true);
     try {
       const r = await api(`/api/superadmin/companies/${companyId}/`);
@@ -295,7 +289,13 @@ const CompanyDetailsDialog = ({ open, onClose, companyId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [companyId]);
+
+  useEffect(() => {
+    if (open && companyId) {
+      fetchDetails();
+    }
+  }, [fetchDetails, open, companyId]);
 
   return (
     <Dialog

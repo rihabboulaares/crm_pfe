@@ -87,7 +87,7 @@ function Sidenav({ color, brand, brandName, routes, ...rest }) {
     window.addEventListener("resize", handleMiniSidenav);
     handleMiniSidenav();
     return () => window.removeEventListener("resize", handleMiniSidenav);
-  }, [dispatch, location]);
+  }, [dispatch, location, transparentSidenav, whiteSidenav]);
 
   const formatExpiryDate = (dateString) => {
     if (!dateString) return "N/A";

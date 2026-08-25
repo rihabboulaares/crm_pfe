@@ -15,6 +15,8 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
+import Switch from "@mui/material/Switch";
+import Tooltip from "@mui/material/Tooltip";
 
 import MDBox from "components/MDBox";
 import MDInput from "components/MDInput";
@@ -36,7 +38,14 @@ import {
   setTransparentNavbar,
   setMiniSidenav,
   setOpenConfigurator,
+  setDarkMode,
 } from "context";
+
+const MEDIA_URL = "http://127.0.0.1:8000";
+const mediaUrl = (value) => {
+  if (!value) return undefined;
+  return value.startsWith("http") ? value : `${MEDIA_URL}${value}`;
+};
 
 function DashboardNavbar({ absolute, light, isMini }) {
   const [navbarType, setNavbarType] = useState();
@@ -45,14 +54,21 @@ function DashboardNavbar({ absolute, light, isMini }) {
   const route = useLocation().pathname.split("/").slice(1);
   const [storedUser] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem("user") || localStorage.getItem("currentUser") || "{}");
+      return JSON.parse(
+        localStorage.getItem("user") || localStorage.getItem("currentUser") || "{}"
+      );
     } catch {
       return {};
     }
   });
   const displayName =
-    storedUser?.username || storedUser?.first_name || storedUser?.email || storedUser?.company || "CRM";
+    storedUser?.username ||
+    storedUser?.first_name ||
+    storedUser?.email ||
+    storedUser?.company ||
+    "CRM";
   const displayRole = storedUser?.role || storedUser?.company_name || "Workspace";
+  const profilePictureUrl = mediaUrl(storedUser?.profile_picture);
   const isAdmin = String(storedUser?.role || "").toUpperCase() === "ADMIN";
   const [subscription, setSubscription] = useState(null);
 
@@ -74,6 +90,7 @@ function DashboardNavbar({ absolute, light, isMini }) {
 
   const handleMiniSidenav = () => setMiniSidenav(dispatch, !miniSidenav);
   const handleConfiguratorOpen = () => setOpenConfigurator(dispatch, !openConfigurator);
+  const handleThemeToggle = () => setDarkMode(dispatch, !darkMode);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -132,11 +149,12 @@ function DashboardNavbar({ absolute, light, isMini }) {
                   py: 0.5,
                   mr: 0.5,
                   borderRadius: 2,
-                  border: "1px solid rgba(229,231,235,0.9)",
-                  bgcolor: "#fff",
+                  border: "1px solid var(--crm-border)",
+                  bgcolor: "var(--crm-surface)",
                 }}
               >
                 <Avatar
+                  src={profilePictureUrl}
                   sx={{
                     width: 30,
                     height: 30,
@@ -148,14 +166,40 @@ function DashboardNavbar({ absolute, light, isMini }) {
                   {String(displayName).charAt(0).toUpperCase()}
                 </Avatar>
                 <Box sx={{ minWidth: 0 }}>
-                  <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#1F2937" }}>
+                  <Typography
+                    sx={{ fontSize: "0.78rem", fontWeight: 800, color: "var(--crm-text)" }}
+                  >
                     {displayName}
                   </Typography>
-                  <Typography sx={{ fontSize: "0.66rem", color: "#6B7280", lineHeight: 1 }}>
+                  <Typography
+                    sx={{ fontSize: "0.66rem", color: "var(--crm-muted)", lineHeight: 1 }}
+                  >
                     {displayRole}
                   </Typography>
                 </Box>
               </Box>
+              <Tooltip title={darkMode ? "Passer en mode clair" : "Passer en mode sombre"} arrow>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    px: 0.5,
+                    borderRadius: 999,
+                    border: "1px solid var(--crm-border)",
+                    bgcolor: "var(--crm-surface)",
+                  }}
+                >
+                  <Icon sx={{ fontSize: 18, color: "var(--crm-muted)" }}>
+                    {darkMode ? "dark_mode" : "light_mode"}
+                  </Icon>
+                  <Switch
+                    size="small"
+                    checked={darkMode}
+                    onChange={handleThemeToggle}
+                    inputProps={{ "aria-label": "Basculer le theme clair sombre" }}
+                  />
+                </Box>
+              </Tooltip>
               {/* Profil */}
               <Link to="/profile">
                 <IconButton sx={navbarIconButton} size="small" disableRipple>
@@ -201,7 +245,9 @@ function DashboardNavbar({ absolute, light, isMini }) {
         )}
       </Toolbar>
       {subscription &&
-        ((subscription.days_until_expiry <= 7 && !subscription.expired && !subscription.is_blocked) ||
+        ((subscription.days_until_expiry <= 7 &&
+          !subscription.expired &&
+          !subscription.is_blocked) ||
           subscription.expired ||
           subscription.is_blocked) && (
           <Box sx={{ px: 2, pb: 1 }}>

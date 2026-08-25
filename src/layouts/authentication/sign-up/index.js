@@ -11,6 +11,10 @@ import {
   Button,
   Card,
   Checkbox,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   FormControlLabel,
   IconButton,
   InputAdornment,
@@ -26,6 +30,7 @@ import {
   ArrowBack,
   CheckCircle,
   Email,
+  Gavel,
   Lock,
   Person,
   Send,
@@ -162,6 +167,7 @@ function SignUp() {
   const [focusedField, setFocusedField] = useState(null);
   const [loading, setLoading] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -189,21 +195,31 @@ function SignUp() {
       return;
     }
 
+    if (!acceptedTerms) {
+      setMessage("Vous devez accepter les conditions d'utilisation pour créer un compte.");
+      setLoading(false);
+      return;
+    }
+
     try {
-      const response = await axios.post("/api/users/register/", {
+      await axios.post("/api/users/register/", {
         username: name.trim(),
         email: email.trim(),
         password: password,
         role: "ADMIN",
+        terms_accepted: true,
       });
 
-      console.log("Backend response:", response.data);
       setMessage("Un code de vérification a été envoyé par email.");
       setStep(2);
     } catch (error) {
       console.error(error.response?.data);
+      const emailError = error.response?.data?.email;
+      const emailMessage = Array.isArray(emailError) ? emailError[0] : emailError;
 
-      if (error.response?.data?.email) {
+      if (emailMessage && !String(emailMessage).includes("déjà")) {
+        setMessage(emailMessage);
+      } else if (emailMessage) {
         setMessage("Cet email est déjà utilisé");
       } else if (error.response?.data?.username) {
         setMessage("Ce nom d'utilisateur est déjà pris");
@@ -221,12 +237,11 @@ function SignUp() {
     setMessage("");
 
     try {
-      const response = await axios.post("/api/users/verify-email/", {
+      await axios.post("/api/users/verify-email/", {
         email,
         code,
       });
 
-      console.log("Vérification réponse:", response.data);
       setMessage("Email vérifié avec succès !");
 
       setTimeout(() => {
@@ -239,6 +254,23 @@ function SignUp() {
           error.response?.data?.code ||
           "Code de vérification invalide"
       );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendCode = async () => {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const response = await axios.post("/api/users/resend-verification/", {
+        email,
+      });
+      setMessage(response.data?.message || "Nouveau code envoyé.");
+    } catch (error) {
+      console.error(error.response?.data);
+      setMessage(error.response?.data?.error || "Impossible de renvoyer le code.");
     } finally {
       setLoading(false);
     }
@@ -408,7 +440,25 @@ function SignUp() {
                         }
                         label={
                           <Typography variant="body2" sx={{ color: crmTheme.neutral[600] }}>
-                            J&apos;accepte les conditions d&apos;utilisation
+                            J&apos;accepte les{" "}
+                            <Button
+                              type="button"
+                              variant="text"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setTermsOpen(true);
+                              }}
+                              sx={{
+                                minWidth: 0,
+                                p: 0,
+                                color: crmTheme.primary.main,
+                                fontWeight: 900,
+                                textTransform: "none",
+                                verticalAlign: "baseline",
+                              }}
+                            >
+                              conditions d&apos;utilisation
+                            </Button>
                           </Typography>
                         }
                       />
@@ -471,6 +521,26 @@ function SignUp() {
                         </Alert>
                       )}
 
+                      <Box display="flex" justifyContent="space-between" alignItems="center">
+                        <Typography variant="caption" sx={{ color: crmTheme.neutral[500] }}>
+                          Vous n&apos;avez pas reçu le code ?
+                        </Typography>
+                        <Button
+                          variant="text"
+                          onClick={handleResendCode}
+                          disabled={loading || !email}
+                          sx={{
+                            color: crmTheme.primary.main,
+                            textTransform: "none",
+                            fontWeight: 900,
+                            p: 0,
+                            minWidth: 0,
+                          }}
+                        >
+                          Renvoyer
+                        </Button>
+                      </Box>
+
                       <StyledButton
                         className="auth-button"
                         type="submit"
@@ -528,6 +598,70 @@ function SignUp() {
           </Box>
         </Box>
       </Box>
+
+      <Dialog open={termsOpen} onClose={() => setTermsOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1.2, fontWeight: 900 }}>
+          <Gavel sx={{ color: crmTheme.primary.main }} />
+          Conditions d&apos;utilisation ViewiseCRM
+        </DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2.2}>
+            <Typography variant="body2" sx={{ color: crmTheme.neutral[600], lineHeight: 1.7 }}>
+              En créant un compte, vous confirmez utiliser ViewiseCRM dans un cadre professionnel et
+              fournir des informations exactes lors de l&apos;inscription.
+            </Typography>
+            <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+              Compte et sécurité
+            </Typography>
+            <Typography variant="body2" sx={{ color: crmTheme.neutral[600], lineHeight: 1.7 }}>
+              Vous êtes responsable de la confidentialité de votre mot de passe et des actions
+              effectuées depuis votre compte. Toute utilisation non autorisée doit être signalée à
+              l&apos;administrateur de votre société.
+            </Typography>
+            <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+              Données CRM
+            </Typography>
+            <Typography variant="body2" sx={{ color: crmTheme.neutral[600], lineHeight: 1.7 }}>
+              Les prospects, contacts, documents et échanges ajoutés dans le CRM doivent respecter
+              les règles applicables à la prospection commerciale et à la protection des données.
+            </Typography>
+            <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+              Usage acceptable
+            </Typography>
+            <Typography variant="body2" sx={{ color: crmTheme.neutral[600], lineHeight: 1.7 }}>
+              Il est interdit d&apos;utiliser la plateforme pour envoyer du spam, collecter des
+              données illicites, contourner des restrictions techniques ou porter atteinte à des
+              tiers.
+            </Typography>
+            <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+              Services IA et automatisations
+            </Typography>
+            <Typography variant="body2" sx={{ color: crmTheme.neutral[600], lineHeight: 1.7 }}>
+              Les recommandations et contenus générés par les agents IA doivent être vérifiés par un
+              utilisateur avant toute décision commerciale importante ou tout envoi externe.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button
+            variant="text"
+            onClick={() => setTermsOpen(false)}
+            sx={{ color: crmTheme.neutral[600], textTransform: "none", fontWeight: 800 }}
+          >
+            Fermer
+          </Button>
+          <StyledButton
+            type="button"
+            onClick={() => {
+              setAcceptedTerms(true);
+              setTermsOpen(false);
+            }}
+            sx={{ width: "auto", px: 3 }}
+          >
+            Accepter
+          </StyledButton>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

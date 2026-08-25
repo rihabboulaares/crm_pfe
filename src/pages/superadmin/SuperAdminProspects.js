@@ -739,7 +739,11 @@ export default function SuperAdminProspects() {
         <Grid item xs={12} sm={6} md={3}>
           <StatsCardItem
             title="Conversion"
-            value={displayStats.total ? `${Math.round((displayStats.won / displayStats.total) * 100)}%` : "0%"}
+            value={
+              displayStats.total
+                ? `${Math.round((displayStats.won / displayStats.total) * 100)}%`
+                : "0%"
+            }
             icon={<StarIcon />}
             color={THEME.success}
           >

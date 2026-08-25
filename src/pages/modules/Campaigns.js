@@ -635,19 +635,9 @@ export default function ProspectCompanies() {
 
   useEffect(() => {
     setHookFilters(hookFilters);
-  }, [hookFilters]);
+  }, [hookFilters, setHookFilters]);
 
-  // ── Init ──
-  useEffect(() => {
-    const tok = localStorage.getItem("token");
-    if (!tok) {
-      navigate("/sign-in");
-      return;
-    }
-    fetchCurrentUser(tok);
-  }, [navigate]);
-
-  const fetchCurrentUser = async (tok) => {
+  const fetchCurrentUser = useCallback(async (tok) => {
     try {
       const res = await axios.get(API_USER, { headers: { Authorization: `Bearer ${tok}` } });
       setCurrentUser(res.data);
@@ -658,7 +648,17 @@ export default function ProspectCompanies() {
         navigate("/sign-in");
       }
     }
-  };
+  }, [navigate]);
+
+  // ── Init ──
+  useEffect(() => {
+    const tok = localStorage.getItem("token");
+    if (!tok) {
+      navigate("/sign-in");
+      return;
+    }
+    fetchCurrentUser(tok);
+  }, [fetchCurrentUser, navigate]);
 
   const showNotification = (text, type = "success") => {
     setMessage({ text, type });
@@ -1173,7 +1173,9 @@ export default function ProspectCompanies() {
                 )}
                 {apiFilters.source && (
                   <Chip
-                    label={`Source: ${SOURCE_CONFIG[apiFilters.source]?.label || apiFilters.source}`}
+                    label={`Source: ${
+                      SOURCE_CONFIG[apiFilters.source]?.label || apiFilters.source
+                    }`}
                     size="small"
                     onDelete={() => {
                       const f = { ...apiFilters };

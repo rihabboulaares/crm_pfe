@@ -1021,7 +1021,8 @@ function ResultsBlock({ result, onImport, imported }) {
           }}
         >
           Connexion {loginPlatforms.join(", ") || "reseau social"} requise. Utilisez le panneau
-          Connexions sociales pour ouvrir la fenetre de connexion, puis cliquez sur Verifier session.
+          Connexions sociales pour ouvrir la fenetre de connexion, puis cliquez sur Verifier
+          session.
         </div>
       )}
 
@@ -1299,7 +1300,7 @@ export default function ProspectAgent() {
     if (query.includes("linkedin")) required.push("linkedin");
     if (query.includes("facebook")) required.push("facebook");
     if (query.includes("instagram")) required.push("instagram");
-    return required.length ? required : ["linkedin"];
+    return required;
   }, [input]);
 
   const missingRequiredPlatforms = useCallback(
@@ -1309,8 +1310,7 @@ export default function ProspectAgent() {
       if (query.includes("linkedin")) required.push("linkedin");
       if (query.includes("facebook")) required.push("facebook");
       if (query.includes("instagram")) required.push("instagram");
-      const platforms = required.length ? required : ["linkedin"];
-      return platforms.filter((platform) => !isSessionReady(socialSessions?.[platform]));
+      return required.filter((platform) => !isSessionReady(socialSessions?.[platform]));
     },
     [input, socialSessions]
   );
@@ -1439,7 +1439,13 @@ export default function ProspectAgent() {
               )}
             </div>
 
-            <div style={{ padding: "16px 24px", background: T.white, borderBottom: `1px solid ${T.border}` }}>
+            <div
+              style={{
+                padding: "16px 24px",
+                background: T.white,
+                borderBottom: `1px solid ${T.border}`,
+              }}
+            >
               <SocialConnectionBox
                 title="Connexions requises pour l'agent de prospection"
                 requiredPlatforms={requiredSocialPlatforms}

@@ -34,7 +34,7 @@ function DashboardLayout({ children }) {
 
   useEffect(() => {
     setLayout(dispatch, "dashboard");
-  }, [pathname]);
+  }, [dispatch, pathname]);
 
   return (
     <MDBox
@@ -42,8 +42,9 @@ function DashboardLayout({ children }) {
         p: { xs: 2, md: 3 },
         position: "relative",
         minHeight: "100vh",
+        color: "var(--crm-text)",
         background:
-          "radial-gradient(circle at top right, rgba(193,18,31,0.07), transparent 28rem), #F8F9FA",
+          "radial-gradient(circle at top right, rgba(193,18,31,0.07), transparent 28rem), var(--crm-bg)",
 
         [breakpoints.up("xl")]: {
           marginLeft: miniSidenav ? pxToRem(120) : pxToRem(274),

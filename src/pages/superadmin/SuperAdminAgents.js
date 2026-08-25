@@ -37,10 +37,20 @@ const pageSize = 12;
 
 function KpiCard({ icon, label, value, color }) {
   return (
-    <Card sx={{ borderRadius: 2, p: 2.5, boxShadow: "0 1px 4px rgba(0,0,0,0.08)", borderLeft: `4px solid ${color}` }}>
+    <Card
+      sx={{
+        borderRadius: 2,
+        p: 2.5,
+        boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+        borderLeft: `4px solid ${color}`,
+      }}
+    >
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Box>
-          <Typography variant="caption" sx={{ color: T.n500, textTransform: "uppercase", fontWeight: 700 }}>
+          <Typography
+            variant="caption"
+            sx={{ color: T.n500, textTransform: "uppercase", fontWeight: 700 }}
+          >
             {label}
           </Typography>
           <Typography variant="h4" sx={{ color: T.n800, fontWeight: 800, mt: 0.5 }}>
@@ -93,7 +103,11 @@ export default function SuperAdminAgents() {
         </Avatar>
       </Stack>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
           <CircularProgress sx={{ color: T.red }} />
@@ -102,16 +116,36 @@ export default function SuperAdminAgents() {
         <>
           <Grid container spacing={2.5} mb={3}>
             <Grid item xs={12} sm={6} md={3}>
-              <KpiCard icon={<SmartToy />} label="Runs" value={formatNumber(stats?.total_runs)} color={T.red} />
+              <KpiCard
+                icon={<SmartToy />}
+                label="Runs"
+                value={formatNumber(stats?.total_runs)}
+                color={T.red}
+              />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <KpiCard icon={<TravelExplore />} label="Prospects trouvés" value={formatNumber(stats?.prospects_found)} color={T.blue} />
+              <KpiCard
+                icon={<TravelExplore />}
+                label="Prospects trouvés"
+                value={formatNumber(stats?.prospects_found)}
+                color={T.blue}
+              />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <KpiCard icon={<MarkEmailRead />} label="Messages envoyés" value={formatNumber(stats?.messages_sent)} color={T.green} />
+              <KpiCard
+                icon={<MarkEmailRead />}
+                label="Messages envoyés"
+                value={formatNumber(stats?.messages_sent)}
+                color={T.green}
+              />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <KpiCard icon={<Timer />} label="Durée moyenne" value={`${stats?.avg_duration_seconds || 0}s`} color={T.amber} />
+              <KpiCard
+                icon={<Timer />}
+                label="Durée moyenne"
+                value={`${stats?.avg_duration_seconds || 0}s`}
+                color={T.amber}
+              />
             </Grid>
           </Grid>
 
@@ -120,8 +154,18 @@ export default function SuperAdminAgents() {
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    {["Début", "Agent", "Entreprise", "Statut", "Prospects", "Messages", "Erreur"].map((h) => (
-                      <TableCell key={h} sx={{ fontWeight: 800, color: T.n800 }}>{h}</TableCell>
+                    {[
+                      "Début",
+                      "Agent",
+                      "Entreprise",
+                      "Statut",
+                      "Prospects",
+                      "Messages",
+                      "Erreur",
+                    ].map((h) => (
+                      <TableCell key={h} sx={{ fontWeight: 800, color: T.n800 }}>
+                        {h}
+                      </TableCell>
                     ))}
                   </TableRow>
                 </TableHead>
@@ -134,12 +178,24 @@ export default function SuperAdminAgents() {
                         <TableCell>{run.agent_type}</TableCell>
                         <TableCell>{run.company_name || "Plateforme"}</TableCell>
                         <TableCell>
-                          <Chip size="small" label={run.status} sx={{ bgcolor: c.bg, color: c.text, fontWeight: 700 }} />
+                          <Chip
+                            size="small"
+                            label={run.status}
+                            sx={{ bgcolor: c.bg, color: c.text, fontWeight: 700 }}
+                          />
                         </TableCell>
-                        <TableCell>{formatNumber(run.prospects_found)} / {formatNumber(run.prospects_imported)}</TableCell>
-                        <TableCell>{formatNumber(run.messages_generated)} / {formatNumber(run.messages_sent)}</TableCell>
+                        <TableCell>
+                          {formatNumber(run.prospects_found)} /{" "}
+                          {formatNumber(run.prospects_imported)}
+                        </TableCell>
+                        <TableCell>
+                          {formatNumber(run.messages_generated)} / {formatNumber(run.messages_sent)}
+                        </TableCell>
                         <TableCell sx={{ maxWidth: 280 }}>
-                          <Typography variant="caption" sx={{ color: run.error_message ? T.red : T.n500 }}>
+                          <Typography
+                            variant="caption"
+                            sx={{ color: run.error_message ? T.red : T.n500 }}
+                          >
                             {run.error_message || "Aucune"}
                           </Typography>
                         </TableCell>

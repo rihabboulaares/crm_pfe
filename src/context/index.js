@@ -18,7 +18,7 @@ Coded by www.creative-tim.com
   you can customize the states for the different components here.
 */
 
-import { createContext, useContext, useReducer, useMemo } from "react";
+import { createContext, useContext, useReducer, useMemo, useEffect } from "react";
 
 // prop-types is a library for typechecking of props
 import PropTypes from "prop-types";
@@ -68,6 +68,19 @@ function reducer(state, action) {
   }
 }
 
+const THEME_STORAGE_KEY = "crm-theme";
+
+function getInitialDarkMode() {
+  if (typeof window === "undefined") return false;
+
+  const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+
+  if (savedTheme === "dark") return true;
+  if (savedTheme === "light") return false;
+
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches || false;
+}
+
 // Material Dashboard 2 React context provider
 function MaterialUIControllerProvider({ children }) {
   const initialState = {
@@ -80,10 +93,16 @@ function MaterialUIControllerProvider({ children }) {
     openConfigurator: false,
     direction: "ltr",
     layout: "dashboard",
-    darkMode: false,
+    darkMode: getInitialDarkMode(),
   };
 
   const [controller, dispatch] = useReducer(reducer, initialState);
+
+  useEffect(() => {
+    const theme = controller.darkMode ? "dark" : "light";
+
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [controller.darkMode]);
 
   const value = useMemo(() => [controller, dispatch], [controller, dispatch]);
 

@@ -73,8 +73,18 @@ ChartCard.defaultProps = {
 
 function KpiCard({ label, value, color }) {
   return (
-    <Card sx={{ borderRadius: 2, p: 2.5, boxShadow: "0 1px 4px rgba(0,0,0,0.08)", borderTop: `3px solid ${color}` }}>
-      <Typography variant="caption" sx={{ color: T.n500, textTransform: "uppercase", fontWeight: 800 }}>
+    <Card
+      sx={{
+        borderRadius: 2,
+        p: 2.5,
+        boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+        borderTop: `3px solid ${color}`,
+      }}
+    >
+      <Typography
+        variant="caption"
+        sx={{ color: T.n500, textTransform: "uppercase", fontWeight: 800 }}
+      >
         {label}
       </Typography>
       <Typography variant="h4" sx={{ color: T.n800, fontWeight: 800, mt: 0.5 }}>
@@ -126,7 +136,10 @@ export default function SuperAdminStats() {
   }, []);
 
   const stats = data.stats || {};
-  const planData = Object.entries(stats.companies_by_plan || {}).map(([name, value]) => ({ name, value }));
+  const planData = Object.entries(stats.companies_by_plan || {}).map(([name, value]) => ({
+    name,
+    value,
+  }));
   const funnelData = data.funnel
     ? [
         { name: "Prospects", value: data.funnel.prospects },
@@ -153,7 +166,11 @@ export default function SuperAdminStats() {
         </Avatar>
       </Stack>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
           <CircularProgress sx={{ color: T.red }} />
@@ -162,13 +179,25 @@ export default function SuperAdminStats() {
         <>
           <Grid container spacing={2.5} mb={3}>
             <Grid item xs={12} sm={6} md={3}>
-              <KpiCard label="Entreprises" value={formatNumber(stats.total_companies)} color={T.blue} />
+              <KpiCard
+                label="Entreprises"
+                value={formatNumber(stats.total_companies)}
+                color={T.blue}
+              />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <KpiCard label="Utilisateurs" value={formatNumber(stats.total_users)} color={T.purple} />
+              <KpiCard
+                label="Utilisateurs"
+                value={formatNumber(stats.total_users)}
+                color={T.purple}
+              />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <KpiCard label="Revenus mensuels" value={formatCurrency(stats.total_revenue_monthly)} color={T.green} />
+              <KpiCard
+                label="Revenus mensuels"
+                value={formatCurrency(stats.total_revenue_monthly)}
+                color={T.green}
+              />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
               <KpiCard label="Runs IA" value={formatNumber(stats.ai_total_runs)} color={T.red} />
@@ -183,16 +212,44 @@ export default function SuperAdminStats() {
                   <XAxis dataKey="month" tick={{ fontSize: 12, fill: T.n500 }} />
                   <YAxis tick={{ fontSize: 12, fill: T.n500 }} />
                   <Tooltip />
-                  <Area type="monotone" dataKey="companies" name="Entreprises" stroke={T.red} fill={alpha(T.red, 0.12)} strokeWidth={2} />
-                  <Area type="monotone" dataKey="prospects" name="Prospects" stroke={T.blue} fill={alpha(T.blue, 0.1)} strokeWidth={2} />
-                  <Area type="monotone" dataKey="opportunities" name="Opportunités" stroke={T.green} fill={alpha(T.green, 0.1)} strokeWidth={2} />
+                  <Area
+                    type="monotone"
+                    dataKey="companies"
+                    name="Entreprises"
+                    stroke={T.red}
+                    fill={alpha(T.red, 0.12)}
+                    strokeWidth={2}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="prospects"
+                    name="Prospects"
+                    stroke={T.blue}
+                    fill={alpha(T.blue, 0.1)}
+                    strokeWidth={2}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="opportunities"
+                    name="Opportunités"
+                    stroke={T.green}
+                    fill={alpha(T.green, 0.1)}
+                    strokeWidth={2}
+                  />
                 </AreaChart>
               </ChartCard>
             </Grid>
             <Grid item xs={12} lg={4}>
               <ChartCard title="Entreprises par plan">
                 <PieChart>
-                  <Pie data={planData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={95} label>
+                  <Pie
+                    data={planData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={55}
+                    outerRadius={95}
+                    label
+                  >
                     {planData.map((entry, index) => (
                       <Cell key={entry.name} fill={colors[index % colors.length]} />
                     ))}
@@ -220,7 +277,14 @@ export default function SuperAdminStats() {
               </ChartCard>
             </Grid>
             <Grid item xs={12} md={5}>
-              <Card sx={{ borderRadius: 2, p: 2.5, height: "100%", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
+              <Card
+                sx={{
+                  borderRadius: 2,
+                  p: 2.5,
+                  height: "100%",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+                }}
+              >
                 <Stack direction="row" alignItems="center" spacing={1} mb={2}>
                   <TrendingUp sx={{ color: T.red }} />
                   <Typography variant="h6" sx={{ fontWeight: 800, color: T.n800 }}>
@@ -228,17 +292,34 @@ export default function SuperAdminStats() {
                   </Typography>
                 </Stack>
                 {[
-                  ["Prospect vers opportunité", data.funnel?.conversion_prospect_to_opportunity || 0],
+                  [
+                    "Prospect vers opportunité",
+                    data.funnel?.conversion_prospect_to_opportunity || 0,
+                  ],
                   ["Opportunité gagnée", data.funnel?.conversion_opportunity_to_won || 0],
                   ["Abonnements actifs", stats.active_subscriptions || 0],
                   ["Essais", stats.trial_subscriptions || 0],
                 ].map(([label, value], index) => (
                   <Box key={label} mb={2}>
                     <Stack direction="row" justifyContent="space-between" mb={0.5}>
-                      <Typography variant="body2" sx={{ color: T.n500 }}>{label}</Typography>
-                      <Typography variant="body2" sx={{ color: T.n800, fontWeight: 800 }}>{value}{index < 2 ? "%" : ""}</Typography>
+                      <Typography variant="body2" sx={{ color: T.n500 }}>
+                        {label}
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: T.n800, fontWeight: 800 }}>
+                        {value}
+                        {index < 2 ? "%" : ""}
+                      </Typography>
                     </Stack>
-                    <LinearProgress variant="determinate" value={Math.min(Number(value), 100)} sx={{ height: 8, borderRadius: 4, bgcolor: alpha(colors[index], 0.12), "& .MuiLinearProgress-bar": { bgcolor: colors[index] } }} />
+                    <LinearProgress
+                      variant="determinate"
+                      value={Math.min(Number(value), 100)}
+                      sx={{
+                        height: 8,
+                        borderRadius: 4,
+                        bgcolor: alpha(colors[index], 0.12),
+                        "& .MuiLinearProgress-bar": { bgcolor: colors[index] },
+                      }}
+                    />
                   </Box>
                 ))}
               </Card>
@@ -247,7 +328,14 @@ export default function SuperAdminStats() {
 
           <Grid container spacing={3}>
             <Grid item xs={12} md={5}>
-              <Card sx={{ borderRadius: 2, p: 2.5, height: "100%", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
+              <Card
+                sx={{
+                  borderRadius: 2,
+                  p: 2.5,
+                  height: "100%",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+                }}
+              >
                 <Stack direction="row" alignItems="center" spacing={1} mb={2}>
                   <Map sx={{ color: T.red }} />
                   <Typography variant="h6" sx={{ fontWeight: 800, color: T.n800 }}>
@@ -262,13 +350,27 @@ export default function SuperAdminStats() {
                           {row.city}, {row.country}
                         </Typography>
                         <Typography variant="body2" sx={{ color: T.n500 }}>
-                          {formatNumber(row.companies_count)} ent. / {formatNumber(row.users_count)} users
+                          {formatNumber(row.companies_count)} ent. / {formatNumber(row.users_count)}{" "}
+                          users
                         </Typography>
                       </Stack>
-                      <LinearProgress variant="determinate" value={Math.min(row.companies_count * 10, 100)} sx={{ height: 6, borderRadius: 3, bgcolor: alpha(colors[index % colors.length], 0.1), "& .MuiLinearProgress-bar": { bgcolor: colors[index % colors.length] } }} />
+                      <LinearProgress
+                        variant="determinate"
+                        value={Math.min(row.companies_count * 10, 100)}
+                        sx={{
+                          height: 6,
+                          borderRadius: 3,
+                          bgcolor: alpha(colors[index % colors.length], 0.1),
+                          "& .MuiLinearProgress-bar": { bgcolor: colors[index % colors.length] },
+                        }}
+                      />
                     </Box>
                   ))}
-                  {!data.geo.length && <Typography variant="body2" sx={{ color: T.n500 }}>Aucune donnée géographique.</Typography>}
+                  {!data.geo.length && (
+                    <Typography variant="body2" sx={{ color: T.n500 }}>
+                      Aucune donnée géographique.
+                    </Typography>
+                  )}
                 </Stack>
               </Card>
             </Grid>
@@ -284,8 +386,17 @@ export default function SuperAdminStats() {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        {["Utilisateur", "Entreprise", "Prospects", "Opportunités", "Conversion", "Dernière activité"].map((h) => (
-                          <TableCell key={h} sx={{ fontWeight: 800 }}>{h}</TableCell>
+                        {[
+                          "Utilisateur",
+                          "Entreprise",
+                          "Prospects",
+                          "Opportunités",
+                          "Conversion",
+                          "Dernière activité",
+                        ].map((h) => (
+                          <TableCell key={h} sx={{ fontWeight: 800 }}>
+                            {h}
+                          </TableCell>
                         ))}
                       </TableRow>
                     </TableHead>

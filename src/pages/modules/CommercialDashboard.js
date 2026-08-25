@@ -60,6 +60,7 @@ import {
 } from "../../hooks/usePerformance";
 import { FeedbackButton, useTrackActivity } from "../superadmin/Marketingwidgets";
 import DashboardDataFrame, { useOfficialDashboardData } from "./DashboardDataFrame";
+import DashboardCommandCenter from "./DashboardCommandCenter";
 
 const toList = (d) => (Array.isArray(d) ? d : d?.results || []);
 
@@ -80,9 +81,13 @@ const C = {
   n100: "#f1f5f9",
   n200: "#e2e8f0",
   n400: "#94a3b8",
-  n500: "#64748b",
-  n600: "#475569",
-  n800: "#1e293b",
+  n500: "var(--crm-muted)",
+  n600: "var(--crm-muted)",
+  n800: "var(--crm-text)",
+  surface: "var(--crm-surface)",
+  border: "var(--crm-border)",
+  text: "var(--crm-text)",
+  muted: "var(--crm-muted)",
   grad: "linear-gradient(135deg, #dc2626 0%, #991b1b 100%)",
 };
 
@@ -93,22 +98,24 @@ const fadeUp = keyframes`
 
 // ─── STYLED ─────────────────────────────────────────────────────
 const PageCard = styled(Box)(() => ({
-  background: "#fff",
-  border: `1px solid ${C.n200}`,
+  background: C.surface,
+  border: `1px solid ${C.border}`,
+  color: C.text,
   borderRadius: 16,
   overflow: "hidden",
-  boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+  boxShadow: "var(--crm-shadow-sm)",
   transition: "box-shadow 0.2s",
-  "&:hover": { boxShadow: "0 4px 16px rgba(0,0,0,0.09)" },
+  "&:hover": { boxShadow: "var(--crm-shadow-md)" },
 }));
 
 const AccentCard = styled(Box)(({ accent = C.red }) => ({
-  background: "#fff",
-  border: `1px solid ${C.n200}`,
+  background: C.surface,
+  border: `1px solid ${C.border}`,
+  color: C.text,
   borderRadius: 16,
   borderTop: `3px solid ${accent}`,
   padding: "20px",
-  boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
+  boxShadow: "var(--crm-shadow-sm)",
 }));
 
 const KpiBox = styled(Box)(({ color = C.red }) => ({
@@ -190,7 +197,6 @@ StatCard.propTypes = {
 };
 StatCard.defaultProps = { value: null, sub: null };
 
-
 // ─── HELPERS IA CRM ──────────────────────────────────────────────
 const getProspectName = (p) =>
   `${p.first_name || ""} ${p.last_name || ""}`.trim() ||
@@ -226,11 +232,13 @@ const isAiProspect = (p) => {
 };
 
 const isHotProspect = (p) =>
-  getProspectScore(p) >= 75 || ["qualified", "hot", "chaud"].includes(String(p.status || "").toLowerCase());
+  getProspectScore(p) >= 75 ||
+  ["qualified", "hot", "chaud"].includes(String(p.status || "").toLowerCase());
 
 const isMessageReady = (p) =>
-  ["message_ready", "prepared", "ready"].includes(String(p.engagement_status || p.status || "").toLowerCase()) ||
-  Boolean(p.prepared_message || p.generated_message || p.ai_message);
+  ["message_ready", "prepared", "ready"].includes(
+    String(p.engagement_status || p.status || "").toLowerCase()
+  ) || Boolean(p.prepared_message || p.generated_message || p.ai_message);
 
 const hasReply = (p) =>
   ["replied", "follow_up_required", "reply_detected"].includes(
@@ -320,7 +328,9 @@ function EngagementAgentWidget({ prospects = [] }) {
       <Box sx={{ mt: 2 }}>
         <Stack direction="row" justifyContent="space-between" mb={0.5}>
           <Typography sx={{ fontSize: 12, color: C.n500 }}>Taux de réponse IA</Typography>
-          <Typography sx={{ fontSize: 12, fontWeight: 800, color: responseRate >= 25 ? C.green : C.amber }}>
+          <Typography
+            sx={{ fontSize: 12, fontWeight: 800, color: responseRate >= 25 ? C.green : C.amber }}
+          >
             {responseRate}%
           </Typography>
         </Stack>
@@ -331,7 +341,10 @@ function EngagementAgentWidget({ prospects = [] }) {
             height: 6,
             borderRadius: 4,
             bgcolor: C.n100,
-            "& .MuiLinearProgress-bar": { bgcolor: responseRate >= 25 ? C.green : C.amber, borderRadius: 4 },
+            "& .MuiLinearProgress-bar": {
+              bgcolor: responseRate >= 25 ? C.green : C.amber,
+              borderRadius: 4,
+            },
           }}
         />
       </Box>
@@ -359,7 +372,9 @@ function HotProspectsCard({ prospects = [] }) {
 
       {hotProspects.length === 0 ? (
         <Box sx={{ textAlign: "center", py: 3, bgcolor: C.n50, borderRadius: 12 }}>
-          <Typography sx={{ fontSize: 13, color: C.n400 }}>Aucun prospect chaud pour le moment</Typography>
+          <Typography sx={{ fontSize: 13, color: C.n400 }}>
+            Aucun prospect chaud pour le moment
+          </Typography>
         </Box>
       ) : (
         <Stack spacing={1}>
@@ -407,38 +422,51 @@ HotProspectsCard.defaultProps = { prospects: [] };
 function AiRecommendations({ prospects = [], tasks = [], opportunities = [] }) {
   const recs = [];
 
-  prospects.filter(hasReply).slice(0, 2).forEach((p) =>
-    recs.push({
-      type: "Réponse détectée",
-      title: getProspectName(p),
-      text: "Le prospect a répondu. Préparer une réponse personnalisée avec l'agent d'engagement.",
-      color: C.green,
-      icon: <MarkEmailRead />,
-    })
-  );
+  prospects
+    .filter(hasReply)
+    .slice(0, 2)
+    .forEach((p) =>
+      recs.push({
+        type: "Réponse détectée",
+        title: getProspectName(p),
+        text: "Le prospect a répondu. Préparer une réponse personnalisée avec l'agent d'engagement.",
+        color: C.green,
+        icon: <MarkEmailRead />,
+      })
+    );
 
-  prospects.filter(isMessageReady).slice(0, 2).forEach((p) =>
-    recs.push({
-      type: "Message prêt",
-      title: getProspectName(p),
-      text: "Un message IA est prêt. Vérifier le contenu puis envoyer sur le bon canal.",
-      color: C.blue,
-      icon: <Send />,
-    })
-  );
+  prospects
+    .filter(isMessageReady)
+    .slice(0, 2)
+    .forEach((p) =>
+      recs.push({
+        type: "Message prêt",
+        title: getProspectName(p),
+        text: "Un message IA est prêt. Vérifier le contenu puis envoyer sur le bon canal.",
+        color: C.blue,
+        icon: <Send />,
+      })
+    );
 
-  prospects.filter((p) => isHotProspect(p) && !isMessageReady(p)).slice(0, 2).forEach((p) =>
-    recs.push({
-      type: "Prospect chaud",
-      title: getProspectName(p),
-      text: "Score élevé. Créer une tâche de relance ou transformer en opportunité.",
-      color: C.red,
-      icon: <Whatshot />,
-    })
-  );
+  prospects
+    .filter((p) => isHotProspect(p) && !isMessageReady(p))
+    .slice(0, 2)
+    .forEach((p) =>
+      recs.push({
+        type: "Prospect chaud",
+        title: getProspectName(p),
+        text: "Score élevé. Créer une tâche de relance ou transformer en opportunité.",
+        color: C.red,
+        icon: <Whatshot />,
+      })
+    );
 
   opportunities
-    .filter((o) => !["won", "lost"].includes(String(o.stage || "").toLowerCase()) && daysSince(o.updated_at || o.created_at) >= 7)
+    .filter(
+      (o) =>
+        !["won", "lost"].includes(String(o.stage || "").toLowerCase()) &&
+        daysSince(o.updated_at || o.created_at) >= 7
+    )
     .slice(0, 2)
     .forEach((o) =>
       recs.push({
@@ -451,7 +479,13 @@ function AiRecommendations({ prospects = [], tasks = [], opportunities = [] }) {
     );
 
   tasks
-    .filter((t) => t.status !== "done" && t.status !== "cancelled" && t.due_date && new Date(t.due_date) < new Date())
+    .filter(
+      (t) =>
+        t.status !== "done" &&
+        t.status !== "cancelled" &&
+        t.due_date &&
+        new Date(t.due_date) < new Date()
+    )
     .slice(0, 1)
     .forEach((t) =>
       recs.push({
@@ -517,7 +551,14 @@ function AiRecommendations({ prospects = [], tasks = [], opportunities = [] }) {
                   <Chip
                     size="small"
                     label={r.type}
-                    sx={{ height: 20, fontSize: 10, bgcolor: alpha(r.color, 0.1), color: r.color, fontWeight: 700, mb: 0.6 }}
+                    sx={{
+                      height: 20,
+                      fontSize: 10,
+                      bgcolor: alpha(r.color, 0.1),
+                      color: r.color,
+                      fontWeight: 700,
+                      mb: 0.6,
+                    }}
                   />
                   <Typography sx={{ fontSize: 13, fontWeight: 800, color: C.n800 }} noWrap>
                     {r.title}
@@ -815,138 +856,52 @@ export default function CommercialDashboard({ data }) {
 
   const body = (
     <Box sx={{ animation: `${fadeUp} 0.2s ease` }}>
-      {/* ── HEADER ── */}
-      <Box
-        sx={{
-          borderRadius: 20,
-          p: 3,
-          mb: 3,
-          position: "relative",
-          overflow: "hidden",
-          background: C.grad,
-          boxShadow: `0 8px 28px ${alpha(C.red, 0.28)}`,
-        }}
-      >
-        <Box
-          sx={{
-            position: "absolute",
-            top: -50,
-            right: -50,
-            width: 180,
-            height: 180,
-            borderRadius: "50%",
-            bgcolor: "rgba(255,255,255,0.06)",
-          }}
-        />
-        <Box
-          sx={{
-            position: "absolute",
-            bottom: -30,
-            left: "35%",
-            width: 100,
-            height: 100,
-            borderRadius: "50%",
-            bgcolor: "rgba(255,255,255,0.04)",
-          }}
-        />
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          flexWrap="wrap"
-          gap={2}
-          sx={{ position: "relative", zIndex: 1 }}
-        >
-          <Stack direction="row" alignItems="center" spacing={2}>
-            <Avatar
-              sx={{
-                width: 52,
-                height: 52,
-                bgcolor: "rgba(255,255,255,0.2)",
-                fontSize: 22,
-                fontWeight: 900,
-              }}
-            >
-              {user.username?.[0]?.toUpperCase()}
-            </Avatar>
-            <Box>
-              <Typography
-                sx={{
-                  fontSize: 11,
-                  color: "rgba(255,255,255,0.65)",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: 1,
-                  mb: 0.2,
-                }}
-              >
-                Tableau de bord Commercial
-              </Typography>
-              <Typography sx={{ fontSize: 20, fontWeight: 900, color: "#fff" }}>
-                Bonjour, {user.username} 👋
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            {overdueTasks.length > 0 && (
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 0.8,
-                  bgcolor: "rgba(255,255,255,0.15)",
-                  border: "1px solid rgba(255,255,255,0.25)",
-                  borderRadius: 20,
-                  px: 1.5,
-                  py: 0.6,
-                }}
-              >
-                <Warning sx={{ fontSize: 14, color: "#fcd34d" }} />
-                <Typography sx={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>
-                  {overdueTasks.length} en retard
-                </Typography>
-              </Box>
-            )}
-            {todayTasks.length > 0 && (
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 0.8,
-                  bgcolor: "rgba(255,255,255,0.12)",
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  borderRadius: 20,
-                  px: 1.5,
-                  py: 0.6,
-                }}
-              >
-                <AccessTime sx={{ fontSize: 14, color: "#fff" }} />
-                <Typography sx={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>
-                  {todayTasks.length} aujourd&apos;hui
-                </Typography>
-              </Box>
-            )}
-            {/* Feedback superadmin */}
-            <Box
-              sx={{
-                "& .MuiButton-root": {
-                  borderColor: "rgba(255,255,255,0.55)",
-                  color: "#fff",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  borderRadius: 20,
-                  textTransform: "none",
-                  px: 1.8,
-                  py: 0.5,
-                  "&:hover": { borderColor: "#fff", bgcolor: "rgba(255,255,255,0.15)" },
-                },
-              }}
-            >
-              <FeedbackButton />
-            </Box>
-          </Stack>
-        </Stack>
-      </Box>
+      <DashboardCommandCenter
+        eyebrow="Cockpit Commercial"
+        title={`Bonjour, ${user.username || "Commercial"}`}
+        subtitle="Priorités, prospects chauds, engagement IA et progression commerciale"
+        userName={user.username || "Commercial"}
+        onRefresh={remote.refresh}
+        feedback={<FeedbackButton />}
+        alerts={[
+          ...(overdueTasks.length
+            ? [{ label: `${overdueTasks.length} tâches en retard`, icon: <Warning /> }]
+            : []),
+          ...(todayTasks.length
+            ? [{ label: `${todayTasks.length} aujourd'hui`, icon: <AccessTime /> }]
+            : []),
+        ]}
+        metrics={[
+          {
+            label: "Prospects",
+            value: prospects.length,
+            helper: `${hotProspects.length} chauds`,
+            icon: <PersonAdd />,
+            tone: C.red,
+          },
+          {
+            label: "Messages prêts",
+            value: messagesReady.length,
+            helper: "à valider",
+            icon: <Send />,
+            tone: C.blue,
+          },
+          {
+            label: "Réponses",
+            value: repliesDetected.length,
+            helper: `${engagementResponseRate}% réponse`,
+            icon: <MarkEmailRead />,
+            tone: C.green,
+          },
+          {
+            label: "Pipeline",
+            value: fmtTND(pipeline),
+            helper: `${wonOpps.length} gagnées`,
+            icon: <AttachMoney />,
+            tone: C.amber,
+          },
+        ]}
+      />
 
       {overdueTasks.length > 0 && (
         <Alert severity="error" sx={{ borderRadius: 12, mb: 2.5, fontWeight: 600 }}>
@@ -1225,7 +1180,11 @@ export default function CommercialDashboard({ data }) {
               <HotProspectsCard prospects={prospects} />
             </Grid>
             <Grid item xs={12} md={4}>
-              <AiRecommendations prospects={prospects} tasks={tasks} opportunities={opportunities} />
+              <AiRecommendations
+                prospects={prospects}
+                tasks={tasks}
+                opportunities={opportunities}
+              />
             </Grid>
           </Grid>
 

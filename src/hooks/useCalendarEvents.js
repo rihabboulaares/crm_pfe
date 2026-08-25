@@ -147,7 +147,7 @@ function toTaskEvent(task) {
     backgroundColor: color,
     borderColor: color,
     textColor: "#fff",
-    editable: false,
+    editable: true,
     extendedProps: {
       description: task.description || "",
       eventType: "task",
@@ -156,6 +156,7 @@ function toTaskEvent(task) {
       colorResolved: color,
       isSynced: true,
       isVirtualTaskEvent: true,
+      taskRecordId: task.id,
       task: task.id,
       taskTitle: task.title,
       taskStatus: task.status,
@@ -281,6 +282,20 @@ export function useCalendarEvents(filters = {}) {
     await authAxios.delete(`${API}${id}/`);
   }, []);
 
+  const createTask = useCallback(async (taskData) => {
+    const { data } = await authAxios.post(SALES_API.tasks, taskData);
+    return data;
+  }, []);
+
+  const updateTask = useCallback(async (id, taskData) => {
+    const { data } = await authAxios.patch(`${SALES_API.tasks}${id}/`, taskData);
+    return data;
+  }, []);
+
+  const deleteTask = useCallback(async (id) => {
+    await authAxios.delete(`${SALES_API.tasks}${id}/`);
+  }, []);
+
   return {
     events,
     loading,
@@ -293,5 +308,8 @@ export function useCalendarEvents(filters = {}) {
     createEvent,
     updateEvent,
     deleteEvent,
+    createTask,
+    updateTask,
+    deleteTask,
   };
 }

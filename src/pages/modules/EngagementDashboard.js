@@ -78,6 +78,11 @@ import {
   checkSocialSession,
   checkEngagementReply,
   analyzeSocialProfile,
+  connectGoogleEmail,
+  connectMicrosoftEmail,
+  disconnectEmail,
+  getEmailConnections,
+  testEmailConnection,
 } from "../../services/engagementApi";
 
 const AGENT_THEME = {
@@ -190,7 +195,12 @@ function channelOptions(prospect) {
     { key: "linkedin", label: "LinkedIn", icon: <LinkedIn />, disabled: !prospect?.linkedin_url },
     { key: "email", label: "Email", icon: <Email />, disabled: !prospect?.email },
     { key: "facebook", label: "Facebook", icon: <Facebook />, disabled: !prospect?.facebook_url },
-    { key: "instagram", label: "Instagram", icon: <Instagram />, disabled: !prospect?.instagram_url },
+    {
+      key: "instagram",
+      label: "Instagram",
+      icon: <Instagram />,
+      disabled: !prospect?.instagram_url,
+    },
   ];
 }
 
@@ -208,7 +218,12 @@ function DetailCard({ title, children }) {
 }
 
 function AiTextBlock({ children }) {
-  if (!children) return <Typography variant="body2" color="text.secondary">-</Typography>;
+  if (!children)
+    return (
+      <Typography variant="body2" color="text.secondary">
+        -
+      </Typography>
+    );
   return (
     <Box
       sx={{
@@ -231,7 +246,12 @@ function AiTextBlock({ children }) {
 
 function BadgeList({ items }) {
   const values = Array.isArray(items) ? items.filter(Boolean) : [];
-  if (!values.length) return <Typography variant="body2" color="text.secondary">-</Typography>;
+  if (!values.length)
+    return (
+      <Typography variant="body2" color="text.secondary">
+        -
+      </Typography>
+    );
   return (
     <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ rowGap: 1 }}>
       {values.map((item) => (
@@ -247,7 +267,11 @@ function FieldLine({ label, value }) {
       <Typography variant="caption" color="text.secondary" sx={{ minWidth: 120 }}>
         {label}
       </Typography>
-      <Typography variant="body2" align="right" sx={{ wordBreak: "break-word", whiteSpace: "normal" }}>
+      <Typography
+        variant="body2"
+        align="right"
+        sx={{ wordBreak: "break-word", whiteSpace: "normal" }}
+      >
         {value || "-"}
       </Typography>
     </Stack>
@@ -314,15 +338,20 @@ function EngagementDashboard() {
   const [replyCheckResult, setReplyCheckResult] = useState(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [, setSocialSessions] = useState({});
+  const [emailConnection, setEmailConnection] = useState({ connected: false });
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashboardRes, prospectsRes] = await Promise.all([
+      const [dashboardRes, prospectsRes, emailRes] = await Promise.all([
         getEngagementDashboard(),
         getEngagementProspects({ status: filter, search, page, page_size: pageSize }),
+        getEmailConnections(),
       ]);
       setStats(dashboardRes.data || emptyStats);
+      setEmailConnection(
+        emailRes.data?.active || dashboardRes.data?.email_connection || { connected: false }
+      );
       setProspects(prospectsRes.data?.results || []);
       setTotal(prospectsRes.data?.total ?? prospectsRes.data?.count ?? 0);
       setPages(prospectsRes.data?.pages || 1);
@@ -347,7 +376,10 @@ function EngagementDashboard() {
   const openProspect = async (prospect) => {
     setSelected(prospect);
     setMessage(prospect.engagement_message || "");
-    setChannel(prospect.engagement_channel || (prospect.linkedin_url ? "linkedin" : prospect.email ? "email" : ""));
+    setChannel(
+      prospect.engagement_channel ||
+        (prospect.linkedin_url ? "linkedin" : prospect.email ? "email" : "")
+    );
     setTab(0);
     try {
       const res = await getEngagementLogs(prospect.id);
@@ -419,6 +451,67 @@ function EngagementDashboard() {
     }
   };
 
+  const refreshEmailConnection = async () => {
+    const res = await getEmailConnections();
+    setEmailConnection(res.data?.active || { connected: false });
+  };
+
+  const handleEmailConnect = async (provider) => {
+    setBusyAction(`email-${provider}`);
+    try {
+      const res = provider === "gmail" ? await connectGoogleEmail() : await connectMicrosoftEmail();
+      if (res.data?.authorization_url) {
+        window.open(res.data.authorization_url, "_blank", "noopener,noreferrer");
+      }
+      setToast({
+        severity: "info",
+        message: "Terminez la connexion email dans la fenetre ouverte, puis testez la connexion.",
+      });
+    } catch (error) {
+      const missing = error.response?.data?.missing;
+      setToast({
+        severity: "error",
+        message:
+          Array.isArray(missing) && missing.length
+            ? `Configuration OAuth manquante : ${missing.join(", ")}.`
+            : error.response?.data?.message ||
+              "Connexion email impossible. Verifiez la configuration OAuth.",
+      });
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleEmailTest = async () => {
+    setBusyAction("email-test");
+    try {
+      const res = await testEmailConnection();
+      setEmailConnection(res.data?.connection || { connected: false });
+      setToast({ severity: "success", message: "Connexion email verifiee." });
+    } catch (error) {
+      setEmailConnection({ connected: false });
+      setToast({
+        severity: "warning",
+        message: error.response?.data?.message || "Connexion email requise ou expiree.",
+      });
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleEmailDisconnect = async () => {
+    setBusyAction("email-disconnect");
+    try {
+      await disconnectEmail(emailConnection.provider);
+      await refreshEmailConnection();
+      setToast({ severity: "success", message: "Connexion email deconnectee." });
+    } catch (error) {
+      setToast({ severity: "error", message: "Deconnexion email impossible." });
+    } finally {
+      setBusyAction("");
+    }
+  };
+
   const handleLaunchAgent = async () => {
     setLaunching(true);
     try {
@@ -428,11 +521,19 @@ function EngagementDashboard() {
         auto_send: false,
       });
       const processed = res.data?.processed || 0;
-      const queuedText = res.data?.status === "queued" ? "Agent lance en arriere-plan." : `Agent lance : ${processed} prospects traites.`;
+      const queuedText =
+        res.data?.status === "queued"
+          ? "Agent lance en arriere-plan."
+          : `Agent lance : ${processed} prospects traites.`;
       setToast({ severity: "success", message: queuedText });
       const [dashboardRes, prospectsRes] = await Promise.all([
         getEngagementDashboard(),
-        getEngagementProspects({ status: "pending_validation", search, page: 1, page_size: pageSize }),
+        getEngagementProspects({
+          status: "pending_validation",
+          search,
+          page: 1,
+          page_size: pageSize,
+        }),
       ]);
       setStats(dashboardRes.data || emptyStats);
       setProspects(prospectsRes.data?.results || []);
@@ -463,7 +564,10 @@ function EngagementDashboard() {
             : "Une fenetre vient de s'ouvrir. Connectez-vous puis cliquez sur Verifier la session."),
       });
     } catch (error) {
-      setToast({ severity: "error", message: error.response?.data?.error || "Connexion sociale impossible." });
+      setToast({
+        severity: "error",
+        message: error.response?.data?.error || "Connexion sociale impossible.",
+      });
     } finally {
       setBusyAction("");
     }
@@ -475,10 +579,15 @@ function EngagementDashboard() {
       const res = await checkSocialSession(platform);
       setToast({
         severity: res.data?.success ? "success" : "warning",
-        message: res.data?.success ? `Session ${platform} active.` : res.data?.message || "Session non connectee.",
+        message: res.data?.success
+          ? `Session ${platform} active.`
+          : res.data?.message || "Session non connectee.",
       });
     } catch (error) {
-      setToast({ severity: "error", message: error.response?.data?.error || "Verification impossible." });
+      setToast({
+        severity: "error",
+        message: error.response?.data?.error || "Verification impossible.",
+      });
     } finally {
       setBusyAction("");
     }
@@ -496,8 +605,16 @@ function EngagementDashboard() {
       setReplyDraft(result.generated_reply || updatedProspect.generated_followup_message || "");
       setReplyDialogOpen(true);
       setToast({
-        severity: result.success === false ? (result.requires_login ? "warning" : "error") : result.has_reply ? "success" : "info",
-        message: result.message || (result.has_reply ? "Reponse detectee." : "Aucune reponse detectee."),
+        severity:
+          result.success === false
+            ? result.requires_login
+              ? "warning"
+              : "error"
+            : result.has_reply
+            ? "success"
+            : "info",
+        message:
+          result.message || (result.has_reply ? "Reponse detectee." : "Aucune reponse detectee."),
       });
     } catch (error) {
       const data = error.response?.data;
@@ -549,7 +666,10 @@ function EngagementDashboard() {
         message: testMode ? "Mode test: reponse preparee sans clic final." : "Reponse envoyee.",
       });
     } catch (error) {
-      setToast({ severity: "error", message: error.response?.data?.error || "Envoi de la reponse impossible." });
+      setToast({
+        severity: "error",
+        message: error.response?.data?.error || "Envoi de la reponse impossible.",
+      });
     } finally {
       setBusyAction("");
     }
@@ -568,11 +688,36 @@ function EngagementDashboard() {
   );
 
   const statCards = [
-    { title: "Nouveaux prospects", value: stats.new, icon: <PendingActions />, color: AGENT_THEME.red },
-    { title: "Messages a preparer", value: stats.to_prepare, icon: <AutoFixHigh />, color: AGENT_THEME.red },
-    { title: "Messages a valider", value: stats.to_validate || stats.pending_validation || stats.message_ready, icon: <TaskAlt />, color: AGENT_THEME.red },
-    { title: "Messages envoyes", value: stats.message_sent, icon: <Send />, color: AGENT_THEME.red },
-    { title: "Reponses recues", value: stats.replied, icon: <MarkEmailRead />, color: AGENT_THEME.red },
+    {
+      title: "Nouveaux prospects",
+      value: stats.new,
+      icon: <PendingActions />,
+      color: AGENT_THEME.red,
+    },
+    {
+      title: "Messages a preparer",
+      value: stats.to_prepare,
+      icon: <AutoFixHigh />,
+      color: AGENT_THEME.red,
+    },
+    {
+      title: "Messages a valider",
+      value: stats.to_validate || stats.pending_validation || stats.message_ready,
+      icon: <TaskAlt />,
+      color: AGENT_THEME.red,
+    },
+    {
+      title: "Messages envoyes",
+      value: stats.message_sent,
+      icon: <Send />,
+      color: AGENT_THEME.red,
+    },
+    {
+      title: "Reponses recues",
+      value: stats.replied,
+      icon: <MarkEmailRead />,
+      color: AGENT_THEME.red,
+    },
     { title: "Erreurs", value: stats.errors, icon: <ErrorOutline />, color: AGENT_THEME.red },
   ];
 
@@ -602,11 +747,17 @@ function EngagementDashboard() {
               }}
             />
             <Button
-              startIcon={launching ? <CircularProgress size={16} color="inherit" /> : <AutoFixHigh />}
+              startIcon={
+                launching ? <CircularProgress size={16} color="inherit" /> : <AutoFixHigh />
+              }
               variant="contained"
               disabled={launching}
               onClick={handleLaunchAgent}
-              sx={{ bgcolor: AGENT_THEME.red, "&:hover": { bgcolor: AGENT_THEME.redDeep }, textTransform: "none" }}
+              sx={{
+                bgcolor: AGENT_THEME.red,
+                "&:hover": { bgcolor: AGENT_THEME.redDeep },
+                textTransform: "none",
+              }}
             >
               {launching ? "Agent en cours..." : "Lancer l'agent"}
             </Button>
@@ -626,6 +777,75 @@ function EngagementDashboard() {
             onStatusChange={setSocialSessions}
           />
         </Box>
+
+        <Paper sx={{ p: 2, mb: 2, borderRadius: 1, border: `1px solid ${AGENT_THEME.redBorder}` }}>
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            spacing={2}
+            alignItems={{ xs: "stretch", md: "center" }}
+            justifyContent="space-between"
+          >
+            <Stack spacing={0.5}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Email fontSize="small" sx={{ color: AGENT_THEME.red }} />
+                <Typography variant="subtitle2" fontWeight={800}>
+                  Email commercial connecte
+                </Typography>
+                <Chip
+                  size="small"
+                  label={emailConnection.connected ? "Connecte" : "Connexion requise"}
+                  color={emailConnection.connected ? "success" : "warning"}
+                  variant="outlined"
+                />
+              </Stack>
+              <Typography variant="body2" color="text.secondary">
+                {emailConnection.connected
+                  ? `${emailConnection.display_name || "Compte email"} - ${
+                      emailConnection.email
+                    } (${emailConnection.provider})`
+                  : "Gmail ou Microsoft est obligatoire pour envoyer des emails depuis l'agent."}
+              </Typography>
+            </Stack>
+            <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ rowGap: 1 }}>
+              <Button
+                size="small"
+                variant="outlined"
+                disabled={Boolean(busyAction)}
+                onClick={() => handleEmailConnect("gmail")}
+                sx={{ textTransform: "none" }}
+              >
+                Connecter Gmail
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                disabled={Boolean(busyAction)}
+                onClick={() => handleEmailConnect("microsoft")}
+                sx={{ textTransform: "none" }}
+              >
+                Connecter Microsoft
+              </Button>
+              <Button
+                size="small"
+                disabled={Boolean(busyAction)}
+                onClick={handleEmailTest}
+                sx={{ color: AGENT_THEME.red, textTransform: "none" }}
+              >
+                Tester
+              </Button>
+              {emailConnection.connected && (
+                <Button
+                  size="small"
+                  disabled={Boolean(busyAction)}
+                  onClick={handleEmailDisconnect}
+                  sx={{ color: AGENT_THEME.red, textTransform: "none" }}
+                >
+                  Deconnecter
+                </Button>
+              )}
+            </Stack>
+          </Stack>
+        </Paper>
 
         <Grid container spacing={2} mb={2}>
           {statCards.map((card) => (
@@ -723,15 +943,31 @@ function EngagementDashboard() {
                             <Typography variant="body2" fontWeight={800} noWrap>
                               {getFullName(prospect)}
                             </Typography>
-                            <Typography variant="caption" color="text.secondary" display="block" noWrap>
-                              {prospect.company_name || prospect.prospect_company_detail?.name || "Societe inconnue"}
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              display="block"
+                              noWrap
+                            >
+                              {prospect.company_name ||
+                                prospect.prospect_company_detail?.name ||
+                                "Societe inconnue"}
                             </Typography>
                           </Box>
                           {statusChip(prospect.engagement_status)}
                         </Stack>
-                        <FieldLine label="Canal" value={prospect.engagement_channel || prospect.last_engagement_channel} />
-                        <AiTextBlock>{prospect.social_profile_hook || prospect.social_profile_summary}</AiTextBlock>
-                        <Button size="small" onClick={() => openProspect(prospect)} sx={{ color: AGENT_THEME.red, alignSelf: "flex-start" }}>
+                        <FieldLine
+                          label="Canal"
+                          value={prospect.engagement_channel || prospect.last_engagement_channel}
+                        />
+                        <AiTextBlock>
+                          {prospect.social_profile_hook || prospect.social_profile_summary}
+                        </AiTextBlock>
+                        <Button
+                          size="small"
+                          onClick={() => openProspect(prospect)}
+                          sx={{ color: AGENT_THEME.red, alignSelf: "flex-start" }}
+                        >
                           Ouvrir et valider
                         </Button>
                       </Stack>
@@ -779,7 +1015,9 @@ function EngagementDashboard() {
                           {getFullName(prospect)}
                         </Typography>
                         <Typography variant="caption" color="text.secondary" display="block" noWrap>
-                          {prospect.company_name || prospect.prospect_company_detail?.name || "Societe inconnue"}
+                          {prospect.company_name ||
+                            prospect.prospect_company_detail?.name ||
+                            "Societe inconnue"}
                         </Typography>
                         <Typography variant="caption" color="text.secondary" display="block" noWrap>
                           {prospect.title || "Poste non renseigne"}
@@ -788,7 +1026,11 @@ function EngagementDashboard() {
                           {statusChip(prospect.engagement_status)}
                         </Stack>
                         <Stack direction="row" spacing={0.5}>
-                          <Button size="small" onClick={() => openProspect(prospect)} sx={{ minWidth: 0, color: AGENT_THEME.red }}>
+                          <Button
+                            size="small"
+                            onClick={() => openProspect(prospect)}
+                            sx={{ minWidth: 0, color: AGENT_THEME.red }}
+                          >
                             Ouvrir
                           </Button>
                           {canCheckReply(prospect) && (
@@ -811,7 +1053,9 @@ function EngagementDashboard() {
           ))}
         </Grid>
 
-        <Paper sx={{ borderRadius: 1, overflow: "hidden", border: `1px solid ${AGENT_THEME.redBorder}` }}>
+        <Paper
+          sx={{ borderRadius: 1, overflow: "hidden", border: `1px solid ${AGENT_THEME.redBorder}` }}
+        >
           <Table>
             <TableHead>
               <TableRow>
@@ -846,12 +1090,17 @@ function EngagementDashboard() {
                     <TableCell>{prospect.phone || prospect.mobile || "-"}</TableCell>
                     <TableCell>{prospect.status || "-"}</TableCell>
                     <TableCell>{prospect.source || prospect.origin || "-"}</TableCell>
-                    <TableCell>{prospect.engagement_channel || prospect.last_engagement_channel || "-"}</TableCell>
                     <TableCell>
-                      {statusChip(prospect.engagement_status)}
+                      {prospect.engagement_channel || prospect.last_engagement_channel || "-"}
                     </TableCell>
+                    <TableCell>{statusChip(prospect.engagement_status)}</TableCell>
                     <TableCell align="right">
-                      <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        justifyContent="flex-end"
+                        alignItems="center"
+                      >
                         {canCheckReply(prospect) && (
                           <Button
                             size="small"
@@ -869,7 +1118,11 @@ function EngagementDashboard() {
                             Verifier reponse
                           </Button>
                         )}
-                        <Button size="small" onClick={() => openProspect(prospect)} sx={{ color: AGENT_THEME.red }}>
+                        <Button
+                          size="small"
+                          onClick={() => openProspect(prospect)}
+                          sx={{ color: AGENT_THEME.red }}
+                        >
                           Ouvrir
                         </Button>
                       </Stack>
@@ -915,7 +1168,8 @@ function EngagementDashboard() {
                   {getFullName(selected)}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {selected.title || "Poste non renseigne"} - {selected.company_name || "Societe inconnue"}
+                  {selected.title || "Poste non renseigne"} -{" "}
+                  {selected.company_name || "Societe inconnue"}
                 </Typography>
               </Box>
               <IconButton onClick={() => setSelected(null)}>
@@ -955,7 +1209,10 @@ function EngagementDashboard() {
                 </DetailCard>
                 <DetailCard title="Societe">
                   <Stack spacing={1}>
-                    <FieldLine label="Nom" value={selected.company_name || selected.prospect_company_detail?.name} />
+                    <FieldLine
+                      label="Nom"
+                      value={selected.company_name || selected.prospect_company_detail?.name}
+                    />
                     <FieldLine label="Source" value={selected.source || selected.origin} />
                     <FieldLine label="URL source" value={selected.source_url} />
                   </Stack>
@@ -978,17 +1235,30 @@ function EngagementDashboard() {
                 >
                   Planifier tache
                 </Button>
-                {tasks.length === 0 && <Alert severity="info">Aucune tache liee a ce prospect.</Alert>}
+                {tasks.length === 0 && (
+                  <Alert severity="info">Aucune tache liee a ce prospect.</Alert>
+                )}
                 {tasks.map((task) => (
                   <Paper key={task.id} variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                    <Stack
+                      direction="row"
+                      justifyContent="space-between"
+                      alignItems="center"
+                      spacing={1}
+                    >
                       <Box sx={{ minWidth: 0 }}>
-                        <Typography variant="body2" fontWeight={800} sx={{ wordBreak: "break-word" }}>
+                        <Typography
+                          variant="body2"
+                          fontWeight={800}
+                          sx={{ wordBreak: "break-word" }}
+                        >
                           {task.title}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           {task.task_type} - {task.status}
-                          {task.due_date ? ` - ${new Date(task.due_date).toLocaleDateString("fr-FR")}` : ""}
+                          {task.due_date
+                            ? ` - ${new Date(task.due_date).toLocaleDateString("fr-FR")}`
+                            : ""}
                         </Typography>
                       </Box>
                       {!["completed", "done", "cancelled"].includes(task.status) && (
@@ -996,7 +1266,11 @@ function EngagementDashboard() {
                           size="small"
                           sx={{ color: AGENT_THEME.red }}
                           onClick={() =>
-                            runAction(`task-${task.id}`, () => completeCrmTask(task.id), "Tache terminee.")
+                            runAction(
+                              `task-${task.id}`,
+                              () => completeCrmTask(task.id),
+                              "Tache terminee."
+                            )
                           }
                         >
                           Terminer
@@ -1010,7 +1284,9 @@ function EngagementDashboard() {
 
             {tab === 2 && (
               <Stack spacing={1}>
-                {logs.length === 0 && <Alert severity="info">Aucun historique pour ce prospect.</Alert>}
+                {logs.length === 0 && (
+                  <Alert severity="info">Aucun historique pour ce prospect.</Alert>
+                )}
                 {logs.map((log) => (
                   <Paper key={log.id} variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
                     <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -1020,10 +1296,22 @@ function EngagementDashboard() {
                       {statusChip(log.status)}
                     </Stack>
                     <Typography variant="caption" color="text.secondary">
-                      {new Date(log.created_at).toLocaleString("fr-FR")} - {log.channel || "canal non defini"}
+                      {new Date(log.created_at).toLocaleString("fr-FR")} -{" "}
+                      {log.channel || "canal non defini"}
                     </Typography>
+                    {(log.sender_email || log.provider || log.error_code) && (
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        {log.sender_email ? `Depuis ${log.sender_email}` : ""}
+                        {log.provider ? ` - ${log.provider}` : ""}
+                        {log.error_code ? ` - ${log.error_code}` : ""}
+                      </Typography>
+                    )}
                     {log.message && <AiTextBlock>{log.message}</AiTextBlock>}
-                    {log.error && <Alert severity="error" sx={{ mt: 1 }}>{log.error}</Alert>}
+                    {(log.error || log.error_message) && (
+                      <Alert severity="error" sx={{ mt: 1 }}>
+                        {log.error_message || log.error}
+                      </Alert>
+                    )}
                   </Paper>
                 ))}
               </Stack>
@@ -1034,9 +1322,18 @@ function EngagementDashboard() {
                 <Stack direction="row" spacing={1} flexWrap="wrap">
                   {statusChip(selected.engagement_status)}
                   <Chip size="small" label={`Email: ${selected.email || "manquant"}`} />
-                  <Chip size="small" label={`LinkedIn: ${selected.linkedin_url ? "ok" : "manquant"}`} />
-                  <Chip size="small" label={`Facebook: ${selected.facebook_url ? "ok" : "manquant"}`} />
-                  <Chip size="small" label={`Instagram: ${selected.instagram_url ? "ok" : "manquant"}`} />
+                  <Chip
+                    size="small"
+                    label={`LinkedIn: ${selected.linkedin_url ? "ok" : "manquant"}`}
+                  />
+                  <Chip
+                    size="small"
+                    label={`Facebook: ${selected.facebook_url ? "ok" : "manquant"}`}
+                  />
+                  <Chip
+                    size="small"
+                    label={`Instagram: ${selected.instagram_url ? "ok" : "manquant"}`}
+                  />
                 </Stack>
                 <DetailCard title="Sessions sociales">
                   <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ rowGap: 1 }}>
@@ -1051,7 +1348,11 @@ function EngagementDashboard() {
                           startIcon={item.icon}
                           variant="outlined"
                           disabled={Boolean(busyAction)}
-                          sx={{ color: AGENT_THEME.red, borderColor: AGENT_THEME.redBorder, textTransform: "none" }}
+                          sx={{
+                            color: AGENT_THEME.red,
+                            borderColor: AGENT_THEME.redBorder,
+                            textTransform: "none",
+                          }}
                           onClick={() => handleSocialLogin(item.key)}
                         >
                           {item.label}
@@ -1098,7 +1399,11 @@ function EngagementDashboard() {
                 </DetailCard>
                 <FormControl fullWidth size="small">
                   <InputLabel>Canal</InputLabel>
-                  <Select label="Canal" value={channel} onChange={(event) => setChannel(event.target.value)}>
+                  <Select
+                    label="Canal"
+                    value={channel}
+                    onChange={(event) => setChannel(event.target.value)}
+                  >
                     {channelOptions(selected).map((option) => (
                       <MenuItem key={option.key} value={option.key} disabled={option.disabled}>
                         <Stack direction="row" spacing={1} alignItems="center">
@@ -1120,6 +1425,18 @@ function EngagementDashboard() {
                 {selected.engagement_error && (
                   <Alert severity="error">{selected.engagement_error}</Alert>
                 )}
+                {channel === "email" && !emailConnection.connected && (
+                  <Alert severity="warning">
+                    Connectez Gmail ou Microsoft avant un envoi email. Le mode test reste
+                    disponible.
+                  </Alert>
+                )}
+                {channel === "email" && emailConnection.connected && (
+                  <Alert severity="info">
+                    L&apos;email sera envoye depuis {emailConnection.email}. Aucun
+                    DEFAULT_FROM_EMAIL global n&apos;est utilise.
+                  </Alert>
+                )}
                 <Stack direction="row" spacing={1} flexWrap="wrap">
                   <Button
                     startIcon={<AutoFixHigh />}
@@ -1127,7 +1444,11 @@ function EngagementDashboard() {
                     sx={{ bgcolor: AGENT_THEME.red, "&:hover": { bgcolor: AGENT_THEME.redDeep } }}
                     disabled={Boolean(busyAction)}
                     onClick={() =>
-                      runAction("prepare", () => prepareEngagementMessage(selected.id), "Message IA genere.")
+                      runAction(
+                        "prepare",
+                        () => prepareEngagementMessage(selected.id),
+                        "Message IA genere."
+                      )
                     }
                   >
                     Generer message IA
@@ -1137,7 +1458,11 @@ function EngagementDashboard() {
                     disabled={Boolean(busyAction)}
                     sx={{ color: AGENT_THEME.red }}
                     onClick={() =>
-                      runAction("regenerate", () => prepareEngagementMessage(selected.id), "Message regenere.")
+                      runAction(
+                        "regenerate",
+                        () => prepareEngagementMessage(selected.id),
+                        "Message regenere."
+                      )
                     }
                   >
                     Regenerer
@@ -1147,7 +1472,11 @@ function EngagementDashboard() {
                     disabled={Boolean(busyAction)}
                     sx={{ color: AGENT_THEME.red }}
                     onClick={() =>
-                      runAction("analyze-social", () => analyzeSocialProfile(selected.id), "Analyse sociale relancee.")
+                      runAction(
+                        "analyze-social",
+                        () => analyzeSocialProfile(selected.id),
+                        "Analyse sociale relancee."
+                      )
                     }
                   >
                     Relancer analyse
@@ -1171,13 +1500,22 @@ function EngagementDashboard() {
                     variant="contained"
                     disabled={Boolean(busyAction) || !message.trim() || !channel}
                     sx={{ bgcolor: AGENT_THEME.red, "&:hover": { bgcolor: AGENT_THEME.redDeep } }}
-                    onClick={() =>
+                    onClick={() => {
+                      if (!testMode) {
+                        const ok = window.confirm(
+                          `Confirmer l'envoi ${channel} a ${
+                            getFullName(selected) || "ce prospect"
+                          } ?`
+                        );
+                        if (!ok) return;
+                      }
                       runAction(
                         "send",
-                        () => sendEngagementMessage(selected.id, { message, channel, send: !testMode }),
+                        () =>
+                          sendEngagementMessage(selected.id, { message, channel, send: !testMode }),
                         testMode ? "Mode test: envoi prepare sans clic final." : "Message envoye."
-                      )
-                    }
+                      );
+                    }}
                   >
                     Envoyer maintenant
                   </Button>
@@ -1188,7 +1526,8 @@ function EngagementDashboard() {
                     onClick={() =>
                       runAction(
                         "reject",
-                        () => rejectEngagementMessage(selected.id, { reason: "Message non pertinent" }),
+                        () =>
+                          rejectEngagementMessage(selected.id, { reason: "Message non pertinent" }),
                         "Message refuse."
                       )
                     }
@@ -1200,7 +1539,11 @@ function EngagementDashboard() {
                     disabled={Boolean(busyAction)}
                     sx={{ color: AGENT_THEME.red }}
                     onClick={() =>
-                      runAction("replied", () => markEngagementReplied(selected.id), "Prospect marque comme repondu.")
+                      runAction(
+                        "replied",
+                        () => markEngagementReplied(selected.id),
+                        "Prospect marque comme repondu."
+                      )
                     }
                   >
                     Marquer repondu
@@ -1242,17 +1585,26 @@ function EngagementDashboard() {
                     Taches liees
                   </Typography>
                   <Stack spacing={1}>
-                    {tasks.length === 0 && <Alert severity="info">Aucune tache liee a ce prospect.</Alert>}
+                    {tasks.length === 0 && (
+                      <Alert severity="info">Aucune tache liee a ce prospect.</Alert>
+                    )}
                     {tasks.map((task) => (
                       <Paper key={task.id} variant="outlined" sx={{ p: 1.25, borderRadius: 1 }}>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                        <Stack
+                          direction="row"
+                          justifyContent="space-between"
+                          alignItems="center"
+                          spacing={1}
+                        >
                           <Box sx={{ minWidth: 0 }}>
                             <Typography variant="body2" fontWeight={800} noWrap>
                               {task.title}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               {task.task_type} - {task.status}
-                              {task.due_date ? ` - ${new Date(task.due_date).toLocaleDateString("fr-FR")}` : ""}
+                              {task.due_date
+                                ? ` - ${new Date(task.due_date).toLocaleDateString("fr-FR")}`
+                                : ""}
                             </Typography>
                           </Box>
                           {!["completed", "done", "cancelled"].includes(task.status) && (
@@ -1283,12 +1635,16 @@ function EngagementDashboard() {
                 )}
               </Stack>
             )}
-
           </Stack>
         )}
       </Drawer>
 
-      <Dialog open={replyDialogOpen} onClose={() => setReplyDialogOpen(false)} maxWidth="md" fullWidth>
+      <Dialog
+        open={replyDialogOpen}
+        onClose={() => setReplyDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
         <DialogTitle>Verification de reponse</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
@@ -1299,11 +1655,14 @@ function EngagementDashboard() {
             )}
             {!replyCheckResult?.requires_login && replyCheckResult?.has_reply === false && (
               <Alert severity="info">
-                {replyCheckResult.message || "Aucune reponse detectee apres le dernier message envoye."}
+                {replyCheckResult.message ||
+                  "Aucune reponse detectee apres le dernier message envoye."}
               </Alert>
             )}
             {replyCheckResult?.has_reply && (
-              <Alert severity="success">Une reponse a ete detectee apres le dernier message envoye.</Alert>
+              <Alert severity="success">
+                Une reponse a ete detectee apres le dernier message envoye.
+              </Alert>
             )}
             <Grid container spacing={2}>
               <Grid item xs={12} md={6}>
@@ -1328,7 +1687,9 @@ function EngagementDashboard() {
                   <Stack spacing={1}>
                     <FieldLine
                       label="Sentiment"
-                      value={replyCheckResult?.sentiment || replyCheckResult?.prospect?.reply_sentiment}
+                      value={
+                        replyCheckResult?.sentiment || replyCheckResult?.prospect?.reply_sentiment
+                      }
                     />
                     <FieldLine
                       label="Action"
@@ -1364,7 +1725,10 @@ function EngagementDashboard() {
                       <Typography variant="caption" fontWeight={800} color="text.secondary">
                         {msg.sender === "me" ? "Moi" : "Prospect"}
                       </Typography>
-                      <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                      <Typography
+                        variant="body2"
+                        sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+                      >
                         {msg.text}
                       </Typography>
                     </Box>
@@ -1410,14 +1774,22 @@ function EngagementDashboard() {
             <Button
               startIcon={<TaskAlt />}
               sx={{ color: AGENT_THEME.red }}
-              onClick={() => navigate("/opportunities", { state: { prospectId: replyCheckResult?.prospect?.id } })}
+              onClick={() =>
+                navigate("/opportunities", {
+                  state: { prospectId: replyCheckResult?.prospect?.id },
+                })
+              }
             >
               Creer opportunite
             </Button>
           )}
           <Button
             startIcon={
-              busyAction === "send-generated-reply" ? <CircularProgress size={16} color="inherit" /> : <Send />
+              busyAction === "send-generated-reply" ? (
+                <CircularProgress size={16} color="inherit" />
+              ) : (
+                <Send />
+              )
             }
             variant="contained"
             disabled={Boolean(busyAction) || !replyDraft.trim() || replyCheckResult?.requires_login}
@@ -1433,7 +1805,9 @@ function EngagementDashboard() {
         <DialogTitle>Connexion LinkedIn requise</DialogTitle>
         <DialogContent>
           <Typography>
-            {"La session LinkedIn doit etre connectee avant un envoi reel. Ouvrez la page de connexion, connectez-vous, puis relancez l'envoi."}
+            {
+              "La session LinkedIn doit etre connectee avant un envoi reel. Ouvrez la page de connexion, connectez-vous, puis relancez l'envoi."
+            }
           </Typography>
         </DialogContent>
         <DialogActions>

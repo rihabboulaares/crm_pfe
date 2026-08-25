@@ -2182,7 +2182,7 @@ FollowUpSection.propTypes = {
 // ==============================
 const TaskFormDrawer = ({ open, onClose, onSaved, assignableUsers, currentUser, editingTask }) => {
   const isAdminOrManager = currentUser?.role === "ADMIN" || currentUser?.role === "MANAGER";
-  const emptyForm = {
+  const emptyForm = useMemo(() => ({
     title: "",
     description: "",
     task_type: "classic",
@@ -2191,7 +2191,7 @@ const TaskFormDrawer = ({ open, onClose, onSaved, assignableUsers, currentUser, 
     priority: "medium",
     status: "todo",
     quota_target: "",
-  };
+  }), []);
   const [formData, setFormData] = useState(emptyForm);
   const [loading, setLoading] = useState(false);
   useEffect(() => {
@@ -2209,7 +2209,7 @@ const TaskFormDrawer = ({ open, onClose, onSaved, assignableUsers, currentUser, 
     } else {
       setFormData(emptyForm);
     }
-  }, [editingTask, open]);
+  }, [editingTask, emptyForm, open]);
   const handleClose = () => {
     setFormData(emptyForm);
     onClose();
@@ -2581,7 +2581,7 @@ export default function TasksPage() {
 
   useEffect(() => {
     setHookFilters(hookFilters);
-  }, [hookFilters]);
+  }, [hookFilters, setHookFilters]);
 
   // ── Fetch assignable users ──
   const fetchAssignableUsers = useCallback(async () => {

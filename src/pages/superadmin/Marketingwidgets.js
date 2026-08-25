@@ -2,7 +2,7 @@
 // src/components/marketing/MarketingWidgets.jsx
 // Ces composants s'affichent côté utilisateur (après login ou dans le profil)
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import PropTypes from "prop-types";
 import {
@@ -44,10 +44,10 @@ export function AcquisitionSourcePopup() {
   const [submitted, setSubmitted] = useState(false);
   const token = localStorage.getItem("token");
 
-  const api = axios.create({
+  const api = useMemo(() => axios.create({
     baseURL: API,
     headers: { Authorization: `Bearer ${token}` },
-  });
+  }), [token]);
 
   useEffect(() => {
     const checkSource = async () => {
@@ -61,7 +61,7 @@ export function AcquisitionSourcePopup() {
       }
     };
     if (token) checkSource();
-  }, []);
+  }, [api, token]);
 
   const handleSubmit = async () => {
     if (!source) return;
@@ -190,10 +190,10 @@ export function AppRatingPopup() {
   const [submitted, setSubmitted] = useState(false);
   const token = localStorage.getItem("token");
 
-  const api = axios.create({
+  const api = useMemo(() => axios.create({
     baseURL: API,
     headers: { Authorization: `Bearer ${token}` },
-  });
+  }), [token]);
 
   useEffect(() => {
     const checkRating = async () => {
@@ -207,7 +207,7 @@ export function AppRatingPopup() {
       }
     };
     if (token) checkRating();
-  }, []);
+  }, [api, token]);
 
   const handleSubmit = async () => {
     if (!rating) return;
@@ -454,5 +454,5 @@ export function useTrackActivity(module) {
     };
 
     track();
-  }, [module]);
+  }, [module, token]);
 }

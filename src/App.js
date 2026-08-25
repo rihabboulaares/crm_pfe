@@ -62,6 +62,8 @@ export default function App() {
     "/complete-profile",
     "/complete-account",
     "/change-password",
+    "/reset-password",
+    "/authentication/reset-password",
     "/invite-member",
   ];
   const isAuthRoute = authRoutes.includes(pathname) || pathname.startsWith("/accept-invite/");
@@ -99,6 +101,15 @@ export default function App() {
   useEffect(() => {
     document.body.setAttribute("dir", direction);
   }, [direction]);
+
+  // Expose le theme courant aux styles globaux et aux composants hors MUI.
+  useEffect(() => {
+    const themeName = darkMode ? "dark" : "light";
+
+    document.documentElement.setAttribute("data-theme", themeName);
+    document.body.setAttribute("data-theme", themeName);
+    document.body.classList.toggle("crm-dark-mode", darkMode);
+  }, [darkMode]);
 
   // Scroll en haut à chaque changement de route
   useEffect(() => {

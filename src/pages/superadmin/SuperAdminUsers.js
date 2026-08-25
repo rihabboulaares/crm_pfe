@@ -668,7 +668,9 @@ export default function SuperAdminUsers() {
           >
             <Chip
               size="small"
-              label={`${((displayStats.verified / displayStats.total) * 100 || 0).toFixed(0)}% vérifiés`}
+              label={`${((displayStats.verified / displayStats.total) * 100 || 0).toFixed(
+                0
+              )}% vérifiés`}
               sx={{
                 bgcolor: alpha(THEME.success, 0.1),
                 color: THEME.success,

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import axios from "axios";
-import { Alert, Box, Button, CircularProgress, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 import Footer from "examples/Footer";
@@ -75,7 +76,15 @@ export default function DashboardDataFrame({ children, loading, error, onRefresh
   return (
     <DashboardLayout>
       <DashboardNavbar onRefresh={onRefresh} lastUpdated={lastUpdated} />
-      <MDBox py={3} sx={{ minHeight: "calc(100vh - 200px)" }}>
+      <MDBox
+        py={3}
+        sx={{
+          minHeight: "calc(100vh - 200px)",
+          px: { xs: 1, md: 0 },
+          background:
+            "linear-gradient(180deg, transparent 0%, rgba(148,163,184,0.08) 38%, transparent 100%)",
+        }}
+      >
         {loading ? (
           <Box
             minHeight="55vh"
@@ -84,11 +93,22 @@ export default function DashboardDataFrame({ children, loading, error, onRefresh
             alignItems="center"
             justifyContent="center"
             gap={2}
+            sx={{
+              borderRadius: 4,
+              border: "1px solid var(--crm-border)",
+              bgcolor: "var(--crm-surface)",
+              boxShadow: "var(--crm-shadow-md)",
+            }}
           >
-            <CircularProgress sx={{ color: "#dc2626" }} />
-            <Typography variant="body2" color="textSecondary">
-              Chargement du tableau de bord...
-            </Typography>
+            <CircularProgress size={34} sx={{ color: "#dc2626" }} />
+            <Stack spacing={0.4} textAlign="center">
+              <Typography variant="body2" fontWeight={800} sx={{ color: "var(--crm-text)" }}>
+                Préparation du cockpit CRM
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Synchronisation des prospects, tâches et opportunités
+              </Typography>
+            </Stack>
           </Box>
         ) : error ? (
           <Alert
@@ -98,7 +118,11 @@ export default function DashboardDataFrame({ children, loading, error, onRefresh
                 Reessayer
               </Button>
             }
-            sx={{ borderRadius: 2 }}
+            sx={{
+              borderRadius: 3,
+              border: `1px solid ${alpha("#dc2626", 0.18)}`,
+              boxShadow: "0 12px 34px rgba(15,23,42,0.08)",
+            }}
           >
             {error}
           </Alert>

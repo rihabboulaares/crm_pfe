@@ -6,12 +6,14 @@ import CommercialDashboard from "./pages/modules/CommercialDashboard";
 import Welcome from "layouts/authentication/welcome";
 import SignIn from "layouts/authentication/sign-in";
 import SignUp from "layouts/authentication/sign-up";
+import ResetPassword from "layouts/authentication/reset-password/cover";
 import SubscriptionForm from "pages/SubscriptionForm";
 import Icon from "@mui/material/Icon";
 import InviteMember from "./pages/InviteMember";
 import AcceptInvite from "./pages/AcceptInvite";
 import CompleteProfile from "./pages/CompleteProfile";
 import Prospects from "./pages/modules/Prospects";
+import Prospect360 from "./pages/modules/Prospect360";
 import Contacts from "./pages/modules/Contacts";
 import Tasks from "./pages/modules/Tasks";
 import Campaigns from "./pages/modules/Campaigns";
@@ -100,6 +102,12 @@ const routes = [
     component: <Prospects />,
   },
   {
+    type: "route",
+    key: "prospect-360",
+    route: "/prospects/:id",
+    component: <Prospect360 />,
+  },
+  {
     type: "collapse",
     name: "Contacts",
     key: "contacts",
@@ -175,14 +183,6 @@ const routes = [
   },
 
   {
-    type: "route",
-    name: "Agent Prospection",
-    key: "prospect-search",
-    icon: <Icon fontSize="small">travel_explore</Icon>,
-    route: "/prospect-search",
-    component: <ProspectSearch />,
-  },
-  {
     type: "collapse",
     name: "Agent Engagement IA",
     key: "engagement",
@@ -216,6 +216,18 @@ const routes = [
     key: "signin",
     route: "/signin",
     component: <SignIn />,
+  },
+  {
+    type: "route",
+    key: "reset-password",
+    route: "/reset-password",
+    component: <ResetPassword />,
+  },
+  {
+    type: "route",
+    key: "authentication-reset-password",
+    route: "/authentication/reset-password",
+    component: <ResetPassword />,
   },
   {
     type: "route",

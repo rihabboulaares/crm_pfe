@@ -146,8 +146,11 @@ function SignIn() {
       navigate("/dashboard", { replace: true });
     } catch (error) {
       console.error("Erreur login:", error.response?.data || error);
+      const detail = error.response?.data?.detail || "";
 
-      if (error.response?.status === 401) {
+      if (String(detail).toLowerCase().includes("vérifi")) {
+        setMessage(detail);
+      } else if (error.response?.status === 401) {
         setMessage("Email ou mot de passe incorrect.");
       } else if (error.response?.status === 400) {
         setMessage("Email ou mot de passe incorrect.");
@@ -235,7 +238,6 @@ function SignIn() {
                           ),
                         }}
                       />
-
                       <StyledTextField
                         className="auth-input"
                         fullWidth
@@ -276,6 +278,22 @@ function SignIn() {
                           ),
                         }}
                       />
+
+                      <Box sx={{ display: "flex", justifyContent: "flex-end", mt: -1 }}>
+                        <Button
+                          variant="text"
+                          onClick={() => navigate("/reset-password")}
+                          sx={{
+                            color: crmTheme.primary.main,
+                            textTransform: "none",
+                            fontWeight: 800,
+                            p: 0,
+                            minWidth: "auto",
+                          }}
+                        >
+                          Mot de passe oublié ?
+                        </Button>
+                      </Box>
 
                       {message && (
                         <Alert className="crm-alert" severity="error">

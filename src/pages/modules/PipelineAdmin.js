@@ -2302,7 +2302,7 @@ export default function PipelineAdmin() {
   return (
     <DashboardLayout>
       <DashboardNavbar />
-      <MDBox py={3} px={3} sx={{ background: "#F8F9FC", minHeight: "100vh" }}>
+      <MDBox py={3} px={3} sx={{ background: "var(--crm-bg)", minHeight: "100vh" }}>
         <Collapse in={!!message.text}>
           <Alert
             severity={message.type}

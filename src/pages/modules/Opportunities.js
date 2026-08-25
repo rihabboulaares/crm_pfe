@@ -674,9 +674,13 @@ const CreateOpportunityDrawer = ({
       });
       setStep(0);
     } else {
-      const prefilledProspect = prospects.find((prospect) => String(prospect.id) === String(initialProspectId));
+      const prefilledProspect = prospects.find(
+        (prospect) => String(prospect.id) === String(initialProspectId)
+      );
       const prefilledName = prefilledProspect
-        ? `Opportunite - ${`${prefilledProspect.first_name || ""} ${prefilledProspect.last_name || ""}`.trim()}`
+        ? `Opportunite - ${`${prefilledProspect.first_name || ""} ${
+            prefilledProspect.last_name || ""
+          }`.trim()}`
         : "";
       setForm({
         name: prefilledName,
@@ -2787,7 +2791,7 @@ export default function Opportunities() {
 
   useEffect(() => {
     setHookFilters(hookFilters);
-  }, [hookFilters]);
+  }, [hookFilters, setHookFilters]);
 
   useEffect(() => {
     const t = localStorage.getItem("token");
@@ -2802,7 +2806,7 @@ export default function Opportunities() {
         loadSupport(r.data, t);
       })
       .catch(() => navigate("/sign-in"));
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     api

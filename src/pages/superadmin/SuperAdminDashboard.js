@@ -228,7 +228,7 @@ export default function SuperAdminDashboard() {
       .then((res) => setMarketingData(res.data))
       .catch((e) => console.error("Marketing error:", e))
       .finally(() => setMarketingLoading(false));
-  }, [activeTab]);
+  }, [activeTab, marketingData]);
 
   const reloadMarketing = () => {
     setMarketingLoading(true);

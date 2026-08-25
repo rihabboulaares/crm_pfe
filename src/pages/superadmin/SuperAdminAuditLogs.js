@@ -21,7 +21,15 @@ import {
 } from "@mui/material";
 import { FactCheck, Search } from "@mui/icons-material";
 import { alpha } from "@mui/material/styles";
-import { apiGet, formatDateTime, getApiErrorMessage, getListCount, getListPayload, SA_ENDPOINTS, T } from "./saUtils";
+import {
+  apiGet,
+  formatDateTime,
+  getApiErrorMessage,
+  getListCount,
+  getListPayload,
+  SA_ENDPOINTS,
+  T,
+} from "./saUtils";
 import SuperAdminLayout from "./SuperAdminLayout";
 
 export default function SuperAdminAuditLogs() {
@@ -34,7 +42,11 @@ export default function SuperAdminAuditLogs() {
   useEffect(() => {
     const timeout = setTimeout(() => {
       setLoading(true);
-      apiGet(`${SA_ENDPOINTS.auditLogs}?page_size=25${search ? `&search=${encodeURIComponent(search)}` : ""}`)
+      apiGet(
+        `${SA_ENDPOINTS.auditLogs}?page_size=25${
+          search ? `&search=${encodeURIComponent(search)}` : ""
+        }`
+      )
         .then((res) => {
           setLogs(getListPayload(res.data));
           setTotalLogs(getListCount(res.data));
@@ -84,7 +96,11 @@ export default function SuperAdminAuditLogs() {
         />
       </Card>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
       <Card sx={{ borderRadius: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
         {loading ? (
           <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
@@ -95,9 +111,13 @@ export default function SuperAdminAuditLogs() {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  {["Date", "Action", "Module", "Objet", "Acteur", "Entreprise", "Détail"].map((h) => (
-                    <TableCell key={h} sx={{ fontWeight: 800, color: T.n800 }}>{h}</TableCell>
-                  ))}
+                  {["Date", "Action", "Module", "Objet", "Acteur", "Entreprise", "Détail"].map(
+                    (h) => (
+                      <TableCell key={h} sx={{ fontWeight: 800, color: T.n800 }}>
+                        {h}
+                      </TableCell>
+                    )
+                  )}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -105,7 +125,11 @@ export default function SuperAdminAuditLogs() {
                   <TableRow key={log.id} hover>
                     <TableCell>{formatDateTime(log.created_at)}</TableCell>
                     <TableCell>
-                      <Chip size="small" label={log.action} sx={{ bgcolor: alpha(T.red, 0.08), color: T.red, fontWeight: 800 }} />
+                      <Chip
+                        size="small"
+                        label={log.action}
+                        sx={{ bgcolor: alpha(T.red, 0.08), color: T.red, fontWeight: 800 }}
+                      />
                     </TableCell>
                     <TableCell>{log.module || "-"}</TableCell>
                     <TableCell>{log.object_repr || log.object_id || "-"}</TableCell>
