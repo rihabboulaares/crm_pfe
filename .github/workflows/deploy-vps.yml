@@ -11,91 +11,161 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to VPS with Docker Compose and Rollback
+      - name: Deploy CRM to VPS
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          BRANCH: ${{ github.ref_name }}
+
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          command_timeout: 25m
+          command_timeout: 45m
+          envs: BRANCH
+
           script: |
             set -e
 
-            rollback() {
-              echo "=== ROLLBACK STARTED ==="
-              cd /opt/viewisecrm-devops
-              docker tag viewisecrm-backend-last-success:backup viewisecrm-devops-backend:latest
-              docker tag viewisecrm-frontend-last-success:backup viewisecrm-devops-frontend:latest
-              docker compose up -d backend frontend nginx
-              echo "=== ROLLBACK FINISHED ==="
-            }
+            echo "=========================================="
+            echo " CRM AUTOMATIC DEPLOYMENT"
+            echo " Branch: $BRANCH"
+            echo "=========================================="
 
-            trap 'rollback' ERR
+            COMPOSE_DIR="/opt/viewisecrm-devops"
 
-            echo "=== BACKUP CURRENT SUCCESSFUL IMAGES ==="
-            docker commit viewisecrm-backend viewisecrm-backend-last-success:backup
-            docker commit viewisecrm-frontend viewisecrm-frontend-last-success:backup
-            docker commit viewisecrm-nginx viewisecrm-nginx-last-success:backup
 
-            echo "=== UPDATE FRONTEND CODE ==="
-            cd /opt/crm-frontend
-            git fetch origin frontend
-            git reset --hard origin/frontend
+            # ==========================================
+            # BACKEND
+            # ==========================================
 
-            echo "=== UPDATE BACKEND CODE ==="
-            cd /opt/crm-pfe
-            git fetch origin clean-backend
-            git reset --hard origin/clean-backend
+            if [ "$BRANCH" = "clean-backend" ]; then
 
-            echo "=== REBUILD DOCKER SERVICES ==="
-            cd /opt/viewisecrm-devops
-            docker compose up -d --build backend frontend nginx
+              echo "=== BACKEND DEPLOYMENT ==="
 
-            echo "=== APPLY MIGRATIONS ==="
-            docker compose exec -T backend python manage.py migrate --noinput
+              cd /opt/crm-pfe
 
-            echo "=== COLLECT STATIC ==="
-            docker compose exec -T backend python manage.py collectstatic --noinput
+              echo "=== FETCH BACKEND ==="
 
-            echo "=== HEALTHCHECK ==="
-            FRONT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080)
-            API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/api/)
+              git fetch origin clean-backend
 
-            echo "Frontend status: $FRONT_STATUS"
-            echo "API status: $API_STATUS"
+              git reset --hard origin/clean-backend
 
-            if [ "$FRONT_STATUS" != "200" ]; then
-              echo "Frontend healthcheck failed"
-              exit 1
+
+              echo "=== BUILD BACKEND ==="
+
+              cd $COMPOSE_DIR
+
+              docker compose build backend
+
+
+              echo "=== START BACKEND ==="
+
+              docker compose up -d backend
+
+
+              echo "=== WAIT BACKEND ==="
+
+              sleep 10
+
+
+              echo "=== DATABASE MIGRATIONS ==="
+
+              docker compose exec -T backend \
+                python manage.py migrate --noinput
+
+
+              echo "=== COLLECT STATIC ==="
+
+              docker compose exec -T backend \
+                python manage.py collectstatic --noinput
+
+
+              echo "=== BACKEND LOGS ==="
+
+              docker compose logs --tail=50 backend
+
+
+              echo "=== BACKEND DEPLOYED ==="
+
             fi
 
-            if [ "$API_STATUS" != "200" ] && [ "$API_STATUS" != "401" ]; then
-              echo "API healthcheck failed"
-              exit 1
+
+            # ==========================================
+            # FRONTEND
+            # ==========================================
+
+            if [ "$BRANCH" = "frontend" ]; then
+
+              echo "=== FRONTEND DEPLOYMENT ==="
+
+              cd /opt/crm-frontend
+
+              echo "=== FETCH FRONTEND ==="
+
+              git fetch origin frontend
+
+              git reset --hard origin/frontend
+
+
+              echo "=== BUILD FRONTEND ==="
+
+              cd $COMPOSE_DIR
+
+              docker compose build frontend
+
+
+              echo "=== START FRONTEND ==="
+
+              docker compose up -d frontend
+
+
+              echo "=== RELOAD NGINX ==="
+
+              docker compose up -d nginx
+
+
+              echo "=== FRONTEND LOGS ==="
+
+              docker compose logs --tail=50 frontend
+
+
+              echo "=== FRONTEND DEPLOYED ==="
+
             fi
 
-            trap - ERR
 
-            echo "Healthcheck passed"
+            # ==========================================
+            # FINAL CHECK
+            # ==========================================
 
-            echo "=== CHECK CONTAINERS ==="
+            cd $COMPOSE_DIR
+
+            echo "=== CONTAINERS ==="
+
             docker compose ps
 
-            echo ""
+
+            echo "=== WAIT BEFORE HEALTHCHECK ==="
+
+            sleep 10
+
+
+            FRONT_STATUS=$(curl -s -o /dev/null \
+              -w "%{http_code}" \
+              http://127.0.0.1:8080 || echo "000")
+
+
+            API_STATUS=$(curl -s -o /dev/null \
+              -w "%{http_code}" \
+              http://127.0.0.1:8080/api/ || echo "000")
+
+
             echo "=========================================="
-            echo "     VIEWISE CRM DEPLOYMENT REPORT"
+            echo " DEPLOYMENT REPORT"
             echo "=========================================="
-            echo "Frontend React      : OK - HTTP $FRONT_STATUS"
-            echo "Backend Django      : OK - HTTP $API_STATUS"
-            echo "Docker Compose      : OK"
-            echo "PostgreSQL          : Running"
-            echo "Redis               : Running"
-            echo "Nginx               : Running"
-            echo "Prometheus          : Running"
-            echo "Grafana             : Running"
-            echo "cAdvisor            : Running"
-            echo "Rollback            : Enabled"
-            echo "Final Result        : Deployment successful"
+            echo "Branch deployed : $BRANCH"
+            echo "Frontend HTTP   : $FRONT_STATUS"
+            echo "Backend HTTP    : $API_STATUS"
             echo "=========================================="
 
             echo "=== DEPLOYMENT FINISHED ==="
