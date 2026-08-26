@@ -1,0 +1,105 @@
+name: Deploy CRM VPS
+
+on:
+  push:
+    branches:
+      - clean-backend
+      - frontend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy CRM
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_BRANCH: ${{ github.ref_name }}
+
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 45m
+          envs: DEPLOY_BRANCH
+
+          script: |
+            set -e
+
+            COMPOSE_DIR="/opt/viewisecrm-devops"
+
+            echo "Deploy branch: $DEPLOY_BRANCH"
+
+            if [ "$DEPLOY_BRANCH" = "clean-backend" ]; then
+              echo "=== UPDATE BACKEND ==="
+
+              cd /opt/crm-pfe
+
+              git fetch origin clean-backend
+              git reset --hard origin/clean-backend
+
+              if [ ! -f Dockerfile ]; then
+                echo "Dockerfile backend not found"
+                exit 1
+              fi
+
+              cd "$COMPOSE_DIR"
+
+              docker compose build backend
+              docker compose up -d backend
+
+              sleep 10
+
+              docker compose exec -T backend python manage.py migrate --noinput
+              docker compose exec -T backend python manage.py collectstatic --noinput
+
+              docker compose restart nginx
+            fi
+
+
+            if [ "$DEPLOY_BRANCH" = "frontend" ]; then
+              echo "=== UPDATE FRONTEND ==="
+
+              cd /opt/crm-frontend
+
+              git fetch origin frontend
+              git reset --hard origin/frontend
+
+              cd "$COMPOSE_DIR"
+
+              docker compose build frontend
+              docker compose up -d frontend
+
+              docker compose restart nginx
+            fi
+
+
+            sleep 5
+
+            cd "$COMPOSE_DIR"
+
+            echo "=== CONTAINERS ==="
+            docker compose ps
+
+            echo "=== FRONTEND CHECK ==="
+            FRONT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080 || true)
+
+            echo "Frontend: $FRONT_STATUS"
+
+            echo "=== API CHECK ==="
+            API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/api/ || true)
+
+            echo "API: $API_STATUS"
+
+            if [ "$FRONT_STATUS" != "200" ]; then
+              echo "Frontend unavailable"
+              exit 1
+            fi
+
+            if [ "$API_STATUS" = "502" ] || [ "$API_STATUS" = "000" ]; then
+              echo "Backend unavailable"
+              docker compose logs --tail=100 backend
+              exit 1
+            fi
+
+            echo "=== DEPLOYMENT SUCCESSFUL ==="
