@@ -6,6 +6,10 @@ on:
       - clean-backend
       - frontend
 
+concurrency:
+  group: crm-vps-deployment
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -28,9 +32,17 @@ jobs:
 
             COMPOSE_DIR="/opt/viewisecrm-devops"
 
-            echo "Deploy branch: $DEPLOY_BRANCH"
+            echo "=========================================="
+            echo " VIEWISE CRM AUTOMATIC DEPLOYMENT"
+            echo "=========================================="
+            echo "Branch: $DEPLOY_BRANCH"
+
+            # ==========================================
+            # BACKEND
+            # ==========================================
 
             if [ "$DEPLOY_BRANCH" = "clean-backend" ]; then
+
               echo "=== UPDATE BACKEND ==="
 
               cd /opt/crm-pfe
@@ -38,26 +50,45 @@ jobs:
               git fetch origin clean-backend
               git reset --hard origin/clean-backend
 
+              echo "Backend commit:"
+              git log -1 --oneline
+
               if [ ! -f Dockerfile ]; then
-                echo "Dockerfile backend not found"
+                echo "ERROR: Backend Dockerfile not found"
                 exit 1
               fi
 
               cd "$COMPOSE_DIR"
 
+              echo "=== BUILD BACKEND ==="
               docker compose build backend
+
+              echo "=== START BACKEND ==="
               docker compose up -d backend
 
+              echo "=== WAIT BACKEND ==="
               sleep 10
 
-              docker compose exec -T backend python manage.py migrate --noinput
-              docker compose exec -T backend python manage.py collectstatic --noinput
+              echo "=== MIGRATIONS ==="
+              docker compose exec -T backend \
+                python manage.py migrate --noinput
 
+              echo "=== COLLECT STATIC ==="
+              docker compose exec -T backend \
+                python manage.py collectstatic --noinput
+
+              echo "=== RESTART NGINX ==="
               docker compose restart nginx
+
             fi
 
 
+            # ==========================================
+            # FRONTEND
+            # ==========================================
+
             if [ "$DEPLOY_BRANCH" = "frontend" ]; then
+
               echo "=== UPDATE FRONTEND ==="
 
               cd /opt/crm-frontend
@@ -65,41 +96,125 @@ jobs:
               git fetch origin frontend
               git reset --hard origin/frontend
 
+              echo "Frontend commit:"
+              git log -1 --oneline
+
+              if [ ! -f Dockerfile ]; then
+                echo "ERROR: Frontend Dockerfile not found"
+                exit 1
+              fi
+
               cd "$COMPOSE_DIR"
 
+              echo "=== BUILD FRONTEND ==="
               docker compose build frontend
+
+              echo "=== START FRONTEND ==="
               docker compose up -d frontend
 
+              echo "=== RESTART NGINX ==="
               docker compose restart nginx
+
             fi
 
 
-            sleep 5
+            # ==========================================
+            # STATUS
+            # ==========================================
 
             cd "$COMPOSE_DIR"
 
             echo "=== CONTAINERS ==="
             docker compose ps
 
-            echo "=== FRONTEND CHECK ==="
-            FRONT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080 || true)
 
-            echo "Frontend: $FRONT_STATUS"
+            # ==========================================
+            # FRONTEND HEALTHCHECK
+            # ==========================================
 
-            echo "=== API CHECK ==="
-            API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/api/ || true)
+            echo "=== FRONTEND HEALTHCHECK ==="
 
-            echo "API: $API_STATUS"
+            FRONT_STATUS="000"
+
+            for i in 1 2 3 4 5 6; do
+
+              FRONT_STATUS=$(curl -s \
+                -o /dev/null \
+                -w "%{http_code}" \
+                http://127.0.0.1:8080 || true)
+
+              echo "Attempt $i - Frontend HTTP: $FRONT_STATUS"
+
+              if [ "$FRONT_STATUS" = "200" ]; then
+                break
+              fi
+
+              sleep 5
+
+            done
 
             if [ "$FRONT_STATUS" != "200" ]; then
-              echo "Frontend unavailable"
+
+              echo "ERROR: Frontend unavailable"
+
+              docker compose logs --tail=100 frontend
+              docker compose logs --tail=100 nginx
+
               exit 1
+
             fi
 
-            if [ "$API_STATUS" = "502" ] || [ "$API_STATUS" = "000" ]; then
-              echo "Backend unavailable"
+
+            # ==========================================
+            # API HEALTHCHECK
+            # ==========================================
+
+            echo "=== API HEALTHCHECK ==="
+
+            API_STATUS="000"
+
+            for i in 1 2 3 4 5 6; do
+
+              API_STATUS=$(curl -s \
+                -o /dev/null \
+                -w "%{http_code}" \
+                http://127.0.0.1:8080/api/ || true)
+
+              echo "Attempt $i - API HTTP: $API_STATUS"
+
+              if [ "$API_STATUS" != "000" ] && \
+                 [ "$API_STATUS" != "502" ] && \
+                 [ "$API_STATUS" != "503" ] && \
+                 [ "$API_STATUS" != "504" ] && \
+                 [ "$API_STATUS" != "500" ]; then
+                break
+              fi
+
+              sleep 5
+
+            done
+
+            if [ "$API_STATUS" = "000" ] || \
+               [ "$API_STATUS" = "500" ] || \
+               [ "$API_STATUS" = "502" ] || \
+               [ "$API_STATUS" = "503" ] || \
+               [ "$API_STATUS" = "504" ]; then
+
+              echo "ERROR: Backend unavailable"
+
               docker compose logs --tail=100 backend
+              docker compose logs --tail=100 nginx
+
               exit 1
+
             fi
 
-            echo "=== DEPLOYMENT SUCCESSFUL ==="
+
+            echo ""
+            echo "=========================================="
+            echo " DEPLOYMENT SUCCESSFUL"
+            echo "=========================================="
+            echo "Branch   : $DEPLOY_BRANCH"
+            echo "Frontend : HTTP $FRONT_STATUS"
+            echo "API      : HTTP $API_STATUS"
+            echo "=========================================="
