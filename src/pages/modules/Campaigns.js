@@ -139,20 +139,32 @@ const StyledTableContainer = styled(TableContainer)(() => ({
   borderRadius: 16,
   boxShadow: `0 8px 16px ${alpha("#000", 0.05)}`,
   border: `1px solid ${alpha(THEME.primary, 0.1)}`,
-  "& .MuiTable-root": { borderCollapse: "separate", borderSpacing: "0 8px", padding: "0 8px" },
+  overflowX: "auto",
+  "& .MuiTable-root": {
+    width: "100%",
+    minWidth: 1180,
+    borderCollapse: "separate",
+    borderSpacing: "0 8px",
+    padding: "0 8px",
+  },
 }));
 
 const StyledTableHead = styled(TableHead)(() => ({
   "& .MuiTableCell-head": {
-    fontWeight: 700,
+    height: 58,
+    fontWeight: 900,
     color: THEME.primary,
-    fontSize: "0.85rem",
-    padding: "16px 12px",
+    fontSize: "0.76rem",
+    lineHeight: 1.2,
+    padding: "0 18px",
     backgroundColor: alpha(THEME.primary, 0.04),
     borderBottom: `2px solid ${THEME.primary}`,
     whiteSpace: "nowrap",
     textTransform: "uppercase",
-    letterSpacing: "0.5px",
+    letterSpacing: 0,
+    verticalAlign: "middle",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
 }));
 

@@ -921,29 +921,41 @@ const StyledTableContainer = styled(TableContainer)(() => ({
   border: "1px solid var(--crm-border)",
   background: "var(--crm-surface)",
   overflowX: "auto",
-  "& .MuiTable-root": { minWidth: 910, borderCollapse: "collapse", tableLayout: "fixed" },
+  "& .MuiTable-root": {
+    width: "100%",
+    minWidth: 1250,
+    borderCollapse: "collapse",
+    tableLayout: "fixed",
+  },
 }));
 
 const StyledTableHead = styled(TableHead)(() => ({
   "& .MuiTableCell-head": {
-    fontWeight: 700,
+    height: 58,
+    fontWeight: 900,
     color: THEME.primary,
-    fontSize: "0.85rem",
-    padding: "16px 8px",
+    fontSize: "0.76rem",
+    lineHeight: 1.2,
+    padding: "0 18px",
     backgroundColor: alpha(THEME.primary, 0.04),
     borderBottom: `2px solid ${THEME.primary}`,
     whiteSpace: "nowrap",
     textTransform: "uppercase",
-    letterSpacing: "0.5px",
+    letterSpacing: 0,
+    verticalAlign: "middle",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
 }));
 
 const StyledTableRow = styled(TableRow)(() => ({
   "&:hover": { backgroundColor: alpha(THEME.primary, 0.02), cursor: "pointer" },
   "& td": {
-    padding: "12px 8px",
+    height: 78,
+    padding: "12px 18px",
     borderBottom: "1px solid var(--crm-border)",
     color: "var(--crm-text)",
+    verticalAlign: "middle",
   },
 }));
 
@@ -5396,19 +5408,28 @@ export default function Prospects() {
           <StyledCard>
             <StyledTableContainer>
               <Table>
+                <colgroup>
+                  <col style={{ width: 220 }} />
+                  <col style={{ width: 280 }} />
+                  <col style={{ width: 120 }} />
+                  <col style={{ width: 140 }} />
+                  <col style={{ width: 180 }} />
+                  <col style={{ width: 150 }} />
+                  <col style={{ width: 160 }} />
+                </colgroup>
                 <StyledTableHead>
                   <TableRow>
-                    <TableCell sx={{ width: "24%" }}>Prospect</TableCell>
-                    <TableCell sx={{ width: "24%" }}>Société / Contact</TableCell>
-                    <TableCell sx={{ width: 110 }} align="center">
+                    <TableCell>Prospect</TableCell>
+                    <TableCell>Société / Contact</TableCell>
+                    <TableCell align="center">
                       Score
                     </TableCell>
-                    <TableCell sx={{ width: 120 }} align="center">
+                    <TableCell align="center">
                       Statut
                     </TableCell>
-                    <TableCell sx={{ width: 150 }}>Assigné à</TableCell>
-                    <TableCell sx={{ width: 120 }}>Source</TableCell>
-                    <TableCell sx={{ width: 120 }} align="center">
+                    <TableCell>Assigné à</TableCell>
+                    <TableCell>Source</TableCell>
+                    <TableCell align="center">
                       Actions
                     </TableCell>
                   </TableRow>

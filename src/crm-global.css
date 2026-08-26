@@ -844,6 +844,21 @@ body[data-theme="dark"] {
   border: 1px solid var(--crm-border);
   border-radius: var(--crm-radius-lg);
   box-shadow: var(--crm-shadow-sm);
+  width: 100%;
+  overflow-x: auto;
+}
+
+.MuiTable-root {
+  width: 100%;
+}
+
+.MuiTableHead-root {
+  display: table-header-group;
+}
+
+.MuiTableHead-root .MuiTableRow-root,
+.MuiTableBody-root .MuiTableRow-root {
+  display: table-row;
 }
 
 .MuiTableHead-root .MuiTableCell-root {
@@ -853,10 +868,17 @@ body[data-theme="dark"] {
   font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
+  vertical-align: middle;
+  white-space: nowrap;
+  line-height: 1.2;
 }
 
 .MuiTableBody-root .MuiTableRow-root {
   transition: all 0.2s ease;
+}
+
+.MuiTableBody-root .MuiTableCell-root {
+  vertical-align: middle;
 }
 
 .MuiTableBody-root .MuiTableRow-root:hover {
@@ -1787,6 +1809,7 @@ body[data-theme="dark"] .crm-table-shell {
 }
 
 body[data-theme="dark"] .MuiTable-root {
+  width: 100% !important;
   background: transparent !important;
 }
 
@@ -1796,14 +1819,18 @@ body[data-theme="dark"] .MuiTableCell-head {
   color: #e5e7eb !important;
   border-bottom: 1px solid rgba(239, 68, 68, 0.46) !important;
   font-size: 0.76rem !important;
+  line-height: 1.2 !important;
   font-weight: 900 !important;
   letter-spacing: 0 !important;
   text-transform: uppercase !important;
+  vertical-align: middle !important;
+  white-space: nowrap !important;
 }
 
 body[data-theme="dark"] .MuiTableBody-root .MuiTableCell-root {
   color: #f8fafc !important;
   border-bottom: 1px solid rgba(148, 163, 184, 0.16) !important;
+  vertical-align: middle !important;
 }
 
 body[data-theme="dark"] .MuiTableBody-root .MuiTableRow-root:hover {
@@ -1851,4 +1878,57 @@ body[data-theme="dark"] .MuiIconButton-root {
 
 body[data-theme="dark"] .MuiChip-root {
   border-color: rgba(148, 163, 184, 0.28) !important;
+}
+
+/* Dark-mode table layout reset.
+   Some local MUI overrides make headers compress in dark mode while light mode stays correct. */
+body[data-theme="dark"] .MuiTableContainer-root {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+}
+
+body[data-theme="dark"] .MuiTableContainer-root table,
+body[data-theme="dark"] .MuiTable-root {
+  display: table !important;
+  width: 100% !important;
+  border-collapse: collapse !important;
+  border-spacing: 0 !important;
+}
+
+body[data-theme="dark"] .MuiTableHead-root {
+  display: table-header-group !important;
+}
+
+body[data-theme="dark"] .MuiTableBody-root {
+  display: table-row-group !important;
+}
+
+body[data-theme="dark"] .MuiTableRow-root {
+  display: table-row !important;
+}
+
+body[data-theme="dark"] .MuiTableCell-root {
+  display: table-cell !important;
+  box-sizing: border-box !important;
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 14px 18px !important;
+  vertical-align: middle !important;
+}
+
+body[data-theme="dark"] .MuiTableCell-head {
+  height: 58px !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  line-height: 1.2 !important;
+  text-align: inherit;
+}
+
+body[data-theme="dark"] .MuiTableCell-alignCenter {
+  text-align: center !important;
+}
+
+body[data-theme="dark"] .MuiTableCell-alignRight {
+  text-align: right !important;
 }

@@ -110,29 +110,41 @@ const StyledTableContainer = styled(TableContainer)(() => ({
   border: `1px solid ${C.border}`,
   background: C.surface,
   overflowX: "auto",
-  "& .MuiTable-root": { minWidth: 1180, borderCollapse: "collapse", tableLayout: "fixed" },
+  "& .MuiTable-root": {
+    width: "100%",
+    minWidth: 1180,
+    borderCollapse: "collapse",
+    tableLayout: "fixed",
+  },
 }));
 
 const StyledTableHead = styled(TableHead)(() => ({
   "& .MuiTableCell-head": {
-    fontWeight: 700,
+    height: 58,
+    fontWeight: 900,
     color: C.red,
-    fontSize: "0.85rem",
-    padding: "16px 8px",
+    fontSize: "0.76rem",
+    lineHeight: 1.2,
+    padding: "0 18px",
     backgroundColor: alpha(C.red, 0.04),
     borderBottom: `2px solid ${C.red}`,
     whiteSpace: "nowrap",
     textTransform: "uppercase",
-    letterSpacing: "0.5px",
+    letterSpacing: 0,
+    verticalAlign: "middle",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
 }));
 
 const StyledTableRow = styled(TableRow)(() => ({
   "&:hover": { backgroundColor: alpha(C.red, 0.02), cursor: "pointer" },
   "& td": {
-    padding: "12px 8px",
+    height: 74,
+    padding: "12px 18px",
     borderBottom: `1px solid ${C.border}`,
     color: C.text,
+    verticalAlign: "middle",
   },
 }));
 
