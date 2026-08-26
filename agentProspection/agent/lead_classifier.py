@@ -794,12 +794,27 @@ def resolved_sector_match(
     intent: dict,
 ) -> tuple[bool, str]:
     """
-    Gemini est prioritaire lorsqu'une validation sémantique
-    suffisamment confiante est disponible.
+    Résout la compatibilité secteur.
 
-    Sinon, le matching lexical générique existant reste le fallback.
+    Règle spéciale Meta Ads :
+    dès qu'une validation Gemini existe, sa décision sectorielle est
+    utilisée directement, même avec une confiance prudente.
+
+    Pourquoi :
+    le fallback lexical est adapté comme secours pour les autres sources,
+    mais il est dangereux pour Meta Ads car le texte publicitaire peut
+    contenir les mots du secteur sans que l'annonceur appartienne
+    réellement à ce secteur.
+
+    Les autres outils gardent exactement leur comportement historique.
     """
     validation = semantic_validation(entity)
+
+    if is_meta_ads_source(entity) and validation:
+        return (
+            bool(validation.get("sector_match")),
+            "gemini_meta",
+        )
 
     if semantic_validation_is_usable(entity):
         return (

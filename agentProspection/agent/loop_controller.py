@@ -309,6 +309,7 @@ def log_rejected_diagnostics(
                 "sector_match=%r | "
                 "sector_match_origin=%r | "
                 "semantic_confidence=%r | "
+                "semantic_reason=%r | "
                 "phone=%r | "
                 "email=%r | "
                 "website=%r | "
@@ -356,6 +357,10 @@ def log_rejected_diagnostics(
                 rejected.get("semantic_validation")
                 or {}
             ).get("confidence"),
+            (
+                rejected.get("semantic_validation")
+                or {}
+            ).get("reason"),
             rejected.get(
                 "phone"
             ),
@@ -1211,20 +1216,18 @@ def meta_semantic_gate(
             or "Activité Meta Ads sémantiquement compatible",
         )
 
-    # Gemini est suffisamment certain que l'activité ne correspond pas.
-    if (
-        not sector_match
-        and confidence
-        >= META_SEMANTIC_DIRECT_REJECT_CONFIDENCE
-    ):
+    # Si Gemini ne voit pas de compatibilité sectorielle, on ne gaspille
+    # pas Serper. Meta Ads est trop bruité pour qu'un fallback lexical
+    # puisse renverser cette décision.
+    if not sector_match:
         return (
             "reject",
             reason
-            or "Secteur incompatible selon Gemini",
+            or "Secteur non confirmé par Gemini",
         )
 
-    # Très peu de signal : ne pas gaspiller Facebook/Web sur un
-    # annonceur arbitraire.
+    # sector_match=True mais confiance très faible :
+    # signal insuffisant pour consommer une vérification externe.
     if confidence < META_SEMANTIC_MIN_PLAUSIBLE_CONFIDENCE:
         return (
             "reject",
@@ -1232,11 +1235,11 @@ def meta_semantic_gate(
             or "Preuves Meta Ads trop faibles",
         )
 
-    # Cas réellement ambigu : on autorise Serper à trancher.
+    # Cas positif mais prudent : Serper doit confirmer.
     return (
         "verify",
         reason
-        or "Candidat Meta Ads ambigu à vérifier",
+        or "Candidat Meta Ads plausible à vérifier",
     )
 
 
@@ -1551,11 +1554,28 @@ async def execute_search_plan(
                 if memory.iterations >= memory.max_iterations:
                     break
 
+                meta_results_per_query = int(
+                    getattr(
+                        settings,
+                        "PROSPECTION_META_RESULTS_PER_QUERY",
+                        20,
+                    )
+                    or 20
+                )
+                meta_results_per_query = max(
+                    10,
+                    min(
+                        meta_results_per_query,
+                        50,
+                    ),
+                )
+
                 tool_query = {
                     "q": query_text,
                     "page": 1,
                     "lead_type": "company",
                     "ad_reached_countries": item.get("countries") or ["TN"],
+                    "limit": meta_results_per_query,
                 }
                 if memory.already_used(tool_name, tool_query):
                     continue
@@ -2448,15 +2468,32 @@ async def execute_switched_source(
         results = []
         for query_text in build_meta_ads_queries(
             memory.intent or {},
-            max_queries=4,
+            max_queries=6,
         ):
             if memory.iterations >= memory.max_iterations:
                 break
+            meta_results_per_query = int(
+                getattr(
+                    settings,
+                    "PROSPECTION_META_RESULTS_PER_QUERY",
+                    20,
+                )
+                or 20
+            )
+            meta_results_per_query = max(
+                10,
+                min(
+                    meta_results_per_query,
+                    50,
+                ),
+            )
+
             tool_query = {
                 "q": query_text,
                 "page": 1,
                 "lead_type": "company",
                 "ad_reached_countries": ["TN"],
+                "limit": meta_results_per_query,
             }
             if memory.already_used(tool_name, tool_query):
                 continue

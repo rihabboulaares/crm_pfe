@@ -440,10 +440,28 @@ uniquement pour remplir la liste.
 
 PERTINENCE > QUANTITÉ.
 
+Exigence importante :
+une requête Meta ne doit pas être un simple concept général associé
+à la cible. Elle doit garder suffisamment d'information pour que
+l'annonceur recherché soit identifiable comme appartenant à cette
+activité.
+
 Règles supplémentaires :
-- 3 à 6 expressions maximum ;
-- pas de localisation dans les expressions Meta : le pays est envoyé
-  séparément à Meta Ads Library ;
+- 4 à 6 expressions maximum lorsque Meta Ads est explicitement demandé ;
+- conserve TOUJOURS le coeur métier exact de la cible dans chaque requête ;
+- évite les catégories parapluies ou trop générales qui peuvent attirer
+  des annonceurs d'autres secteurs ;
+- certaines variantes PEUVENT inclure la localisation demandée
+  (pays ou ville) lorsqu'elle aide à distinguer les annonceurs locaux ;
+- le filtre pays Meta reste utilisé en parallèle, mais il représente
+  surtout la zone atteinte par la publicité et ne suffit pas à prouver
+  la localisation réelle de l'annonceur ;
+- au moins une variante doit être l'activité exacte seule ;
+- au moins une variante doit combiner l'activité exacte avec la
+  localisation demandée si une localisation est disponible ;
+- les autres variantes doivent rester des appellations commerciales
+  strictement équivalentes ou des formulations commerciales très
+  caractéristiques de la même activité ;
 - pas d'URL ;
 - pas d'opérateur de moteur de recherche ;
 - pas de nom inventé d'entreprise ;
