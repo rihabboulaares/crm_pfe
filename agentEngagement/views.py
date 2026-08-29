@@ -1,4 +1,4 @@
-from datetime import timedelta
+﻿from datetime import timedelta
 import logging
 from math import ceil
 
@@ -12,19 +12,31 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from Notifications.models import Notification
-from sales.models import Prospect
+from sales.models import Prospect, ProspectActivity
 from sales.serializers import ProspectSerializer
 from sales.engagement_tasks import (
-    complete_channel_task_and_follow_up,
-    mark_channel_task_ready,
     upsert_prospect_task,
 )
-from superadmin.audit import create_ai_agent_run, create_audit_log
 from users.models import User
 
+from .agent.context_builder import ProspectEngagementContextBuilder
+from .agent.continuation import EngagementContinuationService
+from .agent.content_generator import EngagementContentGenerationUnavailable
+from .agent.initial_flow import EngagementInitialFlowService
+from .agent.memory_manager import EngagementMemoryManager, serialize_memory
+from .agent.replanner import EngagementReplanningService
+from .agent.response_analyzer import ProspectResponseAnalysisUnavailable, ProspectResponseAnalyzer
+from .agent.strategy_planner import EngagementPlanningUnavailable
 from .email_providers.router import get_email_provider, normalize_email_provider_name, provider_is_configured
 from .email_sender import get_active_email_connection, get_sender_context
+from .interaction_recorder import (
+    INTERACTION_ACTION_TYPES,
+    INTERACTION_CHANNELS,
+    INTERACTION_OUTCOMES,
+    list_interactions,
+    record_interaction,
+    serialize_interaction,
+)
 from .models import EngagementCampaign, EngagementLog, UserEmailConnection
 from .permissions import (
     get_engagement_queryset_for_user,
@@ -32,14 +44,7 @@ from .permissions import (
     is_company_engagement_admin,
     is_global_engagement_admin,
 )
-from .reply_checker import check_prospect_reply
-from .runner import enrich_prospect_with_social_analysis, launch_engagement_agent, prepare_engagement
-from .sender import EngagementSender
-from .social.session_manager import (
-    check_social_session,
-    open_social_login_window,
-    reset_social_session,
-)
+from .serializers import EngagementInteractionSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +66,6 @@ ENGAGEMENT_STATUSES = [
     "rejected",
 ]
 
-CHANNELS = {"linkedin", "email", "facebook", "instagram"}
 EMAIL_PROVIDERS = {UserEmailConnection.PROVIDER_GMAIL, UserEmailConnection.PROVIDER_MICROSOFT}
 
 
@@ -144,6 +148,237 @@ def serialize_email_connection(connection):
         "last_verified_at": connection.last_verified_at,
         "token_expires_at": connection.token_expires_at,
     }
+
+
+def engagement_actor_for_log(log):
+    if log.action == "replied":
+        return "prospect"
+    if log.action in {"message_generated", "agent_launched", "follow_up_created"}:
+        return "agent"
+    return "commercial"
+
+
+def serialize_log_conversation_item(log):
+    text = log.message or log.error or log.error_message or ""
+    return {
+        "id": f"log-{log.id}",
+        "source": "engagement_log",
+        "source_id": log.id,
+        "actor": engagement_actor_for_log(log),
+        "action": log.action,
+        "channel": log.channel or "",
+        "status": log.status,
+        "text": text,
+        "message": log.message or "",
+        "error": log.error or log.error_message or "",
+        "sender_name": log.sender_name or "",
+        "sender_email": log.sender_email or "",
+        "provider": log.provider or "",
+        "provider_message_id": log.provider_message_id or "",
+        "created_at": log.sent_at or log.created_at,
+        "sent_at": log.sent_at,
+    }
+
+
+def serialize_activity_conversation_item(activity):
+    metadata = activity.metadata or {}
+    action_type = metadata.get("action_type") or activity.activity_type
+    outcome = metadata.get("outcome") or ""
+    prospect_response = metadata.get("prospect_response") or ""
+    generated_content = metadata.get("generated_content_reference") or ""
+    commercial_notes = metadata.get("commercial_notes") or ""
+    text = prospect_response or generated_content or activity.description or commercial_notes or ""
+    actor = "prospect" if prospect_response or activity.activity_type == "reply_received" else "commercial"
+    if activity.source == "agent":
+        actor = "agent"
+    return {
+        "id": f"activity-{activity.id}",
+        "source": "prospect_activity",
+        "source_id": activity.id,
+        "actor": actor,
+        "action": action_type,
+        "channel": metadata.get("channel") or activity.channel or "",
+        "status": metadata.get("status") or outcome or activity.source,
+        "outcome": outcome,
+        "text": text,
+        "message": generated_content,
+        "prospect_response": prospect_response,
+        "commercial_notes": commercial_notes,
+        "title": activity.title,
+        "created_by_name": getattr(activity.created_by, "get_full_name", lambda: "")()
+        or getattr(activity.created_by, "username", "")
+        or getattr(activity.created_by, "email", ""),
+        "created_at": activity.created_at,
+    }
+
+
+def serialize_activity_conversation_items(activity):
+    item = serialize_activity_conversation_item(activity)
+    generated_content = item.get("message") or ""
+    prospect_response = item.get("prospect_response") or ""
+    commercial_notes = item.get("commercial_notes") or ""
+
+    if not generated_content or not prospect_response:
+        return [item]
+
+    sent_item = {
+        **item,
+        "id": f"{item['id']}-sent",
+        "actor": "commercial",
+        "action": item.get("action") or "message_sent",
+        "status": item.get("status") or "SENT",
+        "text": generated_content,
+        "message": generated_content,
+        "prospect_response": "",
+        "commercial_notes": "",
+    }
+    reply_item = {
+        **item,
+        "id": f"{item['id']}-reply",
+        "actor": "prospect",
+        "action": "reply_received",
+        "text": prospect_response,
+        "message": "",
+        "prospect_response": prospect_response,
+        "commercial_notes": "",
+    }
+
+    items = [sent_item, reply_item]
+    if commercial_notes:
+        items.append(
+            {
+                **item,
+                "id": f"{item['id']}-note",
+                "actor": "commercial",
+                "action": "commercial_note",
+                "text": commercial_notes,
+                "message": "",
+                "prospect_response": "",
+            }
+        )
+    return items
+
+
+def generated_content_text(content_payload):
+    payload = content_payload or {}
+    if not payload.get("content_required"):
+        return ""
+    email = payload.get("email") or {}
+    if email.get("body"):
+        subject = email.get("subject") or ""
+        return f"Objet: {subject}\n\n{email.get('body')}" if subject else email.get("body")
+    social = payload.get("social_message") or {}
+    if social.get("message"):
+        return social.get("message")
+    call_script = payload.get("call_script") or {}
+    if call_script:
+        parts = [
+            call_script.get("opening"),
+            call_script.get("hook"),
+            call_script.get("value_proposition"),
+            call_script.get("call_to_action"),
+            call_script.get("closing"),
+        ]
+        questions = call_script.get("discovery_questions") or []
+        return "\n".join([item for item in parts + questions if item])
+    return ""
+
+
+def persist_generated_content(prospect, user, content_payload):
+    message = generated_content_text(content_payload)
+    if not message:
+        return None
+
+    channel = (content_payload or {}).get("channel") or prospect.last_engagement_channel or ""
+    email = (content_payload or {}).get("email") or {}
+    prospect.generated_message = message
+    prospect.engagement_subject = email.get("subject") or prospect.engagement_subject
+    prospect.last_engagement_channel = channel
+    prospect.engagement_status = "message_ready"
+    prospect.last_engagement_at = timezone.now()
+    prospect.save(
+        update_fields=[
+            "generated_message",
+            "engagement_subject",
+            "last_engagement_channel",
+            "engagement_status",
+            "last_engagement_at",
+        ]
+    )
+
+    duplicate = prospect.engagement_logs.filter(
+        company=user.company,
+        action="message_generated",
+        channel=channel,
+        message=message,
+    ).first()
+    if duplicate:
+        return duplicate
+
+    return create_log(
+        prospect,
+        user,
+        "message_generated",
+        "message_ready",
+        channel,
+        message,
+    )
+
+
+def build_prospect_conversation(prospect, logs):
+    activities = prospect.prospect_activities.select_related("created_by").filter(
+        Q(metadata__kind="engagement_interaction")
+        | Q(activity_type__in=["message_sent", "email_sent", "reply_received"])
+    )[:100]
+    items = [serialize_log_conversation_item(log) for log in logs]
+    for activity in activities:
+        items.extend(serialize_activity_conversation_items(activity))
+
+    if prospect.last_message_sent:
+        items.append(
+            {
+                "id": "prospect-last-message",
+                "source": "prospect_snapshot",
+                "actor": "commercial",
+                "action": "LAST_MESSAGE_SENT",
+                "channel": prospect.last_engagement_channel or "",
+                "status": prospect.conversation_status or "",
+                "text": prospect.last_message_sent,
+                "message": prospect.last_message_sent,
+                "created_at": prospect.last_message_sent_at or prospect.updated_at,
+            }
+        )
+    if prospect.last_reply_text:
+        items.append(
+            {
+                "id": "prospect-last-reply",
+                "source": "prospect_snapshot",
+                "actor": "prospect",
+                "action": "LAST_REPLY",
+                "channel": prospect.last_engagement_channel or "",
+                "status": prospect.reply_sentiment or prospect.conversation_status or "",
+                "text": prospect.last_reply_text,
+                "prospect_response": prospect.last_reply_text,
+                "summary": prospect.reply_summary or "",
+                "created_at": prospect.last_reply_at or prospect.last_reply_checked_at or prospect.updated_at,
+            }
+        )
+
+    seen = set()
+    unique_items = []
+    for item in sorted(items, key=lambda value: value.get("created_at") or timezone.now()):
+        signature = (
+            item.get("actor"),
+            item.get("action"),
+            item.get("channel"),
+            item.get("text"),
+            item.get("created_at"),
+        )
+        if signature in seen:
+            continue
+        seen.add(signature)
+        unique_items.append(item)
+    return unique_items
 
 
 def create_log(
@@ -248,43 +483,6 @@ def create_log(
     except Exception:
         logger.exception("Prospect 360 tracking failed for engagement log=%s", getattr(log, "id", None))
     return log
-
-
-def notify(user, title, message, notif_type, prospect):
-    Notification.objects.create(
-        recipient=user,
-        title=title,
-        message=message,
-        notif_type=notif_type,
-        entity_type="prospect",
-        entity_id=prospect.id,
-        entity_name=f"{prospect.first_name} {prospect.last_name}".strip(),
-    )
-
-
-def validate_channel_for_prospect(prospect, channel):
-    channel = (channel or "").strip().lower()
-    if channel not in CHANNELS:
-        return None, "Canal invalide."
-    if channel == "linkedin" and not prospect.linkedin_url:
-        return None, "LinkedIn URL manquante."
-    if channel == "email" and not prospect.email:
-        return None, "Email manquant."
-    if channel == "facebook" and not prospect.facebook_url:
-        return None, "Facebook URL manquante."
-    if channel == "instagram" and not prospect.instagram_url:
-        return None, "Instagram URL manquante."
-    return channel, None
-
-
-def request_bool(value, default=False):
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)
 
 
 class EngagementDashboardView(APIView):
@@ -534,399 +732,43 @@ class EngagementProspectsView(APIView):
         )
 
 
-class PrepareEngagementView(APIView):
+class ProspectInitialEngagementPlanView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, prospect_id):
         prospect = get_allowed_prospect(request.user, prospect_id)
         if not prospect:
             return unauthorized_prospect_response(request, prospect_id)
-
-        prospect.engagement_status = "preparing"
-        prospect.engagement_error = None
-        prospect.last_engagement_at = timezone.now()
-        prospect.save(update_fields=["engagement_status", "engagement_error", "last_engagement_at"])
-
-        result = prepare_engagement(prospect=prospect, user=request.user, scrape=request_bool(request.data.get("scrape"), True))
-        prospect.refresh_from_db()
-
-        if result.get("success") and normalize_status(prospect.engagement_status) == "pending_validation":
-            log = create_log(
-                prospect,
-                request.user,
-                "message_generated",
-                "pending_validation",
-                prospect.last_engagement_channel,
-                prospect.generated_message,
-            )
-            mark_channel_task_ready(
-                prospect,
-                prospect.last_engagement_channel,
-                prospect.generated_message,
-                user=request.user,
-                engagement_log=log,
-            )
-            notify(
-                request.user,
-                f"Message pret a valider pour {prospect.first_name} {prospect.last_name}",
-                "Un message IA est pret a etre valide.",
-                "success",
-                prospect,
-            )
-            return Response(
-                {
-                    "success": True,
-                    "status": "pending_validation",
-                    "message": prospect.generated_message or "",
-                    "channel": prospect.last_engagement_channel,
-                    "prospect": serialize_prospect(prospect, request),
-                }
-            )
-
-        if (
-            result.get("platform") == "facebook"
-            and result.get("status") in {"login_required", "checkpoint_required", "facebook_login_required"}
-        ):
-            message = result.get("message") or result.get("error") or "Connexion Facebook requise."
-            prospect.engagement_status = "new"
-            prospect.engagement_error = message
-            prospect.last_engagement_channel = "facebook"
-            prospect.save(
-                update_fields=[
-                    "engagement_status",
-                    "engagement_error",
-                    "last_engagement_channel",
-                ]
-            )
-            return Response({**result, "prospect": serialize_prospect(prospect, request)})
-
-        if not result.get("success"):
-            prospect.engagement_status = "message_failed"
-            prospect.engagement_error = result.get("error") or result.get("status")
-            prospect.save(update_fields=["engagement_status", "engagement_error"])
-            create_log(
-                prospect,
-                request.user,
-                "send_error",
-                "message_failed",
-                prospect.last_engagement_channel,
-                prospect.generated_message,
-                prospect.engagement_error,
-            )
-            notify(request.user, f"Erreur engagement pour {prospect.first_name}", prospect.engagement_error or "", "error", prospect)
-
-        return Response(result)
-
-
-class LaunchEngagementAgentView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        limit = int(request.data.get("limit") or getattr(settings, "ENGAGEMENT_AGENT_BATCH_LIMIT", 25))
-        scrape = request_bool(request.data.get("scrape"), True)
-        auto_send = request_bool(request.data.get("auto_send"), False)
-
-        if auto_send:
-            allow_auto_send = getattr(settings, "ENGAGEMENT_AGENT_AUTO_SEND_ENABLED", False)
-            if not allow_auto_send:
-                return Response(
-                    {
-                        "success": False,
-                        "error": "L'envoi automatique est desactive. Activez ENGAGEMENT_AGENT_AUTO_SEND_ENABLED pour l'utiliser.",
-                    },
-                    status=400,
-                )
-
-        candidate_qs = prospect_queryset(request.user).filter(
-            Q(engagement_status__isnull=True)
-            | Q(engagement_status="")
-            | Q(engagement_status="new")
-            | Q(engagement_status="message_failed")
-        )
-        required = set()
-        for prospect in candidate_qs[: min(limit, 500)]:
-            if prospect.linkedin_url:
-                required.add("linkedin")
-            if prospect.facebook_url:
-                required.add("facebook")
-            if prospect.instagram_url:
-                required.add("instagram")
-
-        sessions = {}
-        missing = []
-        for platform in sorted(required):
-            session_result = check_social_session(request.user.id, platform)
-            sessions[platform] = session_result
-            if not session_result.get("success"):
-                missing.append(platform)
-
-        if missing:
-            return Response(
-                {
-                    "success": False,
-                    "status": "social_login_required",
-                    "missing": missing,
-                    "sessions": sessions,
-                    "message": "Connectez les reseaux sociaux requis avant de lancer l'agent.",
-                },
-                status=400,
-            )
-
-        first_prospect = prospect_queryset(request.user).first()
-        if first_prospect:
-            create_log(
-                first_prospect,
-                request.user,
-                "agent_launched",
-                "queued",
-                message=f"limit={limit}; scrape={scrape}; auto_send={auto_send}",
-            )
 
         try:
-            from .tasks import launch_engagement_agent_task
-        except Exception:
-            launch_engagement_agent_task = None
+            result = EngagementInitialFlowService().run(prospect=prospect, user=request.user)
+        except EngagementPlanningUnavailable as exc:
+            return Response({"success": False, "error": str(exc)}, status=503)
+        except EngagementContentGenerationUnavailable as exc:
+            return Response({"success": False, "error": str(exc)}, status=503)
 
-        if launch_engagement_agent_task is not None:
-            run_log = create_ai_agent_run(
-                agent_type="engagement",
-                company=request.user.company,
-                launched_by=request.user,
-                query=f"limit={limit}; scrape={scrape}; auto_send={auto_send}",
-                status="running",
-            )
-            create_audit_log(
-                actor=request.user,
-                company=request.user.company,
-                action="launch_agent",
-                module="ai_agents",
-                object_id=getattr(run_log, "id", None),
-                object_repr="Agent engagement",
-                description="Lancement agent IA d'engagement",
-                metadata={"limit": limit, "scrape": scrape, "auto_send": auto_send, "queued": True},
-            )
-            task = launch_engagement_agent_task.delay(
-                request.user.company_id,
-                request.user.id,
-                limit,
-                scrape,
-                auto_send,
-                getattr(run_log, "id", None),
-            )
-            return Response({"success": True, "status": "queued", "task_id": task.id})
-
-        result = launch_engagement_agent(
-            company=request.user.company,
-            user=request.user,
-            limit=limit,
-            scrape=scrape,
-            auto_send=auto_send,
+        plan = result["plan"]
+        policy = result["policy"]
+        content = result["content"]
+        memory = getattr(prospect, "engagement_memory", None)
+        plan_payload = plan.model_dump() if hasattr(plan, "model_dump") else plan.dict()
+        policy_payload = policy.model_dump() if hasattr(policy, "model_dump") else policy.dict()
+        content_payload = (
+            content.model_dump() if content and hasattr(content, "model_dump") else content.dict() if content else None
         )
-
-        return Response(result)
-
-
-class ProspectMessageView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def patch(self, request, prospect_id):
-        prospect = get_allowed_prospect(request.user, prospect_id)
-        if not prospect:
-            return unauthorized_prospect_response(request, prospect_id)
-
-        message = (request.data.get("message") or "").strip()
-        channel, channel_error = validate_channel_for_prospect(prospect, request.data.get("channel"))
-        if not message:
-            return Response({"success": False, "error": "Message vide interdit."}, status=400)
-        if channel_error:
-            return Response({"success": False, "error": channel_error}, status=400)
-        if prospect.engagement_status not in {"pending_validation", "message_ready", "task_created", "sending"}:
-            return Response(
-                {
-                    "success": False,
-                    "status": "message_not_ready",
-                    "engagement_status": normalize_status(prospect.engagement_status),
-                },
-                status=400,
-            )
-
-        prospect.generated_message = message
-        prospect.last_engagement_channel = channel
-        prospect.engagement_status = "pending_validation"
-        prospect.engagement_error = None
-        prospect.last_engagement_at = timezone.now()
-        prospect.save(
-            update_fields=[
-                "generated_message",
-                "last_engagement_channel",
-                "engagement_status",
-                "engagement_error",
-                "last_engagement_at",
-            ]
-        )
-        log = create_log(prospect, request.user, "message_updated", "pending_validation", channel, message)
-        mark_channel_task_ready(prospect, channel, message, user=request.user, engagement_log=log)
-        return Response({"success": True, "status": "pending_validation", "prospect": serialize_prospect(prospect, request)})
-
-
-class RejectPreparedEngagementView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, prospect_id):
-        prospect = get_allowed_prospect(request.user, prospect_id)
-        if not prospect:
-            return unauthorized_prospect_response(request, prospect_id)
-
-        reason = request.data.get("reason") or "Message refuse par le commercial."
-        prospect.engagement_status = "rejected"
-        prospect.engagement_error = reason
-        prospect.last_engagement_at = timezone.now()
-        prospect.save(update_fields=["engagement_status", "engagement_error", "last_engagement_at"])
-
-        create_log(
-            prospect,
-            request.user,
-            "message_rejected",
-            "rejected",
-            prospect.last_engagement_channel,
-            prospect.generated_message,
-            error=reason,
-        )
+        generated_log = persist_generated_content(prospect, request.user, content_payload)
 
         return Response(
             {
-                "success": True,
-                "status": "rejected",
-                "prospect": serialize_prospect(prospect, request),
-            }
-        )
-
-
-class SendPreparedEngagementView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, prospect_id):
-        prospect = get_allowed_prospect(request.user, prospect_id)
-        if not prospect:
-            return unauthorized_prospect_response(request, prospect_id)
-
-        message = (request.data.get("message") or prospect.generated_message or "").strip()
-        channel, channel_error = validate_channel_for_prospect(
-            prospect, request.data.get("channel") or prospect.last_engagement_channel
-        )
-        send = bool(request.data.get("send", True))
-
-        if not message:
-            return Response({"success": False, "error": "Message vide interdit."}, status=400)
-        if channel_error:
-            return Response({"success": False, "error": channel_error}, status=400)
-
-        prospect.generated_message = message
-        prospect.last_engagement_channel = channel
-        prospect.engagement_status = "sending" if send else "pending_validation"
-        prospect.last_engagement_at = timezone.now()
-        prospect.save(update_fields=["generated_message", "last_engagement_channel", "engagement_status", "last_engagement_at"])
-
-        result = EngagementSender().send_prepared(prospect, request.user, send=send)
-        if result.get("success") and result.get("sent"):
-            prospect.engagement_status = "waiting_reply"
-            prospect.engagement_error = None
-            sent_at = timezone.now()
-            prospect.last_engagement_at = sent_at
-            prospect.last_message_sent = message
-            prospect.last_message_sent_at = sent_at
-            prospect.conversation_status = "waiting_reply"
-            prospect.save(
-                update_fields=[
-                    "engagement_status",
-                    "engagement_error",
-                    "last_engagement_at",
-                    "last_message_sent",
-                    "last_message_sent_at",
-                    "conversation_status",
-                ]
-            )
-            sender_snapshot = {
-                "sender_name": result.get("sender_name") or "",
-                "sender_email": result.get("sender_email") or "",
-                "provider": result.get("provider") or "",
-                "provider_message_id": result.get("provider_message_id") or "",
-            }
-            log = create_log(
-                prospect,
-                request.user,
-                "message_sent",
-                "message_sent",
-                channel,
-                message,
-                sent_at=sent_at,
-                sender_snapshot=sender_snapshot,
-            )
-            create_audit_log(
-                actor=request.user,
-                company=getattr(request.user, "company", None),
-                action="send_message",
-                module="ai_agents",
-                object_id=prospect.pk,
-                object_repr=f"{prospect.first_name} {prospect.last_name}".strip(),
-                description=f"Message {channel} envoye par l'agent d'engagement",
-                metadata={"channel": channel, "prospect_id": prospect.pk},
-            )
-            complete_channel_task_and_follow_up(prospect, channel, user=request.user, engagement_log=log)
-            return Response({"success": True, "status": "waiting_reply", "sent": True, "prospect": serialize_prospect(prospect, request)})
-
-        if result.get("test_mode"):
-            prospect.engagement_status = "pending_validation"
-            prospect.save(update_fields=["engagement_status"])
-            log = create_log(prospect, request.user, "message_updated", "pending_validation", channel, message)
-            mark_channel_task_ready(prospect, channel, message, user=request.user, engagement_log=log)
-            return Response({"success": True, "status": "pending_validation", "sent": False, "test_mode": True, "prospect": serialize_prospect(prospect, request)})
-
-        if result.get("status") in {"linkedin_login_required", "login_required", "checkpoint_required"}:
-            prospect.engagement_status = "pending_validation"
-            prospect.engagement_error = result.get("message")
-            prospect.save(update_fields=["engagement_status", "engagement_error"])
-            return Response({**result, "prospect": serialize_prospect(prospect, request)})
-
-        error = result.get("error") or result.get("message") or result.get("status") or "Erreur d'envoi."
-        prospect.engagement_status = "message_failed"
-        prospect.engagement_error = error
-        prospect.save(update_fields=["engagement_status", "engagement_error"])
-        create_log(
-            prospect,
-            request.user,
-            "send_error",
-            "message_failed",
-            channel,
-            message,
-            error=error,
-            sender_snapshot={
-                "sender_name": result.get("sender_name") or "",
-                "sender_email": result.get("sender_email") or "",
-                "provider": result.get("provider") or "",
-                "provider_message_id": result.get("provider_message_id") or "",
-                "error_code": result.get("error_code") or result.get("code") or result.get("status") or "",
-                "error_message": error,
-            },
-        )
-        create_audit_log(
-            actor=request.user,
-            company=getattr(request.user, "company", None),
-            action="system_error",
-            module="ai_agents",
-            object_id=prospect.pk,
-            object_repr=f"{prospect.first_name} {prospect.last_name}".strip(),
-            description="Erreur d'envoi agent engagement",
-            metadata={"channel": channel, "prospect_id": prospect.pk, "error": error},
-        )
-        notify(request.user, f"Erreur {channel} pour {prospect.first_name} {prospect.last_name}", error, "error", prospect)
-        return Response(
-            {
-                "success": False,
-                "status": "message_failed",
-                "code": result.get("error_code") or result.get("code") or result.get("status"),
-                "error": error,
-                "prospect": serialize_prospect(prospect, request),
+                "success": policy.allowed,
+                "prospect_id": prospect.id,
+                "available_channels": result["available_channels"],
+                "plan": plan_payload,
+                "policy": policy_payload,
+                "content": content_payload,
+                "generated_log_id": getattr(generated_log, "id", None),
+                "engagement_memory": serialize_memory(memory) if memory else None,
+                "agent_trace": result.get("agent_trace", []),
             }
         )
 
@@ -939,153 +781,439 @@ class ProspectLogsView(APIView):
         if not prospect:
             return unauthorized_prospect_response(request, prospect_id)
 
-        logs = prospect.engagement_logs.filter(company=request.user.company).values(
-            "id",
-            "action",
-            "channel",
-            "message",
-            "status",
-            "error",
-            "sender_name",
-            "sender_email",
-            "provider",
-            "provider_message_id",
-            "error_code",
-            "error_message",
-            "sent_at",
-            "created_at",
+        logs = list(
+            prospect.engagement_logs.filter(company=request.user.company)
+            .select_related("user")
+            .order_by("-created_at")[:100]
         )
-        return Response({"results": list(logs)})
-
-
-class AnalyzeSocialProfileView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, prospect_id):
-        prospect = get_allowed_prospect(request.user, prospect_id)
-        if not prospect:
-            return unauthorized_prospect_response(request, prospect_id)
-
-        channel = request.data.get("channel") or prospect.last_engagement_channel
-        result = enrich_prospect_with_social_analysis(prospect, channel=channel, force=True, user=request.user)
-        prospect.refresh_from_db()
-
-        return Response(
+        results = [
             {
-                "success": result.get("success", False),
-                "prospect_id": prospect.pk,
-                "analysis": prospect.social_profile_analysis or result.get("analysis") or {},
-                "error": result.get("error") or result.get("reason"),
-                "prospect": serialize_prospect(prospect, request),
+                "id": log.id,
+                "action": log.action,
+                "channel": log.channel,
+                "message": log.message,
+                "status": log.status,
+                "error": log.error,
+                "sender_name": log.sender_name,
+                "sender_email": log.sender_email,
+                "provider": log.provider,
+                "provider_message_id": log.provider_message_id,
+                "error_code": log.error_code,
+                "error_message": log.error_message,
+                "sent_at": log.sent_at,
+                "created_at": log.created_at,
             }
-        )
-
-
-class MarkRepliedView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, prospect_id):
-        prospect = get_allowed_prospect(request.user, prospect_id)
-        if not prospect:
-            return unauthorized_prospect_response(request, prospect_id)
-
-        prospect.engagement_status = "replied"
-        prospect.last_engagement_at = timezone.now()
-        prospect.save(update_fields=["engagement_status", "last_engagement_at"])
-        create_log(prospect, request.user, "replied", "replied", prospect.last_engagement_channel, prospect.generated_message)
-        notify(request.user, f"Reponse recue de {prospect.first_name} {prospect.last_name}", "Le prospect a ete marque comme repondu.", "success", prospect)
-        return Response({"success": True, "status": "replied", "prospect": serialize_prospect(prospect, request)})
-
-
-class CheckProspectReplyView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, prospect_id):
-        prospect = get_allowed_prospect(request.user, prospect_id)
-        if not prospect:
-            return unauthorized_prospect_response(request, prospect_id)
-
-        result = check_prospect_reply(prospect, user=request.user)
-
-        if result.get("requires_login"):
-            prospect.last_reply_checked_at = timezone.now()
-            prospect.engagement_error = result.get("message")
-            prospect.save(update_fields=["last_reply_checked_at", "engagement_error"])
-            return Response({**result, "prospect": serialize_prospect(prospect, request)})
-
-        if not result.get("success"):
-            prospect.last_reply_checked_at = timezone.now()
-            prospect.engagement_error = result.get("message") or result.get("error")
-            prospect.save(update_fields=["last_reply_checked_at", "engagement_error"])
-            return Response({**result, "prospect": serialize_prospect(prospect, request)})
-
-        now = timezone.now()
-        prospect.last_reply_checked_at = now
-        prospect.generated_followup_message = result.get("generated_reply") or ""
-        prospect.next_recommended_action = result.get("recommended_action") or ""
-        prospect.conversation_status = result.get("conversation_status") or (
-            "reply_detected" if result.get("has_reply") else "followup_generated"
-        )
-
-        update_fields = [
-            "last_reply_checked_at",
-            "generated_followup_message",
-            "next_recommended_action",
-            "conversation_status",
+            for log in logs
         ]
-
-        if result.get("has_reply"):
-            prospect.last_reply_text = result.get("reply_text") or ""
-            prospect.last_reply_at = now
-            prospect.reply_summary = result.get("reply_summary") or ""
-            prospect.reply_sentiment = result.get("sentiment") or ""
-            prospect.engagement_status = (
-                "opportunity_ready"
-                if result.get("recommended_action") == "create_opportunity"
-                else "replied"
-            )
-            prospect.engagement_error = None
-            update_fields.extend(
-                [
-                    "last_reply_text",
-                    "last_reply_at",
-                    "reply_summary",
-                    "reply_sentiment",
-                    "engagement_status",
-                    "engagement_error",
-                ]
-            )
-            create_log(
-                prospect,
-                request.user,
-                "replied",
-                prospect.engagement_status,
-                prospect.last_engagement_channel,
-                result.get("reply_text"),
-            )
-        else:
-            prospect.engagement_status = "follow_up_required"
-            update_fields.append("engagement_status")
-            create_log(
-                prospect,
-                request.user,
-                "follow_up_created",
-                "follow_up_required",
-                prospect.last_engagement_channel,
-                result.get("generated_reply"),
-            )
-
-        prospect.save(update_fields=update_fields)
-
         return Response(
             {
-                **result,
-                "status": prospect.engagement_status,
-                "prospect_status": prospect.conversation_status,
+                "results": results,
+                "conversation": build_prospect_conversation(prospect, logs),
                 "prospect": serialize_prospect(prospect, request),
             }
         )
 
+
+class EngagementInteractionOptionsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(
+            {
+                "success": True,
+                "channels": list(INTERACTION_CHANNELS),
+                "action_types": list(INTERACTION_ACTION_TYPES),
+                "outcomes": list(INTERACTION_OUTCOMES),
+            }
+        )
+
+
+class ProspectInteractionsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, prospect_id):
+        prospect = get_allowed_prospect(request.user, prospect_id)
+        if not prospect:
+            return unauthorized_prospect_response(request, prospect_id)
+
+        return Response(
+            {
+                "success": True,
+                "prospect_id": prospect.id,
+                "interactions": list_interactions(prospect),
+            }
+        )
+
+    def post(self, request, prospect_id):
+        prospect = get_allowed_prospect(request.user, prospect_id)
+        if not prospect:
+            return unauthorized_prospect_response(request, prospect_id)
+
+        serializer = EngagementInteractionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        activity, created = record_interaction(prospect, request.user, serializer.validated_data)
+
+        return Response(
+            {
+                "success": True,
+                "created": created,
+                "interaction": serialize_interaction(activity),
+            },
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class ProspectInteractionAnalysisView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, prospect_id, interaction_id):
+        prospect = get_allowed_prospect(request.user, prospect_id)
+        if not prospect:
+            return unauthorized_prospect_response(request, prospect_id)
+
+        activity = ProspectActivity.objects.filter(
+            pk=interaction_id,
+            prospect=prospect,
+            metadata__kind="engagement_interaction",
+        ).first()
+
+        if not activity:
+            return Response(
+                {"success": False, "error": "Interaction introuvable."},
+                status=404,
+            )
+
+        context = ProspectEngagementContextBuilder().build(prospect)
+        interaction = serialize_interaction(activity)
+
+        # Réutiliser l'analyse si elle a déjà été persistée.
+        metadata = dict(activity.metadata or {})
+        cached_analysis = metadata.get("engagement_analysis")
+
+        if cached_analysis:
+            analysis_payload = cached_analysis
+            memory = getattr(prospect, "engagement_memory", None)
+
+            logger.info(
+                "[ENGAGEMENT][ANALYZE] cache hit prospect=%s interaction=%s",
+                prospect.id,
+                activity.id,
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "cached": True,
+                    "prospect_id": prospect.id,
+                    "interaction_id": activity.id,
+                    "analysis": analysis_payload,
+                    "engagement_memory": serialize_memory(memory) if memory else None,
+                }
+            )
+
+        try:
+            analysis = ProspectResponseAnalyzer().analyze(
+                context=context,
+                interaction=interaction,
+            )
+        except ProspectResponseAnalysisUnavailable as exc:
+            return Response(
+                {
+                    "success": False,
+                    "error": str(exc),
+                    "manual_review_required": True,
+                },
+                status=503,
+            )
+
+        if hasattr(analysis, "model_dump"):
+            analysis_payload = analysis.model_dump()
+        else:
+            analysis_payload = analysis.dict()
+
+        # Mettre à jour la mémoire AVANT de marquer le résultat comme persistant.
+        memory = EngagementMemoryManager().update_from_analysis(
+            prospect=prospect,
+            interaction=interaction,
+            analysis=analysis,
+        )
+
+        # Persister l'analyse directement dans l'interaction.
+        # Cela évite de rappeler Gemini lors de /continue/.
+        metadata["engagement_analysis"] = analysis_payload
+        metadata["engagement_analysis_memory_updated"] = True
+        activity.metadata = metadata
+        activity.save(update_fields=["metadata"])
+
+        return Response(
+            {
+                "success": True,
+                "cached": False,
+                "prospect_id": prospect.id,
+                "interaction_id": activity.id,
+                "analysis": analysis_payload,
+                "engagement_memory": serialize_memory(memory),
+            }
+        )
+
+class ProspectInteractionReplanView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, prospect_id, interaction_id):
+        prospect = get_allowed_prospect(request.user, prospect_id)
+        if not prospect:
+            return unauthorized_prospect_response(request, prospect_id)
+
+        activity = ProspectActivity.objects.filter(
+            pk=interaction_id,
+            prospect=prospect,
+            metadata__kind="engagement_interaction",
+        ).first()
+
+        if not activity:
+            return Response(
+                {"success": False, "error": "Interaction introuvable."},
+                status=404,
+            )
+
+        interaction = serialize_interaction(activity)
+        metadata = dict(activity.metadata or {})
+
+        # Le replan passe maintenant par le même cerveau agentique que /continue/.
+        # On réutilise l'analyse persistée afin d'éviter un nouvel appel Gemini.
+        existing_analysis = metadata.get("engagement_analysis")
+        memory_already_updated = bool(
+            metadata.get("engagement_analysis_memory_updated")
+        )
+
+        try:
+            result = EngagementReplanningService().replan(
+                prospect=prospect,
+                user=request.user,
+                interaction=interaction,
+                existing_analysis=existing_analysis,
+                memory_already_updated=memory_already_updated,
+            )
+        except EngagementPlanningUnavailable as exc:
+            return Response(
+                {"success": False, "error": str(exc)},
+                status=503,
+            )
+
+        # Si le runtime a dû analyser l'interaction lui-même,
+        # on persiste cette analyse pour les futurs appels.
+        analysis = result.get("analysis")
+
+        if analysis is not None and not existing_analysis:
+            if hasattr(analysis, "model_dump"):
+                analysis_payload = analysis.model_dump()
+            else:
+                analysis_payload = analysis.dict()
+
+            metadata["engagement_analysis"] = analysis_payload
+            metadata["engagement_analysis_memory_updated"] = bool(
+                result.get("engagement_memory")
+            )
+            activity.metadata = metadata
+            activity.save(update_fields=["metadata"])
+        elif existing_analysis:
+            analysis_payload = existing_analysis
+        else:
+            analysis_payload = None
+
+        plan = result.get("plan")
+        policy = result.get("policy")
+
+        if plan is None:
+            plan_payload = None
+        elif hasattr(plan, "model_dump"):
+            plan_payload = plan.model_dump()
+        else:
+            plan_payload = plan.dict()
+
+        if policy is None:
+            policy_payload = None
+        elif hasattr(policy, "model_dump"):
+            policy_payload = policy.model_dump()
+        else:
+            policy_payload = policy.dict()
+
+        manual_review_required = bool(
+            result.get("manual_review_required")
+        )
+
+        return Response(
+            {
+                "success": True,
+                "engagement_allowed": bool(
+                    policy and policy.allowed
+                ) if not manual_review_required else False,
+                "manual_review_required": manual_review_required,
+                "manual_review_reason": result.get(
+                    "manual_review_reason"
+                ),
+                "prospect_id": prospect.id,
+                "interaction_id": activity.id,
+                "analysis": analysis_payload,
+                "engagement_memory": result.get("engagement_memory"),
+                "available_channels": result.get(
+                    "available_channels",
+                    {},
+                ),
+                "plan": plan_payload,
+                "policy": policy_payload,
+                # REPLAN est volontairement lecture/recommandation :
+                # aucun contenu n'est généré ici.
+                "content": None,
+                "agent_trace": result.get("agent_trace", []),
+            },
+            status=200,
+        )
+
+
+class ProspectInteractionContinueView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, prospect_id, interaction_id):
+        prospect = get_allowed_prospect(request.user, prospect_id)
+        if not prospect:
+            return unauthorized_prospect_response(request, prospect_id)
+
+        activity = ProspectActivity.objects.filter(
+            pk=interaction_id,
+            prospect=prospect,
+            metadata__kind="engagement_interaction",
+        ).first()
+
+        if not activity:
+            return Response(
+                {"success": False, "error": "Interaction introuvable."},
+                status=404,
+            )
+
+        interaction = serialize_interaction(activity)
+        metadata = dict(activity.metadata or {})
+
+        # Analyse éventuellement déjà faite par /analyze/.
+        existing_analysis = metadata.get("engagement_analysis")
+        memory_already_updated = bool(
+            metadata.get("engagement_analysis_memory_updated")
+        )
+
+        try:
+            result = EngagementContinuationService().continue_after_interaction(
+                prospect=prospect,
+                interaction=interaction,
+                user=request.user,
+                existing_analysis=existing_analysis,
+                memory_already_updated=memory_already_updated,
+            )
+        except EngagementPlanningUnavailable as exc:
+            return Response(
+                {
+                    "success": False,
+                    "error": str(exc),
+                },
+                status=503,
+            )
+        except EngagementContentGenerationUnavailable as exc:
+            return Response(
+                {
+                    "success": False,
+                    "error": str(exc),
+                },
+                status=503,
+            )
+
+        # Si l'analyse a été produite pendant /continue/, la persister pour les appels futurs.
+        analysis = result.get("analysis")
+        if analysis is not None and not existing_analysis:
+            if hasattr(analysis, "model_dump"):
+                analysis_payload = analysis.model_dump()
+            else:
+                analysis_payload = analysis.dict()
+
+            metadata["engagement_analysis"] = analysis_payload
+            metadata["engagement_analysis_memory_updated"] = True
+            activity.metadata = metadata
+            activity.save(update_fields=["metadata"])
+        elif existing_analysis:
+            analysis_payload = existing_analysis
+        else:
+            analysis_payload = None
+
+        plan = result.get("plan")
+        policy = result.get("policy")
+        content = result.get("content")
+
+        if plan is None:
+            plan_payload = None
+        elif hasattr(plan, "model_dump"):
+            plan_payload = plan.model_dump()
+        else:
+            plan_payload = plan.dict()
+
+        if policy is None:
+            policy_payload = None
+        elif hasattr(policy, "model_dump"):
+            policy_payload = policy.model_dump()
+        else:
+            policy_payload = policy.dict()
+
+        if content is None:
+            content_payload = None
+        elif hasattr(content, "model_dump"):
+            content_payload = content.model_dump()
+        else:
+            content_payload = content.dict()
+
+        manual_review_required = bool(
+            result.get("manual_review_required")
+        )
+
+        # Une revue humaine n'est pas une erreur serveur.
+        # Le workflow agentique s'est terminé proprement.
+        if manual_review_required:
+            return Response(
+                {
+                    "success": True,
+                    "engagement_allowed": False,
+                    "manual_review_required": True,
+                    "manual_review_reason": result.get("manual_review_reason"),
+                    "prospect_id": prospect.id,
+                    "interaction_id": activity.id,
+                    "analysis": analysis_payload,
+                    "engagement_memory": result.get("engagement_memory"),
+                    "available_channels": result.get("available_channels", {}),
+                    "plan": plan_payload,
+                    "policy": policy_payload,
+                    "content": None,
+                    "agent_trace": result.get("agent_trace", []),
+                },
+                status=200,
+            )
+
+        engagement_allowed = bool(policy and policy.allowed)
+        generated_log = persist_generated_content(prospect, request.user, content_payload)
+
+        return Response(
+            {
+                "success": True,
+                "engagement_allowed": engagement_allowed,
+                "manual_review_required": False,
+                "prospect_id": prospect.id,
+                "interaction_id": activity.id,
+                "analysis": analysis_payload,
+                "engagement_memory": result.get("engagement_memory"),
+                "available_channels": result.get("available_channels", {}),
+                "plan": plan_payload,
+                "policy": policy_payload,
+                "content": content_payload,
+                "generated_log_id": getattr(generated_log, "id", None),
+                "agent_trace": result.get("agent_trace", []),
+            },
+            status=200,
+        )
 
 class CreateFollowUpTaskView(APIView):
     permission_classes = [IsAuthenticated]
@@ -1176,63 +1304,3 @@ class EngagementCampaignsView(APIView):
         for prospect in prospects:
             create_log(prospect, request.user, "campaign_created", prospect.engagement_status, prospect.last_engagement_channel, prospect.generated_message)
         return Response({"success": True, "id": campaign.id, "prospects_count": campaign.prospects.count()}, status=status.HTTP_201_CREATED)
-
-
-class SocialLoginView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        platform = (request.data.get("platform") or "").strip().lower()
-
-        if platform not in {"linkedin", "facebook", "instagram"}:
-            return Response(
-                {
-                    "success": False,
-                    "status": "unsupported_platform",
-                    "message": "Plateforme non supportee.",
-                },
-                status=400,
-            )
-
-        result = open_social_login_window(request.user.id, platform)
-        return Response(result)
-
-
-class SocialSessionCheckView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        platform = (request.query_params.get("platform") or "").strip().lower()
-
-        if platform not in {"linkedin", "facebook", "instagram"}:
-            return Response(
-                {
-                    "success": False,
-                    "status": "unsupported_platform",
-                    "message": "Plateforme non supportee.",
-                },
-                status=400,
-            )
-
-        result = check_social_session(request.user.id, platform)
-        return Response(result)
-
-
-class SocialSessionResetView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        platform = (request.data.get("platform") or "").strip().lower()
-
-        if platform not in {"linkedin", "facebook", "instagram"}:
-            return Response(
-                {
-                    "success": False,
-                    "status": "unsupported_platform",
-                    "message": "Plateforme non supportee.",
-                },
-                status=400,
-            )
-
-        result = reset_social_session(request.user.id, platform)
-        return Response(result)

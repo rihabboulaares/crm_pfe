@@ -56,10 +56,10 @@ INSTALLED_APPS = [
     'subscriptions.apps.SubscriptionsConfig',  # ← avec apps.py pour charger signals.py
     'superadmin.apps.SuperadminConfig',
     'Notifications',
-    'social_sessions',
     'calendar_module',
     "agentProspection",
     "agentEngagement",
+    "agentQualification",
     
     
 ]
@@ -249,7 +249,6 @@ PROSPECTION_ENRICHMENT_MAX_SOURCE_RETRIES = int(os.environ.get("PROSPECTION_ENRI
 PROSPECTION_ENRICHMENT_MAX_CONTENT_CHARS = int(os.environ.get("PROSPECTION_ENRICHMENT_MAX_CONTENT_CHARS", "30000"))
 PROSPECTION_ENRICHMENT_MAX_SOURCE_CONTENT_CHARS = int(os.environ.get("PROSPECTION_ENRICHMENT_MAX_SOURCE_CONTENT_CHARS", "12000"))
 PROSPECTION_SESSION_LOCK_TTL = int(os.environ.get("PROSPECTION_SESSION_LOCK_TTL", "300"))
-PROSPECTION_BROWSER_HEADLESS = os.environ.get("PROSPECTION_BROWSER_HEADLESS", "true").lower() not in {"0", "false", "no", "off"}
 
 # ============================================================
 # META ADS LIBRARY MCP

@@ -196,10 +196,6 @@ class SystemHealthLog(models.Model):
         ("database", "Database"),
         ("redis", "Redis"),
         ("gemini", "Gemini"),
-        ("playwright", "Playwright"),
-        ("linkedin", "LinkedIn"),
-        ("facebook", "Facebook"),
-        ("instagram", "Instagram"),
     ]
     STATUS_CHOICES = [("online", "Online"), ("offline", "Offline"), ("slow", "Slow"), ("warning", "Warning")]
 

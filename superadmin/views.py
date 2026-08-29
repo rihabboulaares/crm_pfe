@@ -1270,15 +1270,6 @@ class SuperAdminSystemHealthView(APIView):
 
         checks.append(self._log("gemini", "online" if (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")) else "warning", "API key configured" if (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")) else "No Gemini/Google API key configured"))
 
-        try:
-            __import__("playwright")
-            checks.append(self._log("playwright", "online", "Playwright package import succeeded"))
-        except Exception:
-            checks.append(self._log("playwright", "warning", "Playwright package not importable in this runtime"))
-
-        for service in ("linkedin", "facebook", "instagram"):
-            checks.append(self._log(service, "warning", "Session check not configured"))
-
         latest = []
         for service in SystemHealthLog.SERVICE_CHOICES:
             log = SystemHealthLog.objects.filter(service=service[0]).order_by("-checked_at").first()

@@ -1,15 +1,4 @@
-import logging
-
-from .email_providers.base import (
-    EMAIL_LOGIN_REQUIRED,
-    EMAIL_MESSAGE_EMPTY,
-    EMAIL_RECIPIENT_MISSING,
-    EmailSendResult,
-)
-from .email_providers.router import get_email_provider
 from .models import UserEmailConnection
-
-logger = logging.getLogger("agentEngagement.email_sender")
 
 
 def get_active_email_connection(user):
@@ -48,25 +37,3 @@ def get_sender_context(user):
         "email_connected": bool(connection),
         "email_provider": connection.provider if connection else "",
     }
-
-
-def send_prepared_email(prospect, user, subject: str, message: str) -> dict:
-    if not getattr(prospect, "email", None):
-        return EmailSendResult(False, EMAIL_RECIPIENT_MISSING, "Email prospect manquant.").to_dict()
-
-    if not (message or "").strip():
-        return EmailSendResult(False, EMAIL_MESSAGE_EMPTY, "Message vide interdit.").to_dict()
-
-    connection = get_active_email_connection(user)
-    if not connection:
-        return EmailSendResult(False, EMAIL_LOGIN_REQUIRED, "Connectez Gmail ou Microsoft avant d'envoyer un email.").to_dict()
-
-    try:
-        provider = get_email_provider(connection.provider)
-        result = provider.send_email(connection, prospect.email, subject, message)
-    except Exception as exc:
-        logger.exception("[email_sender] Erreur provider email")
-        result = EmailSendResult(False, "EMAIL_SEND_FAILED", str(exc)[:500], provider=getattr(connection, "provider", ""))
-
-    logger.info("[email_sender] result=%s prospect=%s user=%s", result.code, prospect.pk, user.pk)
-    return result.to_dict()

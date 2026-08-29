@@ -8,7 +8,6 @@ from Notifications.crm_event_service import (
     record_crm_event,
 )
 from .models import ProspectActivity, ProspectAgentRun, ProspectRecommendation
-from .prospect_scoring_service import recalculate_after_activity
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,7 @@ def record_prospect_activity(
     agent_run=None,
     metadata=None,
     created_at=None,
-    recalculate_score=True,
+    recalculate_score=False,
 ):
     activity = ProspectActivity.objects.create(
         prospect=prospect,
@@ -38,8 +37,6 @@ def record_prospect_activity(
         metadata=metadata or {},
         created_at=created_at or timezone.now(),
     )
-    if recalculate_score:
-        recalculate_after_activity(activity)
     event_from_prospect_activity(activity)
     return activity
 

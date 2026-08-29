@@ -1,7 +1,13 @@
 # Agent Engagement Email OAuth
 
-The engagement agent sends commercial emails only through the authenticated user's connected mailbox.
-It must not use `DEFAULT_FROM_EMAIL` for prospecting or commercial messages.
+Le flux V2 de l'agent d'engagement ne declenche plus d'envoi email direct.
+La connexion email reste disponible pour verifier la boite de l'utilisateur et signaler
+si le canal email est pret, mais la generation de contenu et l'enregistrement
+d'interaction restent separes de l'execution.
+
+Si un futur flux d'envoi explicite est ajoute, il devra utiliser uniquement la boite
+connectee de l'utilisateur authentifie et ne jamais utiliser `DEFAULT_FROM_EMAIL`
+pour la prospection ou les messages commerciaux.
 
 Required environment variables:
 
@@ -19,13 +25,13 @@ MICROSOFT_REDIRECT_URI=http://localhost:8000/api/engagement/connections/microsof
 Google OAuth scopes:
 
 ```text
-openid email profile https://www.googleapis.com/auth/gmail.send
+openid email profile
 ```
 
 Microsoft OAuth scopes:
 
 ```text
-offline_access User.Read Mail.Send
+offline_access User.Read
 ```
 
 The token fields are centralized behind `UserEmailConnection.get_*_token` and `set_*_token`

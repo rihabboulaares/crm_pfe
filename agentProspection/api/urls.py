@@ -4,7 +4,6 @@ from .views import (
     ProspectAgentView,
     ProspectDiscoveryReportView,
     ProspectingRequiredSessionsView,
-    ProspectScoreView,
     ProspectSourcesView,
 )
 
@@ -48,19 +47,6 @@ urlpatterns = [
         "prospect/required-sessions/",
         ProspectingRequiredSessionsView.as_view(),
         name="prospect-required-sessions",
-    ),
-
-    # =========================================================
-    # PROSPECT SCORE
-    # =========================================================
-    # Calcule/recalcule le score d'un prospect existant.
-    #
-    # POST /api/agent/prospects/<prospect_id>/score/
-    #
-    path(
-        "prospects/<int:prospect_id>/score/",
-        ProspectScoreView.as_view(),
-        name="prospect-score",
     ),
 
     # =========================================================

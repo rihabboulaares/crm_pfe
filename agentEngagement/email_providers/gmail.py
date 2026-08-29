@@ -1,13 +1,11 @@
-import base64
 from datetime import timedelta
-from email.message import EmailMessage
 from urllib.parse import urlencode
 
 import requests
 from django.conf import settings
 from django.utils import timezone
 
-from .base import EMAIL_REFRESH_FAILED, EMAIL_SEND_FAILED, EmailProvider, EmailSendResult
+from .base import EmailProvider
 
 
 class GmailProvider(EmailProvider):
@@ -15,12 +13,10 @@ class GmailProvider(EmailProvider):
     auth_url = "https://accounts.google.com/o/oauth2/v2/auth"
     token_url = "https://oauth2.googleapis.com/token"
     profile_url = "https://www.googleapis.com/oauth2/v2/userinfo"
-    send_url = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
     scopes = [
         "openid",
         "email",
         "profile",
-        "https://www.googleapis.com/auth/gmail.send",
     ]
 
     def build_authorization_url(self, state):
@@ -89,33 +85,3 @@ class GmailProvider(EmailProvider):
             "email": data.get("email") or "",
             "display_name": data.get("name") or "",
         }
-
-    def send_email(self, connection, to_email, subject, message):
-        if not self.ensure_valid_token(connection):
-            return EmailSendResult(False, EMAIL_REFRESH_FAILED, "Connexion Gmail expiree.", self.provider)
-
-        mime = EmailMessage()
-        mime["To"] = to_email
-        mime["From"] = connection.email
-        mime["Subject"] = subject or "Contact"
-        mime.set_content(message)
-        raw = base64.urlsafe_b64encode(mime.as_bytes()).decode("utf-8")
-
-        response = requests.post(
-            self.send_url,
-            headers={"Authorization": f"Bearer {connection.get_access_token()}"},
-            json={"raw": raw},
-            timeout=30,
-        )
-        if response.status_code >= 400:
-            return EmailSendResult(False, EMAIL_SEND_FAILED, response.text[:500], self.provider)
-        data = response.json()
-        return EmailSendResult(
-            True,
-            "EMAIL_SENT",
-            "Email envoye.",
-            self.provider,
-            sender_email=connection.email,
-            sender_name=connection.display_name or "",
-            provider_message_id=data.get("id") or "",
-        )

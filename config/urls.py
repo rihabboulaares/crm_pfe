@@ -14,7 +14,6 @@ from rest_framework_simplejwt.views import (
 
 from agentProspection.api.views import ProspectAgentView
 from agentProspection.api.views import ProspectDiscoveryReportView
-from agentProspection.api.views import ProspectScoreView
 from agentProspection.api.views import ProspectSourcesView
 from sales.views import ProspectViewSet, TaskViewSet
 
@@ -133,12 +132,6 @@ urlpatterns = [
         name="prospect-sources-alias",
     ),
 
-    path(
-        "api/prospects/<int:prospect_id>/score/",
-        ProspectScoreView.as_view(),
-        name="prospect-score-alias",
-    ),
-
     # Abonnements
     path(
         "api/subscriptions/",
@@ -155,13 +148,6 @@ urlpatterns = [
     path(
         "api/notifications/",
         include("Notifications.urls"),
-    ),
-
-    # Sessions sociales conservées pour l'agent d'engagement.
-    # Elles ne sont plus utilisées par l'agent de prospection.
-    path(
-        "api/social/",
-        include("social_sessions.urls"),
     ),
 
     # Tableau de bord
@@ -215,6 +201,12 @@ urlpatterns = [
     path(
         "api/engagement/",
         include("agentEngagement.urls"),
+    ),
+
+    # Agent de qualification
+    path(
+        "api/qualification/",
+        include("agentQualification.urls"),
     ),
 ]
 

@@ -61,5 +61,3 @@ httpx
 beautifulsoup4
 lxml
 mcp[cli]>=1.13,<2
-playwright
-chromium

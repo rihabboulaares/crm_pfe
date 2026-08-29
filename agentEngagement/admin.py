@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import EngagementCampaign, EngagementLog, UserEmailConnection
+from .models import EngagementCampaign, EngagementLog, ProspectEngagementMemory, UserEmailConnection
 
 
 @admin.register(UserEmailConnection)
@@ -23,3 +23,11 @@ class EngagementCampaignAdmin(admin.ModelAdmin):
     list_display = ("name", "status", "company", "created_by", "created_at")
     list_filter = ("status", "company")
     search_fields = ("name", "description")
+
+
+@admin.register(ProspectEngagementMemory)
+class ProspectEngagementMemoryAdmin(admin.ModelAdmin):
+    list_display = ("prospect", "interest_level", "current_solution", "next_direction", "updated_at")
+    list_filter = ("interest_level", "next_direction")
+    search_fields = ("prospect__first_name", "prospect__last_name", "current_solution", "relationship_summary")
+    readonly_fields = ("created_at", "updated_at")

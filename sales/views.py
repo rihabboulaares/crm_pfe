@@ -33,7 +33,7 @@ from .models import (
     Opportunity, Contact,
     Task, TaskActivity, TaskComment,
     ProspectActivity, ProspectAgentRun, ProspectDocument,
-    ProspectRecommendation, ProspectScoreHistory,
+    ProspectRecommendation,
     PerformanceScore, ManagerFeedback,
     PerformanceGoal, CommercialBadge,
     Pipeline, PipelineStage, OpportunityPipeline,
@@ -45,7 +45,6 @@ from .serializers import (
     TaskSerializer, TaskActivitySerializer, TaskCommentSerializer,
     ProspectActivitySerializer, ProspectAgentRunSerializer,
     ProspectDocumentSerializer, ProspectRecommendationSerializer,
-    ProspectScoreHistorySerializer,
     PerformanceScoreSerializer, ManagerFeedbackSerializer,
     PerformanceGoalSerializer, CommercialBadgeSerializer,
     PipelineSerializer, PipelineListSerializer,
@@ -537,7 +536,6 @@ class ProspectViewSet(viewsets.ModelViewSet):
             "documents",
             "agent_runs",
             "recommendations",
-            "score_history",
             "engagement_logs",
         )
         prospect = get_object_or_404(detail_qs, pk=pk)
@@ -638,12 +636,6 @@ class ProspectViewSet(viewsets.ModelViewSet):
         prospect = self.get_object()
         qs = prospect.agent_runs.all()[:100]
         return Response(ProspectAgentRunSerializer(qs, many=True, context={"request": request}).data)
-
-    @action(detail=True, methods=["get"], url_path="score-history")
-    def score_history(self, request, pk=None):
-        prospect = self.get_object()
-        qs = prospect.score_history.select_related("activity", "agent_run")[:100]
-        return Response(ProspectScoreHistorySerializer(qs, many=True, context={"request": request}).data)
 
     @action(detail=True, methods=["get", "post"], url_path="recommendations")
     def recommendations(self, request, pk=None):

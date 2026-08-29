@@ -5,13 +5,13 @@ import requests
 from django.conf import settings
 from django.utils import timezone
 
-from .base import EMAIL_REFRESH_FAILED, EMAIL_SEND_FAILED, EmailProvider, EmailSendResult
+from .base import EmailProvider
 
 
 class MicrosoftProvider(EmailProvider):
     provider = "microsoft"
     graph_root = "https://graph.microsoft.com/v1.0"
-    scopes = ["offline_access", "User.Read", "Mail.Send"]
+    scopes = ["offline_access", "User.Read"]
 
     @property
     def tenant_id(self):
@@ -90,32 +90,3 @@ class MicrosoftProvider(EmailProvider):
             "email": data.get("mail") or data.get("userPrincipalName") or "",
             "display_name": data.get("displayName") or "",
         }
-
-    def send_email(self, connection, to_email, subject, message):
-        if not self.ensure_valid_token(connection):
-            return EmailSendResult(False, EMAIL_REFRESH_FAILED, "Connexion Microsoft expiree.", self.provider)
-        payload = {
-            "message": {
-                "subject": subject or "Contact",
-                "body": {"contentType": "Text", "content": message},
-                "toRecipients": [{"emailAddress": {"address": to_email}}],
-            },
-            "saveToSentItems": True,
-        }
-        response = requests.post(
-            f"{self.graph_root}/me/sendMail",
-            headers={"Authorization": f"Bearer {connection.get_access_token()}"},
-            json=payload,
-            timeout=30,
-        )
-        if response.status_code >= 400:
-            return EmailSendResult(False, EMAIL_SEND_FAILED, response.text[:500], self.provider)
-        return EmailSendResult(
-            True,
-            "EMAIL_SENT",
-            "Email envoye.",
-            self.provider,
-            sender_email=connection.email,
-            sender_name=connection.display_name or "",
-            provider_message_id=response.headers.get("request-id", ""),
-        )
