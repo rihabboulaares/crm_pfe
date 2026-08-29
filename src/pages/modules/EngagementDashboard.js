@@ -1,7 +1,6 @@
-/* eslint-disable prettier/prettier */
+﻿/* eslint-disable prettier/prettier */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
-import { useNavigate } from "react-router-dom";
 import {
   Alert,
   alpha,
@@ -12,47 +11,31 @@ import {
   CardContent,
   Chip,
   CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Divider,
   Drawer,
-  FormControl,
   Grid,
   IconButton,
-  InputLabel,
-  MenuItem,
   Paper,
-  Select,
   Snackbar,
   Stack,
-  Switch,
   Tab,
   Tabs,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
   TextField,
   Tooltip,
   Typography,
 } from "@mui/material";
 import {
   AutoFixHigh,
+  ChatBubbleOutline,
   Close,
   Email,
-  ErrorOutline,
-  Facebook,
   History,
-  Instagram,
-  LinkedIn,
   MarkEmailRead,
   PendingActions,
+  Person,
   Refresh,
-  Save,
   Send,
+  SmartToy,
   TaskAlt,
 } from "@mui/icons-material";
 
@@ -60,7 +43,7 @@ import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 import MDBox from "components/MDBox";
 import PaginationBar from "../../components/PaginationBar";
-import SocialConnectionBox from "../../components/social/SocialConnectionBox";
+import AgentEngagementCockpit from "../../components/engagementAgentV2/AgentEngagementCockpit";
 import {
   createFollowUpTask,
   completeCrmTask,
@@ -68,16 +51,6 @@ import {
   getEngagementLogs,
   getEngagementProspects,
   getProspectTasks,
-  launchEngagementAgent,
-  markEngagementReplied,
-  prepareEngagementMessage,
-  rejectEngagementMessage,
-  saveEngagementMessage,
-  sendEngagementMessage,
-  startSocialLogin,
-  checkSocialSession,
-  checkEngagementReply,
-  analyzeSocialProfile,
   connectGoogleEmail,
   connectMicrosoftEmail,
   disconnectEmail,
@@ -90,73 +63,54 @@ const AGENT_THEME = {
   redDeep: "#9B0D22",
   redSoft: "#FDEEF1",
   redBorder: "#F5C6CE",
+  ink: "#172033",
+  slate: "#475569",
+  surface: "#FFFFFF",
   text: "#111827",
 };
 
 const STATUS_META = {
   new: { label: "Nouveau", color: "#6b7280" },
-  preparing: { label: "Preparation", color: "#d97706" },
-  pending_validation: { label: "A valider", color: "#059669" },
-  message_ready: { label: "Message pret", color: "#059669" },
+  preparing: { label: "Préparation", color: "#d97706" },
+  pending_validation: { label: "À valider", color: "#059669" },
+  message_ready: { label: "Message prêt", color: "#059669" },
   sending: { label: "Envoi", color: "#2563eb" },
-  message_sent: { label: "Envoye", color: "#1e40af" },
-  waiting_reply: { label: "En attente reponse", color: "#1e40af" },
-  reply_detected: { label: "Reponse detectee", color: "#7c3aed" },
-  followup_generated: { label: "Relance generee", color: "#ea580c" },
-  opportunity_ready: { label: "Opportunite prete", color: "#059669" },
-  message_failed: { label: "Erreur", color: "#dc2626" },
-  replied: { label: "Reponse recue", color: "#7c3aed" },
+  message_sent: { label: "Envoyé", color: "#1e40af" },
+  waiting_reply: { label: "En attente de réponse", color: "#1e40af" },
+  reply_detected: { label: "Réponse détectée", color: "#7c3aed" },
+  followup_generated: { label: "Relance générée", color: "#ea580c" },
+  opportunity_ready: { label: "Opportunité prête", color: "#059669" },
+  message_failed: { label: "À vérifier", color: "#dc2626" },
+  replied: { label: "Réponse reçue", color: "#7c3aed" },
   follow_up_required: { label: "Relance requise", color: "#ea580c" },
-  closed: { label: "Termine", color: "#111827" },
-  rejected: { label: "Refuse", color: "#991b1b" },
+  closed: { label: "Terminé", color: "#111827" },
+  rejected: { label: "Refusé", color: "#991b1b" },
 };
 
 const KANBAN = [
   { key: "new", label: "Nouveau" },
-  { key: "pending_validation", label: "A valider" },
-  { key: "message_sent", label: "Envoye" },
-  { key: "waiting_reply", label: "Attente" },
-  { key: "reply_detected", label: "Reponse IA" },
-  { key: "replied", label: "Reponse recue" },
-  { key: "followup_generated", label: "Relance IA" },
+  { key: "pending_validation", label: "À valider" },
+  { key: "message_sent", label: "Envoyé" },
+  { key: "waiting_reply", label: "En attente" },
+  { key: "reply_detected", label: "Réponse analysée" },
+  { key: "replied", label: "Réponse reçue" },
+  { key: "followup_generated", label: "Relance proposée" },
   { key: "follow_up_required", label: "Relance" },
-  { key: "opportunity_ready", label: "Opportunite" },
-  { key: "message_failed", label: "Erreur" },
+  { key: "opportunity_ready", label: "Opportunité" },
+  { key: "message_failed", label: "À vérifier" },
 ];
 
 const FILTERS = [
   { key: "all", label: "Tous" },
   { key: "new", label: "Nouveau" },
-  { key: "pending_validation", label: "A valider" },
-  { key: "message_sent", label: "Envoye" },
-  { key: "reply_detected", label: "Reponse detectee" },
-  { key: "followup_generated", label: "Relance generee" },
-  { key: "opportunity_ready", label: "Opportunite prete" },
-  { key: "message_failed", label: "Erreur" },
-  { key: "replied", label: "Reponse recue" },
+  { key: "pending_validation", label: "À valider" },
+  { key: "message_sent", label: "Envoyé" },
+  { key: "reply_detected", label: "Réponse détectée" },
+  { key: "followup_generated", label: "Relance générée" },
+  { key: "opportunity_ready", label: "Opportunité prête" },
+  { key: "message_failed", label: "À vérifier" },
+  { key: "replied", label: "Réponse reçue" },
 ];
-
-const SOCIAL_REPLY_CHANNELS = ["linkedin", "facebook", "instagram"];
-const REPLY_CHECK_STATUSES = [
-  "message_sent",
-  "waiting_reply",
-  "replied",
-  "reply_detected",
-  "follow_up_required",
-  "followup_generated",
-  "opportunity_ready",
-];
-
-function canCheckReply(prospect) {
-  const activeChannel = prospect?.engagement_channel || prospect?.last_engagement_channel;
-  return Boolean(
-    prospect &&
-      REPLY_CHECK_STATUSES.includes(prospect.engagement_status) &&
-      SOCIAL_REPLY_CHANNELS.includes(activeChannel) &&
-      !prospect.has_opportunity &&
-      prospect.status !== "won"
-  );
-}
 
 const emptyStats = {
   new: 0,
@@ -168,6 +122,73 @@ const emptyStats = {
   replied: 0,
   errors: 0,
 };
+
+const CHANNEL_LABELS = {
+  email: "Email",
+  phone: "Téléphone",
+  linkedin: "LinkedIn",
+  facebook: "Facebook",
+  instagram: "Instagram",
+  other: "Autre",
+  EMAIL: "Email",
+  PHONE: "Téléphone",
+  LINKEDIN: "LinkedIn",
+  FACEBOOK: "Facebook",
+  INSTAGRAM: "Instagram",
+  OTHER: "Autre",
+};
+
+const ACTION_LABELS = {
+  agent_launched: "Agent lancé",
+  message_generated: "Message préparé",
+  message_updated: "Message modifié",
+  message_sent: "Message envoyé",
+  send_error: "Erreur d'envoi",
+  message_rejected: "Message rejeté",
+  replied: "Réponse reçue",
+  follow_up_created: "Relance créée",
+  campaign_created: "Campagne créée",
+  EMAIL_SENT: "Email envoyé",
+  PHONE_CALL: "Appel effectué",
+  SOCIAL_MESSAGE_SENT: "Message social envoyé",
+  FOLLOW_UP: "Relance",
+  OTHER: "Autre",
+  LAST_MESSAGE_SENT: "Dernier message envoyé",
+  LAST_REPLY: "Dernière réponse",
+};
+
+const OUTCOME_LABELS = {
+  SENT: "Envoyé",
+  NO_RESPONSE: "Pas de réponse",
+  INTERESTED: "Intéressé",
+  NOT_INTERESTED: "Pas intéressé",
+  CALL_LATER: "À rappeler",
+  OBJECTION: "Objection",
+  REQUEST_INFORMATION: "Demande d'information",
+  MEETING_REQUEST: "Demande de rendez-vous",
+  WRONG_CONTACT: "Mauvais contact",
+  UNSUBSCRIBE: "Ne plus contacter",
+  OTHER: "Autre",
+};
+
+function humanLabel(value, labels = {}) {
+  if (!value) return "";
+  if (labels[value]) return labels[value];
+  const normalized = String(value).replaceAll("_", " ").toLowerCase();
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function formatDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function statusChip(status) {
   const meta = STATUS_META[status] || STATUS_META.new;
@@ -190,20 +211,6 @@ function getFullName(prospect) {
   return `${prospect?.first_name || ""} ${prospect?.last_name || ""}`.trim();
 }
 
-function channelOptions(prospect) {
-  return [
-    { key: "linkedin", label: "LinkedIn", icon: <LinkedIn />, disabled: !prospect?.linkedin_url },
-    { key: "email", label: "Email", icon: <Email />, disabled: !prospect?.email },
-    { key: "facebook", label: "Facebook", icon: <Facebook />, disabled: !prospect?.facebook_url },
-    {
-      key: "instagram",
-      label: "Instagram",
-      icon: <Instagram />,
-      disabled: !prospect?.instagram_url,
-    },
-  ];
-}
-
 function DetailCard({ title, children }) {
   return (
     <Card variant="outlined" sx={{ borderRadius: 1, borderColor: AGENT_THEME.redBorder }}>
@@ -214,50 +221,6 @@ function DetailCard({ title, children }) {
         {children}
       </CardContent>
     </Card>
-  );
-}
-
-function AiTextBlock({ children }) {
-  if (!children)
-    return (
-      <Typography variant="body2" color="text.secondary">
-        -
-      </Typography>
-    );
-  return (
-    <Box
-      sx={{
-        bgcolor: "#fff",
-        border: "1px solid #fee2e2",
-        borderRadius: 1,
-        p: 1.5,
-        lineHeight: 1.6,
-        whiteSpace: "pre-wrap",
-        wordBreak: "break-word",
-        overflowWrap: "anywhere",
-      }}
-    >
-      <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-        {children}
-      </Typography>
-    </Box>
-  );
-}
-
-function BadgeList({ items }) {
-  const values = Array.isArray(items) ? items.filter(Boolean) : [];
-  if (!values.length)
-    return (
-      <Typography variant="body2" color="text.secondary">
-        -
-      </Typography>
-    );
-  return (
-    <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ rowGap: 1 }}>
-      {values.map((item) => (
-        <Chip key={item} size="small" label={item} sx={{ borderRadius: 1, maxWidth: "100%" }} />
-      ))}
-    </Stack>
   );
 }
 
@@ -287,22 +250,6 @@ DetailCard.defaultProps = {
   children: null,
 };
 
-AiTextBlock.propTypes = {
-  children: PropTypes.node,
-};
-
-AiTextBlock.defaultProps = {
-  children: null,
-};
-
-BadgeList.propTypes = {
-  items: PropTypes.arrayOf(PropTypes.oneOfType([PropTypes.string, PropTypes.number])),
-};
-
-BadgeList.defaultProps = {
-  items: [],
-};
-
 FieldLine.propTypes = {
   label: PropTypes.string.isRequired,
   value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
@@ -312,8 +259,211 @@ FieldLine.defaultProps = {
   value: "",
 };
 
+function fallbackConversationFromLogs(items) {
+  return (items || []).map((log) => ({
+    id: `log-${log.id}`,
+    actor:
+      log.action === "replied"
+        ? "prospect"
+        : log.action === "message_generated" || log.action === "agent_launched"
+        ? "agent"
+        : "commercial",
+    action: log.action,
+    channel: log.channel,
+    status: log.status,
+    text: log.message || log.error || log.error_message || "",
+    sender_email: log.sender_email,
+    provider: log.provider,
+    created_at: log.sent_at || log.created_at,
+  }));
+}
+
+function ConversationBubble({ item, prospect }) {
+  const isProspect = item.actor === "prospect";
+  const isAgent = item.actor === "agent";
+  const align = isProspect ? "flex-start" : isAgent ? "center" : "flex-end";
+  const name = isProspect
+    ? getFullName(prospect) || "Prospect"
+    : isAgent
+    ? "Agent IA"
+    : "Commercial";
+  const channel = humanLabel(item.channel, CHANNEL_LABELS);
+  const action = humanLabel(item.action, ACTION_LABELS);
+  const outcome = humanLabel(item.outcome || item.status, OUTCOME_LABELS) || item.status;
+
+  return (
+    <Stack direction="row" justifyContent={align} sx={{ width: "100%" }}>
+      <Box
+        sx={{
+          maxWidth: isAgent ? "82%" : "72%",
+          minWidth: { xs: "100%", sm: 280 },
+          display: "flex",
+          flexDirection: isProspect ? "row" : "row-reverse",
+          gap: 1,
+          alignItems: "flex-start",
+          ...(isAgent && { flexDirection: "row", mx: "auto" }),
+        }}
+      >
+        <Avatar
+          sx={{
+            width: 34,
+            height: 34,
+            bgcolor: isProspect
+              ? alpha("#2563eb", 0.12)
+              : isAgent
+              ? alpha(AGENT_THEME.red, 0.1)
+              : AGENT_THEME.red,
+            color: isProspect ? "#2563eb" : isAgent ? AGENT_THEME.red : "white",
+          }}
+        >
+          {isAgent ? (
+            <SmartToy fontSize="small" />
+          ) : isProspect ? (
+            <Person fontSize="small" />
+          ) : (
+            <Send fontSize="small" />
+          )}
+        </Avatar>
+        <Paper
+          elevation={0}
+          sx={{
+            p: 1.5,
+            borderRadius: 2.5,
+            bgcolor: isProspect ? "#eff6ff" : isAgent ? "#f8fafc" : AGENT_THEME.redSoft,
+            border: `1px solid ${
+              isProspect ? alpha("#2563eb", 0.16) : isAgent ? "#e2e8f0" : AGENT_THEME.redBorder
+            }`,
+            flex: 1,
+          }}
+        >
+          <Stack direction="row" justifyContent="space-between" gap={1} mb={0.75}>
+            <Typography
+              variant="caption"
+              fontWeight={900}
+              color={isProspect ? "#1d4ed8" : AGENT_THEME.red}
+            >
+              {name}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {formatDateTime(item.created_at)}
+            </Typography>
+          </Stack>
+          <Stack direction="row" spacing={0.75} flexWrap="wrap" sx={{ rowGap: 0.75, mb: 1 }}>
+            {action && (
+              <Chip size="small" label={action} sx={{ borderRadius: 1, fontWeight: 800 }} />
+            )}
+            {channel && (
+              <Chip size="small" label={channel} variant="outlined" sx={{ borderRadius: 1 }} />
+            )}
+            {outcome && (
+              <Chip size="small" label={outcome} variant="outlined" sx={{ borderRadius: 1 }} />
+            )}
+          </Stack>
+          {item.text ? (
+            <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+              {item.text}
+            </Typography>
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              Activité enregistrée sans contenu textuel.
+            </Typography>
+          )}
+          {item.summary && (
+            <Alert severity="info" sx={{ mt: 1, py: 0.5 }}>
+              {item.summary}
+            </Alert>
+          )}
+          {(item.sender_email || item.provider || item.created_by_name) && (
+            <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+              {[item.created_by_name, item.sender_email, item.provider].filter(Boolean).join(" · ")}
+            </Typography>
+          )}
+        </Paper>
+      </Box>
+    </Stack>
+  );
+}
+
+function ConversationPanel({ conversation, logs, prospect }) {
+  const items = (conversation?.length ? conversation : fallbackConversationFromLogs(logs)).filter(
+    (item) => item.text || item.action || item.status
+  );
+
+  if (!items.length) {
+    return (
+      <Paper
+        variant="outlined"
+        sx={{
+          p: 3,
+          borderRadius: 3,
+          bgcolor: "#f8fafc",
+          borderColor: "#e2e8f0",
+          textAlign: "center",
+        }}
+      >
+        <Avatar sx={{ mx: "auto", mb: 1, bgcolor: AGENT_THEME.redSoft, color: AGENT_THEME.red }}>
+          <ChatBubbleOutline />
+        </Avatar>
+        <Typography variant="subtitle1" fontWeight={900}>
+          Aucune discussion enregistrée.
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Quand un message est envoyé ou qu&apos;une réponse est saisie, elle apparaîtra ici sous
+          forme de conversation.
+        </Typography>
+      </Paper>
+    );
+  }
+
+  return (
+    <Paper
+      variant="outlined"
+      sx={{
+        p: { xs: 1.25, md: 2 },
+        borderRadius: 3,
+        bgcolor: "#ffffff",
+        borderColor: "#e2e8f0",
+      }}
+    >
+      <Stack spacing={1.5}>
+        <Box>
+          <Typography variant="h6" fontWeight={900}>
+            Discussion avec le prospect
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Messages envoyés, réponses reçues et notes d&apos;engagement enregistrés dans le CRM.
+          </Typography>
+        </Box>
+        <Divider />
+        {items.map((item) => (
+          <ConversationBubble
+            key={item.id || `${item.action}-${item.created_at}`}
+            item={item}
+            prospect={prospect}
+          />
+        ))}
+      </Stack>
+    </Paper>
+  );
+}
+
+ConversationBubble.propTypes = {
+  item: PropTypes.object.isRequired,
+  prospect: PropTypes.object.isRequired,
+};
+
+ConversationPanel.propTypes = {
+  conversation: PropTypes.arrayOf(PropTypes.object),
+  logs: PropTypes.arrayOf(PropTypes.object),
+  prospect: PropTypes.object.isRequired,
+};
+
+ConversationPanel.defaultProps = {
+  conversation: [],
+  logs: [],
+};
+
 function EngagementDashboard() {
-  const navigate = useNavigate();
   const [stats, setStats] = useState(emptyStats);
   const [prospects, setProspects] = useState([]);
   const [total, setTotal] = useState(0);
@@ -325,19 +475,11 @@ function EngagementDashboard() {
   const [loading, setLoading] = useState(false);
   const [busyAction, setBusyAction] = useState("");
   const [selected, setSelected] = useState(null);
-  const [message, setMessage] = useState("");
-  const [channel, setChannel] = useState("");
   const [logs, setLogs] = useState([]);
+  const [conversation, setConversation] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [tab, setTab] = useState(0);
-  const [testMode, setTestMode] = useState(true);
   const [toast, setToast] = useState(null);
-  const [linkedinModal, setLinkedinModal] = useState(false);
-  const [launching, setLaunching] = useState(false);
-  const [replyDialogOpen, setReplyDialogOpen] = useState(false);
-  const [replyCheckResult, setReplyCheckResult] = useState(null);
-  const [replyDraft, setReplyDraft] = useState("");
-  const [, setSocialSessions] = useState({});
   const [emailConnection, setEmailConnection] = useState({ connected: false });
 
   const load = useCallback(async () => {
@@ -359,7 +501,10 @@ function EngagementDashboard() {
         setPage(prospectsRes.data.page);
       }
     } catch (error) {
-      setToast({ severity: "error", message: "Impossible de charger l'agent d'engagement." });
+      setToast({
+        severity: "warning",
+        message: "L'espace d'engagement n'a pas pu être chargé. Réessayez dans quelques instants.",
+      });
     } finally {
       setLoading(false);
     }
@@ -373,34 +518,42 @@ function EngagementDashboard() {
     setPage(1);
   }, [filter, search]);
 
+  const loadProspectEngagementDetails = useCallback(async (prospectId) => {
+    const [logsRes, taskRes] = await Promise.all([
+      getEngagementLogs(prospectId),
+      getProspectTasks(prospectId),
+    ]);
+    setLogs(logsRes.data?.results || []);
+    setConversation(logsRes.data?.conversation || []);
+    setTasks(Array.isArray(taskRes.data) ? taskRes.data : taskRes.data?.results || []);
+    if (logsRes.data?.prospect) {
+      setSelected((current) =>
+        current?.id === logsRes.data.prospect.id
+          ? { ...current, ...logsRes.data.prospect }
+          : current
+      );
+    }
+  }, []);
+
   const openProspect = async (prospect) => {
     setSelected(prospect);
-    setMessage(prospect.engagement_message || "");
-    setChannel(
-      prospect.engagement_channel ||
-        (prospect.linkedin_url ? "linkedin" : prospect.email ? "email" : "")
-    );
     setTab(0);
+    setLogs([]);
+    setConversation([]);
+    setTasks([]);
     try {
-      const res = await getEngagementLogs(prospect.id);
-      setLogs(res.data?.results || []);
-      const taskRes = await getProspectTasks(prospect.id);
-      setTasks(Array.isArray(taskRes.data) ? taskRes.data : taskRes.data?.results || []);
+      await loadProspectEngagementDetails(prospect.id);
     } catch (error) {
       setLogs([]);
+      setConversation([]);
       setTasks([]);
     }
   };
 
   const refreshSelected = async (updatedProspect) => {
     setSelected(updatedProspect);
-    setMessage(updatedProspect.engagement_message || "");
-    setChannel(updatedProspect.engagement_channel || channel);
     await load();
-    const res = await getEngagementLogs(updatedProspect.id);
-    setLogs(res.data?.results || []);
-    const taskRes = await getProspectTasks(updatedProspect.id);
-    setTasks(Array.isArray(taskRes.data) ? taskRes.data : taskRes.data?.results || []);
+    await loadProspectEngagementDetails(updatedProspect.id);
   };
 
   const syncUpdatedProspect = async (updatedProspect) => {
@@ -423,20 +576,13 @@ function EngagementDashboard() {
     setBusyAction(name);
     try {
       const res = await fn();
-      if (res.data?.login_url) {
-        setLinkedinModal(true);
-        return;
-      }
       if (res.data?.success === false) {
         const updatedProspect = res.data?.prospect || selected;
         if (res.data?.prospect) {
           await refreshSelected(updatedProspect);
         }
         setToast({
-          severity:
-            res.data?.status === "login_required" || res.data?.status === "checkpoint_required"
-              ? "warning"
-              : "error",
+          severity: res.data?.status === "unsupported_channel" ? "warning" : "error",
           message: res.data?.message || res.data?.error || "Action impossible.",
         });
         return;
@@ -465,17 +611,16 @@ function EngagementDashboard() {
       }
       setToast({
         severity: "info",
-        message: "Terminez la connexion email dans la fenetre ouverte, puis testez la connexion.",
+        message: "Terminez la connexion email dans la fenêtre ouverte, puis testez la connexion.",
       });
     } catch (error) {
       const missing = error.response?.data?.missing;
       setToast({
-        severity: "error",
+        severity: "warning",
         message:
           Array.isArray(missing) && missing.length
-            ? `Configuration OAuth manquante : ${missing.join(", ")}.`
-            : error.response?.data?.message ||
-              "Connexion email impossible. Verifiez la configuration OAuth.",
+            ? "La connexion email nécessite une configuration complémentaire."
+            : "Connexion email indisponible pour le moment.",
       });
     } finally {
       setBusyAction("");
@@ -492,7 +637,7 @@ function EngagementDashboard() {
       setEmailConnection({ connected: false });
       setToast({
         severity: "warning",
-        message: error.response?.data?.message || "Connexion email requise ou expiree.",
+        message: "Connexion email requise ou expirée.",
       });
     } finally {
       setBusyAction("");
@@ -512,273 +657,116 @@ function EngagementDashboard() {
     }
   };
 
-  const handleLaunchAgent = async () => {
-    setLaunching(true);
-    try {
-      const res = await launchEngagementAgent({
-        limit: 25,
-        scrape: true,
-        auto_send: false,
-      });
-      const processed = res.data?.processed || 0;
-      const queuedText =
-        res.data?.status === "queued"
-          ? "Agent lance en arriere-plan."
-          : `Agent lance : ${processed} prospects traites.`;
-      setToast({ severity: "success", message: queuedText });
-      const [dashboardRes, prospectsRes] = await Promise.all([
-        getEngagementDashboard(),
-        getEngagementProspects({
-          status: "pending_validation",
-          search,
-          page: 1,
-          page_size: pageSize,
-        }),
-      ]);
-      setStats(dashboardRes.data || emptyStats);
-      setProspects(prospectsRes.data?.results || []);
-      setTotal(prospectsRes.data?.total ?? prospectsRes.data?.count ?? 0);
-      setPages(prospectsRes.data?.pages || 1);
-      setPage(1);
-      setFilter("pending_validation");
-    } catch (error) {
-      setToast({
-        severity: "error",
-        message: error.response?.data?.error || "Erreur lors du lancement de l'agent.",
-      });
-    } finally {
-      setLaunching(false);
-    }
-  };
-
-  const handleSocialLogin = async (platform) => {
-    setBusyAction(`login-${platform}`);
-    try {
-      const res = await startSocialLogin(platform);
-      setToast({
-        severity: res.data?.success ? "success" : "info",
-        message:
-          res.data?.message ||
-          (platform === "facebook"
-            ? "Une fenetre Facebook vient de s'ouvrir. Connectez-vous puis relancez Preparer engagement."
-            : "Une fenetre vient de s'ouvrir. Connectez-vous puis cliquez sur Verifier la session."),
-      });
-    } catch (error) {
-      setToast({
-        severity: "error",
-        message: error.response?.data?.error || "Connexion sociale impossible.",
-      });
-    } finally {
-      setBusyAction("");
-    }
-  };
-
-  const handleSocialSessionCheck = async (platform) => {
-    setBusyAction(`check-${platform}`);
-    try {
-      const res = await checkSocialSession(platform);
-      setToast({
-        severity: res.data?.success ? "success" : "warning",
-        message: res.data?.success
-          ? `Session ${platform} active.`
-          : res.data?.message || "Session non connectee.",
-      });
-    } catch (error) {
-      setToast({
-        severity: "error",
-        message: error.response?.data?.error || "Verification impossible.",
-      });
-    } finally {
-      setBusyAction("");
-    }
-  };
-
-  const handleCheckReply = async (prospect) => {
-    if (!prospect?.id) return;
-    setBusyAction(`check-reply-${prospect.id}`);
-    try {
-      const res = await checkEngagementReply(prospect.id);
-      const result = res.data || {};
-      const updatedProspect = result.prospect || prospect;
-      await syncUpdatedProspect(updatedProspect);
-      setReplyCheckResult({ ...result, prospect: updatedProspect });
-      setReplyDraft(result.generated_reply || updatedProspect.generated_followup_message || "");
-      setReplyDialogOpen(true);
-      setToast({
-        severity:
-          result.success === false
-            ? result.requires_login
-              ? "warning"
-              : "error"
-            : result.has_reply
-            ? "success"
-            : "info",
-        message:
-          result.message || (result.has_reply ? "Reponse detectee." : "Aucune reponse detectee."),
-      });
-    } catch (error) {
-      const data = error.response?.data;
-      if (data?.prospect) {
-        await syncUpdatedProspect(data.prospect);
-      }
-      if (data) {
-        setReplyCheckResult(data);
-        setReplyDraft(data.generated_reply || data.prospect?.generated_followup_message || "");
-        setReplyDialogOpen(true);
-      }
-      setToast({
-        severity: data?.requires_login ? "warning" : "error",
-        message: data?.message || data?.error || "Verification de la reponse impossible.",
-      });
-    } finally {
-      setBusyAction("");
-    }
-  };
-
-  const handleUseGeneratedReply = async () => {
-    const prospect = replyCheckResult?.prospect || selected;
-    if (!prospect?.id || !replyDraft.trim()) return;
-    const replyChannel = prospect.engagement_channel || prospect.last_engagement_channel || channel;
-    setBusyAction("send-generated-reply");
-    try {
-      const res = await sendEngagementMessage(prospect.id, {
-        message: replyDraft,
-        channel: replyChannel,
-        send: !testMode,
-      });
-      if (res.data?.success === false) {
-        if (res.data?.prospect) {
-          await syncUpdatedProspect(res.data.prospect);
-        }
-        setToast({
-          severity:
-            res.data?.status === "login_required" || res.data?.status === "checkpoint_required"
-              ? "warning"
-              : "error",
-          message: res.data?.message || res.data?.error || "Envoi impossible.",
-        });
-        return;
-      }
-      await syncUpdatedProspect(res.data?.prospect || prospect);
-      setReplyDialogOpen(false);
-      setToast({
-        severity: "success",
-        message: testMode ? "Mode test: reponse preparee sans clic final." : "Reponse envoyee.",
-      });
-    } catch (error) {
-      setToast({
-        severity: "error",
-        message: error.response?.data?.error || "Envoi de la reponse impossible.",
-      });
-    } finally {
-      setBusyAction("");
-    }
-  };
-
-  const groupedProspects = useMemo(() => {
-    return KANBAN.reduce((acc, col) => {
-      acc[col.key] = prospects.filter((prospect) => prospect.engagement_status === col.key);
-      return acc;
-    }, {});
-  }, [prospects]);
-
-  const pendingValidationProspects = useMemo(
-    () => prospects.filter((prospect) => prospect.engagement_status === "pending_validation"),
+  const workflowStats = useMemo(
+    () =>
+      KANBAN.map((step) => ({
+        ...step,
+        count: prospects.filter((prospect) => prospect.engagement_status === step.key).length,
+      })),
     [prospects]
   );
 
   const statCards = [
     {
-      title: "Nouveaux prospects",
+      title: "À engager",
       value: stats.new,
       icon: <PendingActions />,
       color: AGENT_THEME.red,
     },
     {
-      title: "Messages a preparer",
+      title: "Actions prêtes",
       value: stats.to_prepare,
       icon: <AutoFixHigh />,
       color: AGENT_THEME.red,
     },
     {
-      title: "Messages a valider",
+      title: "À valider",
       value: stats.to_validate || stats.pending_validation || stats.message_ready,
       icon: <TaskAlt />,
       color: AGENT_THEME.red,
     },
     {
-      title: "Messages envoyes",
+      title: "Messages envoyés",
       value: stats.message_sent,
       icon: <Send />,
       color: AGENT_THEME.red,
     },
     {
-      title: "Reponses recues",
+      title: "Réponses reçues",
       value: stats.replied,
       icon: <MarkEmailRead />,
       color: AGENT_THEME.red,
     },
-    { title: "Erreurs", value: stats.errors, icon: <ErrorOutline />, color: AGENT_THEME.red },
   ];
 
   return (
     <DashboardLayout>
       <DashboardNavbar />
       <MDBox py={3}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-          <Box>
-            <Typography variant="h4" fontWeight={800} sx={{ color: AGENT_THEME.redDeep }}>
-              Agent Engagement IA
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Preparation, validation humaine, envoi et suivi des messages commerciaux.
-            </Typography>
-          </Box>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="body2">Mode test</Typography>
-            <Switch
-              checked={testMode}
-              onChange={(event) => setTestMode(event.target.checked)}
-              sx={{
-                "& .MuiSwitch-switchBase.Mui-checked": { color: AGENT_THEME.red },
-                "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
-                  bgcolor: AGENT_THEME.red,
-                },
-              }}
-            />
-            <Button
-              startIcon={
-                launching ? <CircularProgress size={16} color="inherit" /> : <AutoFixHigh />
-              }
-              variant="contained"
-              disabled={launching}
-              onClick={handleLaunchAgent}
-              sx={{
-                bgcolor: AGENT_THEME.red,
-                "&:hover": { bgcolor: AGENT_THEME.redDeep },
-                textTransform: "none",
-              }}
-            >
-              {launching ? "Agent en cours..." : "Lancer l'agent"}
-            </Button>
-            <Tooltip title="Rafraichir">
-              <IconButton onClick={load} disabled={loading}>
-                {loading ? <CircularProgress size={20} /> : <Refresh />}
-              </IconButton>
-            </Tooltip>
+        <Paper
+          sx={{
+            p: { xs: 2, md: 2.5 },
+            mb: 2,
+            borderRadius: 3,
+            color: "white",
+            background: "linear-gradient(135deg, #7f1d1d 0%, #b91c1c 48%, #172033 100%)",
+            boxShadow: "0 18px 44px rgba(127, 29, 29, 0.22)",
+          }}
+        >
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            justifyContent="space-between"
+            alignItems={{ xs: "flex-start", md: "center" }}
+            gap={2}
+          >
+            <Box>
+              <Stack direction="row" spacing={1} alignItems="center" mb={0.75}>
+                <AutoFixHigh fontSize="small" />
+                <Typography variant="overline" sx={{ opacity: 0.78, letterSpacing: 0 }}>
+                  Cockpit commercial
+                </Typography>
+              </Stack>
+              <Typography variant="h4" fontWeight={900}>
+                {"Agent d'engagement IA"}
+              </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.82, maxWidth: 720, mt: 0.5 }}>
+                Priorise les prospects, prépare la prochaine action et garde l&apos;humain au centre
+                de la validation.
+              </Typography>
+            </Box>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Chip
+                label={emailConnection.connected ? "Email prêt" : "Email à connecter"}
+                sx={{
+                  color: "white",
+                  bgcolor: emailConnection.connected
+                    ? "rgba(34,197,94,0.22)"
+                    : "rgba(255,255,255,0.16)",
+                  fontWeight: 800,
+                }}
+              />
+              <Tooltip title="Rafraîchir">
+                <IconButton
+                  onClick={load}
+                  disabled={loading}
+                  sx={{ color: "white", bgcolor: "rgba(255,255,255,0.12)" }}
+                >
+                  {loading ? <CircularProgress size={20} color="inherit" /> : <Refresh />}
+                </IconButton>
+              </Tooltip>
+            </Stack>
           </Stack>
-        </Stack>
+        </Paper>
 
-        <Box mb={2}>
-          <SocialConnectionBox
-            title="Connexions sociales pour l'agent d'engagement"
-            compact
-            requiredPlatforms={["linkedin", "facebook", "instagram"]}
-            onStatusChange={setSocialSessions}
-          />
-        </Box>
-
-        <Paper sx={{ p: 2, mb: 2, borderRadius: 1, border: `1px solid ${AGENT_THEME.redBorder}` }}>
+        <Paper
+          sx={{
+            p: 2,
+            mb: 2,
+            borderRadius: 3,
+            border: `1px solid ${alpha(AGENT_THEME.red, 0.12)}`,
+            boxShadow: "0 10px 30px rgba(15,23,42,0.06)",
+          }}
+        >
           <Stack
             direction={{ xs: "column", md: "row" }}
             spacing={2}
@@ -788,14 +776,15 @@ function EngagementDashboard() {
             <Stack spacing={0.5}>
               <Stack direction="row" spacing={1} alignItems="center">
                 <Email fontSize="small" sx={{ color: AGENT_THEME.red }} />
-                <Typography variant="subtitle2" fontWeight={800}>
-                  Email commercial connecte
+                <Typography variant="subtitle2" fontWeight={900}>
+                  Canal email
                 </Typography>
                 <Chip
                   size="small"
-                  label={emailConnection.connected ? "Connecte" : "Connexion requise"}
+                  label={emailConnection.connected ? "Connecté" : "À connecter"}
                   color={emailConnection.connected ? "success" : "warning"}
                   variant="outlined"
+                  sx={{ fontWeight: 800 }}
                 />
               </Stack>
               <Typography variant="body2" color="text.secondary">
@@ -803,7 +792,7 @@ function EngagementDashboard() {
                   ? `${emailConnection.display_name || "Compte email"} - ${
                       emailConnection.email
                     } (${emailConnection.provider})`
-                  : "Gmail ou Microsoft est obligatoire pour envoyer des emails depuis l'agent."}
+                  : "Connecte Gmail ou Microsoft pour envoyer les messages préparés par l'agent."}
               </Typography>
             </Stack>
             <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ rowGap: 1 }}>
@@ -840,7 +829,7 @@ function EngagementDashboard() {
                   onClick={handleEmailDisconnect}
                   sx={{ color: AGENT_THEME.red, textTransform: "none" }}
                 >
-                  Deconnecter
+                  Déconnecter
                 </Button>
               )}
             </Stack>
@@ -849,13 +838,14 @@ function EngagementDashboard() {
 
         <Grid container spacing={2} mb={2}>
           {statCards.map((card) => (
-            <Grid key={card.title} item xs={12} sm={6} md={4} lg={2}>
+            <Grid key={card.title} item xs={12} sm={6} lg={3}>
               <Paper
                 sx={{
-                  p: 2,
-                  borderRadius: 1,
-                  border: `1px solid ${alpha(AGENT_THEME.red, 0.18)}`,
-                  boxShadow: `0 6px 18px ${alpha(AGENT_THEME.red, 0.08)}`,
+                  p: 2.25,
+                  borderRadius: 3,
+                  border: `1px solid ${alpha(card.color, 0.14)}`,
+                  boxShadow: "0 10px 28px rgba(15,23,42,0.06)",
+                  bgcolor: "white",
                 }}
               >
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -863,11 +853,11 @@ function EngagementDashboard() {
                     <Typography variant="caption" color="text.secondary">
                       {card.title}
                     </Typography>
-                    <Typography variant="h4" fontWeight={800} sx={{ color: AGENT_THEME.red }}>
+                    <Typography variant="h4" fontWeight={900} sx={{ color: AGENT_THEME.ink }}>
                       {card.value}
                     </Typography>
                   </Box>
-                  <Avatar sx={{ bgcolor: AGENT_THEME.redSoft, color: AGENT_THEME.red }}>
+                  <Avatar sx={{ bgcolor: alpha(card.color, 0.1), color: card.color }}>
                     {card.icon}
                   </Avatar>
                 </Stack>
@@ -922,216 +912,151 @@ function EngagementDashboard() {
           </Grid>
         </Paper>
 
-        <Paper sx={{ p: 2, mb: 2, borderRadius: 1, border: `1px solid ${AGENT_THEME.redBorder}` }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
-            <Typography variant="subtitle1" fontWeight={800}>
-              Messages a valider
-            </Typography>
-            <Chip size="small" label={pendingValidationProspects.length} />
-          </Stack>
-          {pendingValidationProspects.length === 0 ? (
-            <Alert severity="info">Aucun message en attente de validation.</Alert>
-          ) : (
-            <Grid container spacing={1.5}>
-              {pendingValidationProspects.slice(0, 6).map((prospect) => (
-                <Grid item xs={12} md={6} lg={4} key={prospect.id}>
-                  <Card variant="outlined" sx={{ borderRadius: 1, height: "100%" }}>
-                    <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                      <Stack spacing={1}>
-                        <Stack direction="row" justifyContent="space-between" spacing={1}>
-                          <Box sx={{ minWidth: 0 }}>
-                            <Typography variant="body2" fontWeight={800} noWrap>
-                              {getFullName(prospect)}
-                            </Typography>
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                              display="block"
-                              noWrap
-                            >
-                              {prospect.company_name ||
-                                prospect.prospect_company_detail?.name ||
-                                "Societe inconnue"}
-                            </Typography>
-                          </Box>
-                          {statusChip(prospect.engagement_status)}
-                        </Stack>
-                        <FieldLine
-                          label="Canal"
-                          value={prospect.engagement_channel || prospect.last_engagement_channel}
-                        />
-                        <AiTextBlock>
-                          {prospect.social_profile_hook || prospect.social_profile_summary}
-                        </AiTextBlock>
-                        <Button
-                          size="small"
-                          onClick={() => openProspect(prospect)}
-                          sx={{ color: AGENT_THEME.red, alignSelf: "flex-start" }}
-                        >
-                          Ouvrir et valider
-                        </Button>
-                      </Stack>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              ))}
-            </Grid>
-          )}
-        </Paper>
-
-        <Grid container spacing={2} alignItems="stretch" mb={2}>
-          {KANBAN.map((col) => (
-            <Grid item xs={12} md={6} lg={2} key={col.key}>
-              <Paper
+        <Paper
+          sx={{
+            p: 2,
+            mb: 2,
+            borderRadius: 3,
+            border: `1px solid ${alpha(AGENT_THEME.red, 0.12)}`,
+            boxShadow: "0 10px 28px rgba(15,23,42,0.05)",
+          }}
+        >
+          <Stack direction={{ xs: "column", lg: "row" }} spacing={1.25} alignItems="stretch">
+            {workflowStats.map((step, index) => (
+              <Box
+                key={step.key}
                 sx={{
-                  p: 1.5,
-                  borderRadius: 1,
-                  minHeight: 260,
-                  height: "100%",
-                  borderTop: `3px solid ${AGENT_THEME.red}`,
+                  flex: 1,
+                  minWidth: 120,
+                  p: 1.25,
+                  borderRadius: 2,
+                  bgcolor: step.count ? alpha(AGENT_THEME.red, 0.05) : "#f8fafc",
+                  border: `1px solid ${
+                    step.count ? alpha(AGENT_THEME.red, 0.18) : "rgba(148,163,184,0.18)"
+                  }`,
                 }}
               >
-                <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
-                  <Typography variant="subtitle2" fontWeight={800}>
-                    {col.label}
-                  </Typography>
-                  <Chip size="small" label={groupedProspects[col.key]?.length || 0} />
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <Avatar
+                    sx={{
+                      width: 28,
+                      height: 28,
+                      fontSize: 13,
+                      bgcolor: step.count ? AGENT_THEME.red : "#e2e8f0",
+                      color: step.count ? "white" : AGENT_THEME.slate,
+                    }}
+                  >
+                    {index + 1}
+                  </Avatar>
+                  <Box minWidth={0}>
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      {step.label}
+                    </Typography>
+                    <Typography variant="subtitle1" fontWeight={900}>
+                      {step.count}
+                    </Typography>
+                  </Box>
                 </Stack>
-                <Stack spacing={1}>
-                  {(groupedProspects[col.key] || []).slice(0, 8).map((prospect) => (
-                    <Card
-                      key={prospect.id}
-                      variant="outlined"
-                      sx={{
-                        borderRadius: 1,
-                        "&:hover": {
-                          borderColor: AGENT_THEME.redBorder,
-                          boxShadow: `0 4px 12px ${alpha(AGENT_THEME.red, 0.12)}`,
-                        },
-                      }}
-                    >
-                      <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                        <Typography variant="body2" fontWeight={800} noWrap>
-                          {getFullName(prospect)}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary" display="block" noWrap>
-                          {prospect.company_name ||
-                            prospect.prospect_company_detail?.name ||
-                            "Societe inconnue"}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary" display="block" noWrap>
-                          {prospect.title || "Poste non renseigne"}
-                        </Typography>
-                        <Stack direction="row" spacing={0.5} alignItems="center" mt={1} mb={1}>
-                          {statusChip(prospect.engagement_status)}
-                        </Stack>
-                        <Stack direction="row" spacing={0.5}>
-                          <Button
-                            size="small"
-                            onClick={() => openProspect(prospect)}
-                            sx={{ minWidth: 0, color: AGENT_THEME.red }}
-                          >
-                            Ouvrir
-                          </Button>
-                          {canCheckReply(prospect) && (
-                            <Button
-                              size="small"
-                              disabled={Boolean(busyAction)}
-                              onClick={() => handleCheckReply(prospect)}
-                              sx={{ minWidth: 0, color: AGENT_THEME.red }}
-                            >
-                              Reponse
-                            </Button>
-                          )}
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </Stack>
-              </Paper>
-            </Grid>
-          ))}
-        </Grid>
+              </Box>
+            ))}
+          </Stack>
+        </Paper>
 
         <Paper
-          sx={{ borderRadius: 1, overflow: "hidden", border: `1px solid ${AGENT_THEME.redBorder}` }}
+          sx={{
+            p: 2,
+            borderRadius: 3,
+            border: `1px solid ${alpha(AGENT_THEME.red, 0.12)}`,
+            boxShadow: "0 14px 36px rgba(15,23,42,0.06)",
+          }}
         >
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Nom</TableCell>
-                <TableCell>Email</TableCell>
-                <TableCell>Telephone</TableCell>
-                <TableCell>Statut</TableCell>
-                <TableCell>Source</TableCell>
-                <TableCell>Canal recommande</TableCell>
-                <TableCell>Statut engagement</TableCell>
-                <TableCell align="right">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {prospects.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 5 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      Aucun prospect d&apos;engagement trouve.
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                prospects.map((prospect) => (
-                  <TableRow key={prospect.id} hover>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight={700}>
-                        {getFullName(prospect)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>{prospect.email || "-"}</TableCell>
-                    <TableCell>{prospect.phone || prospect.mobile || "-"}</TableCell>
-                    <TableCell>{prospect.status || "-"}</TableCell>
-                    <TableCell>{prospect.source || prospect.origin || "-"}</TableCell>
-                    <TableCell>
-                      {prospect.engagement_channel || prospect.last_engagement_channel || "-"}
-                    </TableCell>
-                    <TableCell>{statusChip(prospect.engagement_status)}</TableCell>
-                    <TableCell align="right">
-                      <Stack
-                        direction="row"
-                        spacing={1}
-                        justifyContent="flex-end"
-                        alignItems="center"
-                      >
-                        {canCheckReply(prospect) && (
-                          <Button
-                            size="small"
-                            startIcon={
-                              busyAction === `check-reply-${prospect.id}` ? (
-                                <CircularProgress size={14} color="inherit" />
-                              ) : (
-                                <MarkEmailRead />
-                              )
-                            }
-                            disabled={Boolean(busyAction)}
-                            onClick={() => handleCheckReply(prospect)}
-                            sx={{ color: AGENT_THEME.red, textTransform: "none" }}
+          <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+            <Box>
+              <Typography variant="h6" fontWeight={900}>
+                File d&apos;engagement
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Une seule liste priorisée pour préparer, valider et suivre les actions.
+              </Typography>
+            </Box>
+            <Chip size="small" label={`${total} prospect(s)`} sx={{ fontWeight: 800 }} />
+          </Stack>
+
+          {prospects.length === 0 ? (
+            <Alert severity="info">Aucun prospect d&apos;engagement trouvé.</Alert>
+          ) : (
+            <Stack spacing={1.25}>
+              {prospects.map((prospect) => (
+                <Paper
+                  key={prospect.id}
+                  variant="outlined"
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 2.5,
+                    borderColor: alpha(AGENT_THEME.red, 0.12),
+                    bgcolor: "white",
+                    "&:hover": {
+                      borderColor: alpha(AGENT_THEME.red, 0.34),
+                      boxShadow: "0 10px 28px rgba(15,23,42,0.08)",
+                    },
+                  }}
+                >
+                  <Grid container spacing={1.5} alignItems="center">
+                    <Grid item xs={12} md={4}>
+                      <Stack direction="row" spacing={1.25} alignItems="center">
+                        <Avatar sx={{ bgcolor: AGENT_THEME.redSoft, color: AGENT_THEME.red }}>
+                          {getFullName(prospect).slice(0, 1) || "P"}
+                        </Avatar>
+                        <Box minWidth={0}>
+                          <Typography variant="body2" fontWeight={900} noWrap>
+                            {getFullName(prospect)}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            display="block"
+                            noWrap
                           >
-                            Verifier reponse
-                          </Button>
-                        )}
-                        <Button
-                          size="small"
-                          onClick={() => openProspect(prospect)}
-                          sx={{ color: AGENT_THEME.red }}
-                        >
-                          Ouvrir
-                        </Button>
+                            {prospect.title || "Poste non renseigné"}
+                          </Typography>
+                        </Box>
                       </Stack>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                    </Grid>
+                    <Grid item xs={12} md={3}>
+                      <Typography variant="caption" color="text.secondary">
+                        Société
+                      </Typography>
+                      <Typography variant="body2" fontWeight={800} noWrap>
+                        {prospect.company_name ||
+                          prospect.prospect_company_detail?.name ||
+                          "Société inconnue"}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6} md={2}>
+                      <Typography variant="caption" color="text.secondary">
+                        Canal
+                      </Typography>
+                      <Typography variant="body2" fontWeight={800}>
+                        {prospect.engagement_channel || prospect.last_engagement_channel || "-"}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6} md={2}>
+                      {statusChip(prospect.engagement_status)}
+                    </Grid>
+                    <Grid item xs={12} md={1} textAlign={{ xs: "left", md: "right" }}>
+                      <Button
+                        size="small"
+                        onClick={() => openProspect(prospect)}
+                        sx={{ color: AGENT_THEME.red, fontWeight: 900 }}
+                      >
+                        Ouvrir
+                      </Button>
+                    </Grid>
+                  </Grid>
+                </Paper>
+              ))}
+            </Stack>
+          )}
           <PaginationBar
             page={page}
             pages={pages}
@@ -1150,8 +1075,8 @@ function EngagementDashboard() {
         onClose={() => setSelected(null)}
         PaperProps={{
           sx: {
-            width: "min(720px, 95vw)",
-            maxWidth: "95vw",
+            width: "min(1100px, 92vw)",
+            maxWidth: "92vw",
             p: 2,
             overflowY: "auto",
             overflowX: "hidden",
@@ -1283,350 +1208,17 @@ function EngagementDashboard() {
             )}
 
             {tab === 2 && (
-              <Stack spacing={1}>
-                {logs.length === 0 && (
-                  <Alert severity="info">Aucun historique pour ce prospect.</Alert>
-                )}
-                {logs.map((log) => (
-                  <Paper key={log.id} variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center">
-                      <Typography variant="body2" fontWeight={800}>
-                        {log.action}
-                      </Typography>
-                      {statusChip(log.status)}
-                    </Stack>
-                    <Typography variant="caption" color="text.secondary">
-                      {new Date(log.created_at).toLocaleString("fr-FR")} -{" "}
-                      {log.channel || "canal non defini"}
-                    </Typography>
-                    {(log.sender_email || log.provider || log.error_code) && (
-                      <Typography variant="caption" color="text.secondary" display="block">
-                        {log.sender_email ? `Depuis ${log.sender_email}` : ""}
-                        {log.provider ? ` - ${log.provider}` : ""}
-                        {log.error_code ? ` - ${log.error_code}` : ""}
-                      </Typography>
-                    )}
-                    {log.message && <AiTextBlock>{log.message}</AiTextBlock>}
-                    {(log.error || log.error_message) && (
-                      <Alert severity="error" sx={{ mt: 1 }}>
-                        {log.error_message || log.error}
-                      </Alert>
-                    )}
-                  </Paper>
-                ))}
-              </Stack>
+              <ConversationPanel conversation={conversation} logs={logs} prospect={selected} />
             )}
-
             {tab === 3 && (
               <Stack spacing={2}>
-                <Stack direction="row" spacing={1} flexWrap="wrap">
-                  {statusChip(selected.engagement_status)}
-                  <Chip size="small" label={`Email: ${selected.email || "manquant"}`} />
-                  <Chip
-                    size="small"
-                    label={`LinkedIn: ${selected.linkedin_url ? "ok" : "manquant"}`}
-                  />
-                  <Chip
-                    size="small"
-                    label={`Facebook: ${selected.facebook_url ? "ok" : "manquant"}`}
-                  />
-                  <Chip
-                    size="small"
-                    label={`Instagram: ${selected.instagram_url ? "ok" : "manquant"}`}
-                  />
-                </Stack>
-                <DetailCard title="Sessions sociales">
-                  <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ rowGap: 1 }}>
-                    {[
-                      { key: "linkedin", label: "Connecter LinkedIn", icon: <LinkedIn /> },
-                      { key: "facebook", label: "Connecter Facebook", icon: <Facebook /> },
-                      { key: "instagram", label: "Connecter Instagram", icon: <Instagram /> },
-                    ].map((item) => (
-                      <Stack key={item.key} direction="row" spacing={1}>
-                        <Button
-                          size="small"
-                          startIcon={item.icon}
-                          variant="outlined"
-                          disabled={Boolean(busyAction)}
-                          sx={{
-                            color: AGENT_THEME.red,
-                            borderColor: AGENT_THEME.redBorder,
-                            textTransform: "none",
-                          }}
-                          onClick={() => handleSocialLogin(item.key)}
-                        >
-                          {item.label}
-                        </Button>
-                        <Button
-                          size="small"
-                          disabled={Boolean(busyAction)}
-                          sx={{ color: AGENT_THEME.red, textTransform: "none" }}
-                          onClick={() => handleSocialSessionCheck(item.key)}
-                        >
-                          Verifier la session
-                        </Button>
-                      </Stack>
-                    ))}
-                  </Stack>
-                </DetailCard>
-                <DetailCard title="Resume social IA">
-                  <AiTextBlock>{selected.social_profile_summary}</AiTextBlock>
-                </DetailCard>
-                <DetailCard title="Description IA">
-                  <AiTextBlock>{selected.social_profile_description}</AiTextBlock>
-                </DetailCard>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} md={6}>
-                    <DetailCard title="Interets">
-                      <BadgeList items={selected.social_profile_interests} />
-                    </DetailCard>
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <DetailCard title="Sujets recents">
-                      <BadgeList items={selected.social_profile_topics} />
-                    </DetailCard>
-                  </Grid>
-                </Grid>
-                <DetailCard title="Signaux IA">
-                  <Stack spacing={1}>
-                    <FieldLine label="Activite" value={selected.social_profile_activity_level} />
-                    <FieldLine label="Pertinence" value={selected.social_profile_relevance} />
-                    <FieldLine label="Ton" value={selected.social_profile_tone} />
-                  </Stack>
-                </DetailCard>
-                <DetailCard title="Accroche recommandee">
-                  <AiTextBlock>{selected.social_profile_hook}</AiTextBlock>
-                </DetailCard>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Canal</InputLabel>
-                  <Select
-                    label="Canal"
-                    value={channel}
-                    onChange={(event) => setChannel(event.target.value)}
-                  >
-                    {channelOptions(selected).map((option) => (
-                      <MenuItem key={option.key} value={option.key} disabled={option.disabled}>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          {option.icon}
-                          <span>{option.label}</span>
-                        </Stack>
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <TextField
-                  label="Message prepare"
-                  value={message}
-                  onChange={(event) => setMessage(event.target.value)}
-                  fullWidth
-                  multiline
-                  minRows={8}
+                <AgentEngagementCockpit
+                  prospect={selected}
+                  onConversationChanged={() => loadProspectEngagementDetails(selected.id)}
+                  onToast={(toastMessage, severity = "success") =>
+                    setToast({ severity, message: toastMessage })
+                  }
                 />
-                {selected.engagement_error && (
-                  <Alert severity="error">{selected.engagement_error}</Alert>
-                )}
-                {channel === "email" && !emailConnection.connected && (
-                  <Alert severity="warning">
-                    Connectez Gmail ou Microsoft avant un envoi email. Le mode test reste
-                    disponible.
-                  </Alert>
-                )}
-                {channel === "email" && emailConnection.connected && (
-                  <Alert severity="info">
-                    L&apos;email sera envoye depuis {emailConnection.email}. Aucun
-                    DEFAULT_FROM_EMAIL global n&apos;est utilise.
-                  </Alert>
-                )}
-                <Stack direction="row" spacing={1} flexWrap="wrap">
-                  <Button
-                    startIcon={<AutoFixHigh />}
-                    variant="contained"
-                    sx={{ bgcolor: AGENT_THEME.red, "&:hover": { bgcolor: AGENT_THEME.redDeep } }}
-                    disabled={Boolean(busyAction)}
-                    onClick={() =>
-                      runAction(
-                        "prepare",
-                        () => prepareEngagementMessage(selected.id),
-                        "Message IA genere."
-                      )
-                    }
-                  >
-                    Generer message IA
-                  </Button>
-                  <Button
-                    startIcon={<AutoFixHigh />}
-                    disabled={Boolean(busyAction)}
-                    sx={{ color: AGENT_THEME.red }}
-                    onClick={() =>
-                      runAction(
-                        "regenerate",
-                        () => prepareEngagementMessage(selected.id),
-                        "Message regenere."
-                      )
-                    }
-                  >
-                    Regenerer
-                  </Button>
-                  <Button
-                    startIcon={<Refresh />}
-                    disabled={Boolean(busyAction)}
-                    sx={{ color: AGENT_THEME.red }}
-                    onClick={() =>
-                      runAction(
-                        "analyze-social",
-                        () => analyzeSocialProfile(selected.id),
-                        "Analyse sociale relancee."
-                      )
-                    }
-                  >
-                    Relancer analyse
-                  </Button>
-                  <Button
-                    startIcon={<Save />}
-                    disabled={Boolean(busyAction) || !message.trim() || !channel}
-                    sx={{ color: AGENT_THEME.red }}
-                    onClick={() =>
-                      runAction(
-                        "save",
-                        () => saveEngagementMessage(selected.id, { message, channel }),
-                        "Message sauvegarde."
-                      )
-                    }
-                  >
-                    Valider message
-                  </Button>
-                  <Button
-                    startIcon={<Send />}
-                    variant="contained"
-                    disabled={Boolean(busyAction) || !message.trim() || !channel}
-                    sx={{ bgcolor: AGENT_THEME.red, "&:hover": { bgcolor: AGENT_THEME.redDeep } }}
-                    onClick={() => {
-                      if (!testMode) {
-                        const ok = window.confirm(
-                          `Confirmer l'envoi ${channel} a ${
-                            getFullName(selected) || "ce prospect"
-                          } ?`
-                        );
-                        if (!ok) return;
-                      }
-                      runAction(
-                        "send",
-                        () =>
-                          sendEngagementMessage(selected.id, { message, channel, send: !testMode }),
-                        testMode ? "Mode test: envoi prepare sans clic final." : "Message envoye."
-                      );
-                    }}
-                  >
-                    Envoyer maintenant
-                  </Button>
-                  <Button
-                    startIcon={<Close />}
-                    disabled={Boolean(busyAction)}
-                    sx={{ color: AGENT_THEME.red }}
-                    onClick={() =>
-                      runAction(
-                        "reject",
-                        () =>
-                          rejectEngagementMessage(selected.id, { reason: "Message non pertinent" }),
-                        "Message refuse."
-                      )
-                    }
-                  >
-                    Refuser
-                  </Button>
-                  <Button
-                    startIcon={<MarkEmailRead />}
-                    disabled={Boolean(busyAction)}
-                    sx={{ color: AGENT_THEME.red }}
-                    onClick={() =>
-                      runAction(
-                        "replied",
-                        () => markEngagementReplied(selected.id),
-                        "Prospect marque comme repondu."
-                      )
-                    }
-                  >
-                    Marquer repondu
-                  </Button>
-                  {canCheckReply(selected) && (
-                    <Button
-                      startIcon={
-                        busyAction === `check-reply-${selected.id}` ? (
-                          <CircularProgress size={16} color="inherit" />
-                        ) : (
-                          <MarkEmailRead />
-                        )
-                      }
-                      disabled={Boolean(busyAction)}
-                      sx={{ color: AGENT_THEME.red }}
-                      onClick={() => handleCheckReply(selected)}
-                    >
-                      Verifier reponse
-                    </Button>
-                  )}
-                  <Button
-                    startIcon={<TaskAlt />}
-                    disabled={Boolean(busyAction)}
-                    sx={{ color: AGENT_THEME.red }}
-                    onClick={() =>
-                      runAction(
-                        "followup",
-                        () => createFollowUpTask(selected.id, { due_days: 3 }),
-                        "Tache de relance creee."
-                      )
-                    }
-                  >
-                    Creer relance
-                  </Button>
-                </Stack>
-                <Divider />
-                <Box>
-                  <Typography variant="subtitle2" fontWeight={800} mb={1}>
-                    Taches liees
-                  </Typography>
-                  <Stack spacing={1}>
-                    {tasks.length === 0 && (
-                      <Alert severity="info">Aucune tache liee a ce prospect.</Alert>
-                    )}
-                    {tasks.map((task) => (
-                      <Paper key={task.id} variant="outlined" sx={{ p: 1.25, borderRadius: 1 }}>
-                        <Stack
-                          direction="row"
-                          justifyContent="space-between"
-                          alignItems="center"
-                          spacing={1}
-                        >
-                          <Box sx={{ minWidth: 0 }}>
-                            <Typography variant="body2" fontWeight={800} noWrap>
-                              {task.title}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {task.task_type} - {task.status}
-                              {task.due_date
-                                ? ` - ${new Date(task.due_date).toLocaleDateString("fr-FR")}`
-                                : ""}
-                            </Typography>
-                          </Box>
-                          {!["completed", "done", "cancelled"].includes(task.status) && (
-                            <Button
-                              size="small"
-                              sx={{ color: AGENT_THEME.red }}
-                              onClick={() =>
-                                runAction(
-                                  `task-${task.id}`,
-                                  () => completeCrmTask(task.id),
-                                  "Tache terminee."
-                                )
-                              }
-                            >
-                              Terminer
-                            </Button>
-                          )}
-                        </Stack>
-                      </Paper>
-                    ))}
-                  </Stack>
-                </Box>
                 {busyAction && (
                   <Stack direction="row" spacing={1} alignItems="center">
                     <CircularProgress size={18} />
@@ -1638,191 +1230,6 @@ function EngagementDashboard() {
           </Stack>
         )}
       </Drawer>
-
-      <Dialog
-        open={replyDialogOpen}
-        onClose={() => setReplyDialogOpen(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>Verification de reponse</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1 }}>
-            {replyCheckResult?.requires_login && (
-              <Alert severity="warning">
-                {replyCheckResult.message || "Connexion requise pour lire la conversation sociale."}
-              </Alert>
-            )}
-            {!replyCheckResult?.requires_login && replyCheckResult?.has_reply === false && (
-              <Alert severity="info">
-                {replyCheckResult.message ||
-                  "Aucune reponse detectee apres le dernier message envoye."}
-              </Alert>
-            )}
-            {replyCheckResult?.has_reply && (
-              <Alert severity="success">
-                Une reponse a ete detectee apres le dernier message envoye.
-              </Alert>
-            )}
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
-                <DetailCard title="Reponse detectee">
-                  <AiTextBlock>
-                    {replyCheckResult?.reply_text || replyCheckResult?.prospect?.last_reply_text}
-                  </AiTextBlock>
-                  <FieldLine
-                    label="Date"
-                    value={
-                      replyCheckResult?.reply_at || replyCheckResult?.prospect?.last_reply_at
-                        ? new Date(
-                            replyCheckResult.reply_at || replyCheckResult.prospect.last_reply_at
-                          ).toLocaleString("fr-FR")
-                        : ""
-                    }
-                  />
-                </DetailCard>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <DetailCard title="Analyse Gemini">
-                  <Stack spacing={1}>
-                    <FieldLine
-                      label="Sentiment"
-                      value={
-                        replyCheckResult?.sentiment || replyCheckResult?.prospect?.reply_sentiment
-                      }
-                    />
-                    <FieldLine
-                      label="Action"
-                      value={
-                        replyCheckResult?.recommended_action ||
-                        replyCheckResult?.prospect?.next_recommended_action
-                      }
-                    />
-                    <AiTextBlock>
-                      {replyCheckResult?.reply_summary || replyCheckResult?.prospect?.reply_summary}
-                    </AiTextBlock>
-                  </Stack>
-                </DetailCard>
-              </Grid>
-            </Grid>
-            {replyCheckResult?.messages?.length > 0 && (
-              <DetailCard title="Derniers messages scrapes">
-                <Stack spacing={1}>
-                  {replyCheckResult.messages.map((msg, index) => (
-                    <Box
-                      key={`${msg.sender || "message"}-${index}`}
-                      sx={{
-                        alignSelf: msg.sender === "me" ? "flex-end" : "flex-start",
-                        maxWidth: "85%",
-                        p: 1.25,
-                        borderRadius: 1,
-                        bgcolor: msg.sender === "me" ? AGENT_THEME.redSoft : "#f3f4f6",
-                        border: `1px solid ${
-                          msg.sender === "me" ? AGENT_THEME.redBorder : "#e5e7eb"
-                        }`,
-                      }}
-                    >
-                      <Typography variant="caption" fontWeight={800} color="text.secondary">
-                        {msg.sender === "me" ? "Moi" : "Prospect"}
-                      </Typography>
-                      <Typography
-                        variant="body2"
-                        sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
-                      >
-                        {msg.text}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Stack>
-              </DetailCard>
-            )}
-            <TextField
-              label="Message genere"
-              value={replyDraft}
-              onChange={(event) => setReplyDraft(event.target.value)}
-              fullWidth
-              multiline
-              minRows={5}
-            />
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ flexWrap: "wrap", rowGap: 1 }}>
-          <Button onClick={() => setReplyDialogOpen(false)} sx={{ color: AGENT_THEME.red }}>
-            Fermer
-          </Button>
-          <Button
-            disabled={!replyDraft.trim()}
-            sx={{ color: AGENT_THEME.red }}
-            onClick={() => {
-              setMessage(replyDraft);
-              if (replyCheckResult?.prospect) {
-                setSelected(replyCheckResult.prospect);
-                setChannel(
-                  replyCheckResult.prospect.engagement_channel ||
-                    replyCheckResult.prospect.last_engagement_channel ||
-                    channel
-                );
-                setTab(3);
-              }
-              setToast({ severity: "info", message: "Message charge dans l'editeur." });
-            }}
-          >
-            Modifier le message
-          </Button>
-          {(replyCheckResult?.recommended_action ||
-            replyCheckResult?.prospect?.next_recommended_action) === "create_opportunity" && (
-            <Button
-              startIcon={<TaskAlt />}
-              sx={{ color: AGENT_THEME.red }}
-              onClick={() =>
-                navigate("/opportunities", {
-                  state: { prospectId: replyCheckResult?.prospect?.id },
-                })
-              }
-            >
-              Creer opportunite
-            </Button>
-          )}
-          <Button
-            startIcon={
-              busyAction === "send-generated-reply" ? (
-                <CircularProgress size={16} color="inherit" />
-              ) : (
-                <Send />
-              )
-            }
-            variant="contained"
-            disabled={Boolean(busyAction) || !replyDraft.trim() || replyCheckResult?.requires_login}
-            sx={{ bgcolor: AGENT_THEME.red, "&:hover": { bgcolor: AGENT_THEME.redDeep } }}
-            onClick={handleUseGeneratedReply}
-          >
-            Envoyer cette reponse
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={linkedinModal} onClose={() => setLinkedinModal(false)}>
-        <DialogTitle>Connexion LinkedIn requise</DialogTitle>
-        <DialogContent>
-          <Typography>
-            {
-              "La session LinkedIn doit etre connectee avant un envoi reel. Ouvrez la page de connexion, connectez-vous, puis relancez l'envoi."
-            }
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setLinkedinModal(false)} sx={{ color: AGENT_THEME.red }}>
-            Fermer
-          </Button>
-          <Button
-            variant="contained"
-            sx={{ bgcolor: AGENT_THEME.red, "&:hover": { bgcolor: AGENT_THEME.redDeep } }}
-            onClick={() => window.open("/engagement/linkedin-login", "_blank")}
-          >
-            Connecter LinkedIn
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       <Snackbar open={Boolean(toast)} autoHideDuration={4000} onClose={() => setToast(null)}>
         {toast && <Alert severity={toast.severity}>{toast.message}</Alert>}

@@ -119,18 +119,12 @@ import { useTrackActivity } from "../superadmin/Marketingwidgets";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import PaginationBar from "../../components/PaginationBar";
 import api from "../../services/salesApi";
-import {
-  calculateProspectScore,
-  getDiscoveryReportBlob,
-  getProspectSources,
-  runDiscovery,
-} from "../../services/prospectAgentApi";
+import { getDiscoveryReportBlob, runDiscovery } from "../../services/prospectAgentApi";
 import {
   discoveryFailedCount,
   discoveryImportedCount,
   discoveryResultMessage,
   discoverySummarySources,
-  formatDiscoveryMessage,
   normalizeProspectSources,
 } from "../../utils/prospectSources";
 
@@ -258,100 +252,6 @@ ProspectSourceBadges.propTypes = {
   maxVisible: PropTypes.number,
 };
 
-const getProspectScoreValue = (prospect) => {
-  const value = prospect?.score_ia ?? prospect?.prospect_company_detail?.score_ia;
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : null;
-};
-
-const hasCalculatedScore = (prospect) => Boolean(prospect?.evaluation);
-
-const ScoreBadge = ({ prospect, onDetails }) => {
-  if (!hasCalculatedScore(prospect)) {
-    return (
-      <Chip
-        size="small"
-        label="Non calculé"
-        sx={{
-          borderRadius: 1,
-          bgcolor: alpha(THEME.info, 0.08),
-          color: THEME.info,
-          fontWeight: 600,
-        }}
-      />
-    );
-  }
-
-  const score = getProspectScoreValue(prospect);
-  const label = score === null ? getEvaluationLabel(prospect.evaluation) : `${score} / 100`;
-
-  return (
-    <Tooltip title={prospect.score_reasons || "Voir le detail du score"}>
-      <Chip
-        clickable={Boolean(onDetails)}
-        size="small"
-        label={label}
-        onClick={onDetails}
-        sx={{
-          borderRadius: 1,
-          bgcolor: alpha(getEvaluationColor(prospect.evaluation), 0.1),
-          color: getEvaluationColor(prospect.evaluation),
-          border: `1px solid ${alpha(getEvaluationColor(prospect.evaluation), 0.35)}`,
-          fontWeight: 700,
-        }}
-      />
-    </Tooltip>
-  );
-};
-
-ScoreBadge.propTypes = {
-  prospect: PropTypes.object.isRequired,
-  onDetails: PropTypes.func,
-};
-
-const CompactScoreBadge = ({ prospect }) => {
-  if (!hasCalculatedScore(prospect)) {
-    return (
-      <Chip
-        size="small"
-        label="Non calculé"
-        sx={{
-          height: 24,
-          borderRadius: 1,
-          bgcolor: alpha(THEME.info, 0.08),
-          color: THEME.info,
-          fontWeight: 700,
-          fontSize: "0.7rem",
-        }}
-      />
-    );
-  }
-
-  const score = getProspectScoreValue(prospect);
-  return (
-    <Stack spacing={0.25} alignItems="center">
-      <Typography variant="body2" fontWeight={800} color={getEvaluationColor(prospect.evaluation)}>
-        {score === null ? "-" : score} / 100
-      </Typography>
-      <Chip
-        size="small"
-        label={getEvaluationLabel(prospect.evaluation)}
-        sx={{
-          height: 18,
-          borderRadius: 0.75,
-          bgcolor: alpha(getEvaluationColor(prospect.evaluation), 0.1),
-          color: getEvaluationColor(prospect.evaluation),
-          fontWeight: 800,
-          fontSize: "0.62rem",
-        }}
-      />
-    </Stack>
-  );
-};
-CompactScoreBadge.propTypes = {
-  prospect: PropTypes.object.isRequired,
-};
-
 const ContactIconLink = ({ href, label, icon: Icon, color, copyText }) => {
   if (!href && !copyText) return null;
   const linkProps = href
@@ -454,7 +354,6 @@ const agentLeadName = (item) =>
   "Prospect";
 const agentLeadSourceLabel = (item) =>
   item?.source_label || SOURCE_CONFIG[item?.source]?.label || item?.source || "Source inconnue";
-const agentLeadScore = (item) => Number(item?.lead_score ?? item?.score_ia ?? item?.score ?? 0);
 const hasCoordinates = (item) => item?.latitude && item?.longitude;
 const discoveryStats = (result = {}) => {
   const acceptedCount = Number(result.accepted_count ?? result.found_count ?? 0);
@@ -471,6 +370,19 @@ const discoveryStats = (result = {}) => {
     hasProspects: acceptedCount > 0 || importedCount > 0,
   };
 };
+
+const PROSPECTION_AGENT_STEPS = [
+  "Analyse de la cible",
+  "Recherche multi-sources",
+  "Vérification des données",
+  "Synchronisation CRM",
+];
+
+const PROSPECTION_AGENT_SUGGESTIONS = [
+  "trouver 10 ingenieurs electrotechnique sur linkedin",
+  "trouver 8 responsables RH a Tunis sur LinkedIn",
+  "trouver des hotels a Sousse avec email et site web",
+];
 
 const ProspectLocationsMap = ({ prospects }) => {
   const validProspects = (prospects || []).filter(hasCoordinates);
@@ -549,7 +461,6 @@ ProspectLocationsMap.propTypes = {
 ProspectLocationsMap.defaultProps = { prospects: [] };
 
 const AgentLeadCard = ({ item, leadType }) => {
-  const score = agentLeadScore(item);
   const googleMapsUrl = item.google_maps_url || item.maps_url;
   const website = item.website || item.site_web;
 
@@ -616,25 +527,14 @@ const AgentLeadCard = ({ item, leadType }) => {
           )}
         </Stack>
 
-        <Box>
-          <Box display="flex" justifyContent="space-between" mb={0.5}>
-            <Typography variant="caption" color="text.secondary">
-              Score IA
-            </Typography>
-            <Typography variant="caption" fontWeight={800}>
-              {score}/100
-            </Typography>
-          </Box>
-          <LinearProgress
-            variant="determinate"
-            value={Math.max(0, Math.min(100, score))}
-            sx={{ height: 6, borderRadius: 1 }}
-          />
-        </Box>
+        <Typography variant="caption" color="text.secondary">
+          Résultat collecté par l&apos;agent de prospection. L&apos;analyse avancée sera traitée
+          dans un agent dédié.
+        </Typography>
 
-        {(item.raison_score || item.reason || item.evaluation) && (
+        {(item.reason || item.notes) && (
           <Typography variant="caption" color="text.secondary">
-            Qualification : {item.raison_score || item.reason || item.evaluation}
+            Note : {item.reason || item.notes}
           </Typography>
         )}
       </Stack>
@@ -680,204 +580,6 @@ AgentResultsPreview.propTypes = {
 };
 AgentResultsPreview.defaultProps = { result: null };
 
-const safeValue = (value) => (value === undefined || value === null || value === "" ? "-" : value);
-const asList = (value) => (Array.isArray(value) ? value : value ? [value] : []);
-const pipelineStatsValue = (debug, key) => Number(debug?.stats?.[key] || 0);
-const compactDuration = (value) => {
-  const seconds = Number(value || 0);
-  return seconds ? `${seconds}s` : "-";
-};
-
-const AgentPipelineDebug = ({ result }) => {
-  const debug = result?.pipeline_debug;
-  if (!debug) {
-    return (
-      <Alert severity="info" sx={{ mt: 2 }}>
-        Details de pipeline non disponibles
-      </Alert>
-    );
-  }
-
-  const intent = debug.query_understanding || result?.intent || {};
-  const strategy = debug.strategy || result?.strategy || {};
-  const decision = debug.decision || {};
-  const execution = debug.execution || {};
-  const geminiCalls = debug.gemini_usage?.calls || [];
-  const rejected = debug.rejected_preview || result?.rejected_details || [];
-  const sourcesUsed =
-    result?.sources_used ||
-    execution.searches_executed?.map((item) => item.source).filter(Boolean) ||
-    [];
-  const imported = pipelineStatsValue(debug, "imported");
-  const timeline = [
-    ["Compréhension", intent.reasoning_summary || intent.lead_mode],
-    ["Stratégie Gemini", strategy.strategy_summary],
-    ["Décision sources", decision.reason || decision.search_strategy],
-    ["Planification", debug.planning?.reasoning_summary],
-    ["Recherche", `${pipelineStatsValue(debug, "raw_results")} resultats bruts`],
-    ["Enrichissement", `${execution.urls_scraped?.length || 0} URL scrapees`],
-    ["Qualification Gemini", `${pipelineStatsValue(debug, "qualified")} qualifies`],
-    ["Scoring", `${pipelineStatsValue(debug, "scored")} scores`],
-    ["Validation CRM", `${pipelineStatsValue(debug, "crm_ready")} CRM ready`],
-    ["Import", `${imported} importes`],
-  ];
-
-  return (
-    <Box mt={2}>
-      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
-        <Typography variant="subtitle2" fontWeight={800} gutterBottom>
-          Resume de prospection IA
-        </Typography>
-        <Grid container spacing={1}>
-          {[
-            ["Requete", intent.raw_query || result?.intent?.raw_query],
-            ["Mode detecte", intent.lead_mode],
-            ["Strategie", strategy.strategy_summary],
-            ["Sources", [...new Set(sourcesUsed)].join(", ")],
-            ["Collectes", pipelineStatsValue(debug, "collected")],
-            ["Qualifies", pipelineStatsValue(debug, "qualified")],
-            ["CRM Ready", pipelineStatsValue(debug, "crm_ready")],
-            ["Importes", imported],
-            [
-              "Duree",
-              compactDuration(execution.total_duration_seconds || execution.duration_seconds),
-            ],
-            ["Appels Gemini", debug.gemini_usage?.total_calls || 0],
-            ["Statut final", result?.stop_reason],
-          ].map(([label, value]) => (
-            <Grid item xs={6} key={label}>
-              <Typography variant="caption" color="text.secondary">
-                {label}
-              </Typography>
-              <Typography variant="body2" fontWeight={700} sx={{ wordBreak: "break-word" }}>
-                {safeValue(value)}
-              </Typography>
-            </Grid>
-          ))}
-        </Grid>
-      </Paper>
-
-      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mt: 1.25 }}>
-        <Typography variant="subtitle2" fontWeight={800} gutterBottom>
-          Timeline pipeline
-        </Typography>
-        <Stack spacing={0.75}>
-          {timeline.map(([label, summary], index) => (
-            <Box key={label} display="flex" gap={1} alignItems="flex-start">
-              <Chip size="small" color="success" label={index + 1} sx={{ minWidth: 28 }} />
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant="caption" fontWeight={800}>
-                  {label}
-                </Typography>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  {safeValue(summary)}
-                </Typography>
-              </Box>
-            </Box>
-          ))}
-        </Stack>
-      </Paper>
-
-      <details style={{ marginTop: 10 }}>
-        <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 700 }}>Strategie IA</summary>
-        <TableContainer component={Paper} variant="outlined" sx={{ mt: 1, borderRadius: 2 }}>
-          <Table size="small">
-            <TableBody>
-              {[
-                ["Cibles prioritaires", strategy.priority_targets],
-                ["Cibles a eviter", strategy.avoid_targets],
-                ["Sources recommandees", strategy.recommended_sources],
-                ["Mots-cles", strategy.recommended_keywords],
-                ["Mots-cles negatifs", strategy.negative_keywords],
-                ["Signaux commerciaux", strategy.commercial_signals],
-                ["Signaux de bruit", strategy.noise_signals],
-              ].map(([label, value]) => (
-                <TableRow key={label}>
-                  <TableCell sx={{ fontWeight: 700, width: 150 }}>{label}</TableCell>
-                  <TableCell>{safeValue(asList(value).join(", "))}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </details>
-
-      <details style={{ marginTop: 10 }}>
-        <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
-          Utilisation Gemini
-        </summary>
-        <TableContainer component={Paper} variant="outlined" sx={{ mt: 1, borderRadius: 2 }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Agent</TableCell>
-                <TableCell>Prompt</TableCell>
-                <TableCell>Succes</TableCell>
-                <TableCell>Duree</TableCell>
-                <TableCell>Fallback</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {(geminiCalls.length
-                ? geminiCalls
-                : [{ agent: "-", prompt: "-", success: false }]
-              ).map((call, index) => (
-                <TableRow key={call.id || index}>
-                  <TableCell>{safeValue(call.agent)}</TableCell>
-                  <TableCell>{safeValue(call.prompt)}</TableCell>
-                  <TableCell>{call.success ? "Oui" : "Non"}</TableCell>
-                  <TableCell>{compactDuration(call.duration_seconds)}</TableCell>
-                  <TableCell>{call.fallback_used ? "Oui" : "Non"}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </details>
-
-      <details style={{ marginTop: 10 }}>
-        <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
-          Resultats rejetes
-        </summary>
-        <TableContainer
-          component={Paper}
-          variant="outlined"
-          sx={{ mt: 1, borderRadius: 2, maxHeight: 260 }}
-        >
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell>Nom</TableCell>
-                <TableCell>Source</TableCell>
-                <TableCell>Etape</TableCell>
-                <TableCell>Raison</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {(rejected.length
-                ? rejected
-                : [{ name: "-", source: "-", stage: "-", reason: "-" }]
-              ).map((item, index) => (
-                <TableRow key={`${item.name || "rejected"}-${index}`}>
-                  <TableCell>{safeValue(item.name)}</TableCell>
-                  <TableCell>{safeValue(item.source)}</TableCell>
-                  <TableCell>{safeValue(item.stage)}</TableCell>
-                  <TableCell>{safeValue(item.reason)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </details>
-    </Box>
-  );
-};
-
-AgentPipelineDebug.propTypes = {
-  result: PropTypes.object,
-};
-AgentPipelineDebug.defaultProps = { result: null };
-
 // ==============================
 // CONFIG
 // ==============================
@@ -921,9 +623,10 @@ const StyledTableContainer = styled(TableContainer)(() => ({
   border: "1px solid var(--crm-border)",
   background: "var(--crm-surface)",
   overflowX: "auto",
+  overflowY: "hidden",
   "& .MuiTable-root": {
     width: "100%",
-    minWidth: 1250,
+    minWidth: 1040,
     borderCollapse: "collapse",
     tableLayout: "fixed",
   },
@@ -952,7 +655,7 @@ const StyledTableRow = styled(TableRow)(() => ({
   "&:hover": { backgroundColor: alpha(THEME.primary, 0.02), cursor: "pointer" },
   "& td": {
     height: 78,
-    padding: "12px 18px",
+    padding: "12px 16px",
     borderBottom: "1px solid var(--crm-border)",
     color: "var(--crm-text)",
     verticalAlign: "middle",
@@ -1244,10 +947,6 @@ const ProspectTableRow = ({
       </TableCell>
 
       <TableCell align="center">
-        <CompactScoreBadge prospect={prospect} />
-      </TableCell>
-
-      <TableCell align="center">
         <Chip
           label={getStatusLabel(prospect.status)}
           size="small"
@@ -1298,7 +997,7 @@ const ProspectTableRow = ({
       </TableCell>
 
       <TableCell align="center">
-        <Box sx={{ display: "flex", justifyContent: "center", gap: 0.5 }}>
+        <Box sx={{ display: "flex", justifyContent: "center", gap: 0.5, flexWrap: "nowrap" }}>
           {[
             {
               title: "Voir dossier 360",
@@ -1362,9 +1061,6 @@ const ProspectCard = ({
   onArchive,
   onRestore,
   onDelete,
-  onScore,
-  onScoreDetails,
-  scoring,
 }) => {
   const isAdminOrManager = currentUser && ["ADMIN", "MANAGER"].includes(currentUser.role);
   const googleMapsUrl = prospect.google_maps_url;
@@ -1410,7 +1106,6 @@ const ProspectCard = ({
             }}
           />
           <ProspectSourceBadges prospect={prospect} maxVisible={2} />
-          <ScoreBadge prospect={prospect} onDetails={() => onScoreDetails(prospect)} />
         </Box>
         <Divider sx={{ my: 2 }} />
         <Stack spacing={1.5}>
@@ -1513,17 +1208,6 @@ const ProspectCard = ({
               fn: () => onRestore(prospect.id),
             },
             {
-              title: scoring ? "Calcul en cours" : "Calculer le score",
-              color: "#00695c",
-              icon: scoring ? (
-                <CircularProgress size={14} color="inherit" />
-              ) : (
-                <AssessmentIcon fontSize="small" />
-              ),
-              fn: () => onScore(prospect),
-              disabled: scoring,
-            },
-            {
               title: "Supprimer",
               color: THEME.primary,
               icon: <DeleteIcon fontSize="small" />,
@@ -1555,9 +1239,6 @@ ProspectCard.propTypes = {
   onArchive: PropTypes.func.isRequired,
   onRestore: PropTypes.func.isRequired,
   onDelete: PropTypes.func.isRequired,
-  onScore: PropTypes.func.isRequired,
-  onScoreDetails: PropTypes.func.isRequired,
-  scoring: PropTypes.bool,
 };
 
 // ==============================
@@ -2474,197 +2155,7 @@ ProspectInfoTab.propTypes = {
   companyName: PropTypes.string,
 };
 
-const ProspectQualificationTab = ({ prospect, onScore, scoring }) => {
-  const score = getProspectScoreValue(prospect);
-  const reasons = prospect.score_reasons || prospect.raison_score || "";
-  const criteria = reasons
-    .split(/\n|;|,/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  return (
-    <Stack spacing={1.5} pt={1}>
-      <ProspectDrawerSection
-        title="Qualification"
-        action={
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={scoring ? <CircularProgress size={13} /> : <AssessmentIcon />}
-            onClick={() => onScore?.(prospect)}
-            disabled={scoring || !onScore}
-            aria-label={hasCalculatedScore(prospect) ? "Recalculer le score" : "Calculer le score"}
-            sx={{ minHeight: 30, textTransform: "none", borderRadius: 1, fontWeight: 700 }}
-          >
-            {hasCalculatedScore(prospect) ? "Recalculer" : "Calculer le score"}
-          </Button>
-        }
-      >
-        {hasCalculatedScore(prospect) ? (
-          <Box display="flex" alignItems="center" gap={1.25} flexWrap="wrap">
-            <Typography
-              variant="h4"
-              fontWeight={800}
-              color={getEvaluationColor(prospect.evaluation)}
-            >
-              {score === null ? "-" : score}
-              <Typography component="span" variant="body2" color="textSecondary">
-                {" "}
-                / 100
-              </Typography>
-            </Typography>
-            <StyledChip
-              size="small"
-              label={getEvaluationLabel(prospect.evaluation)}
-              evaluation={prospect.evaluation}
-            />
-          </Box>
-        ) : (
-          <Box>
-            <Typography variant="h6" fontWeight={800}>
-              Non calculé
-            </Typography>
-            <Typography variant="body2" color="textSecondary">
-              Le score de ce prospect n&apos;a pas encore été calculé.
-            </Typography>
-          </Box>
-        )}
-      </ProspectDrawerSection>
-
-      {hasCalculatedScore(prospect) && (
-        <ProspectDrawerSection title="Critères">
-          {criteria.length ? (
-            <Stack spacing={0.75}>
-              {criteria.map((criterion) => (
-                <Box key={criterion} display="flex" alignItems="flex-start" gap={0.75}>
-                  <CheckCircleIcon sx={{ fontSize: 16, color: THEME.success, mt: 0.15 }} />
-                  <Typography variant="body2">{criterion}</Typography>
-                </Box>
-              ))}
-            </Stack>
-          ) : (
-            <Typography variant="body2" color="textSecondary">
-              Aucun détail de score enregistré.
-            </Typography>
-          )}
-        </ProspectDrawerSection>
-      )}
-    </Stack>
-  );
-};
-ProspectQualificationTab.propTypes = {
-  prospect: PropTypes.object.isRequired,
-  onScore: PropTypes.func,
-  scoring: PropTypes.bool,
-};
-
-const ProspectAgentTab = ({ prospect, onSources }) => {
-  const discoverySources = normalizeProspectSources(prospect);
-  const rows = [
-    ["Origine", prospect.origin ? getOriginLabel(prospect.origin) : null],
-    ["Source principale", discoverySources[0]?.fullLabel],
-    ["Date de découverte", prospect.created_at ? formatDate(prospect.created_at) : null],
-    ["Lien source", prospect.source_url],
-    ["Google Maps", prospect.google_maps_url],
-    ["Requête", prospect.discovery_query || prospect.agent_query || prospect.query],
-    ["Message préparé", prospect.generated_message],
-  ].filter(([, value]) => value);
-
-  return (
-    <Stack spacing={1.5} pt={1}>
-      <ProspectDrawerSection title="Agent IA">
-        {rows.length ? (
-          <Stack spacing={1}>
-            {rows.map(([label, value]) => {
-              const isUrl = typeof value === "string" && /^https?:\/\//i.test(value);
-              return (
-                <Box key={label}>
-                  <Typography variant="caption" color="textSecondary" display="block">
-                    {label}
-                  </Typography>
-                  {isUrl ? (
-                    <Button
-                      component="a"
-                      href={value}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      size="small"
-                      startIcon={<OpenInNewIcon />}
-                      aria-label={`Ouvrir ${label}`}
-                      sx={{ px: 0, minHeight: 28, textTransform: "none", color: THEME.primary }}
-                    >
-                      Ouvrir
-                    </Button>
-                  ) : (
-                    <Typography variant="body2" fontWeight={700} sx={{ whiteSpace: "pre-wrap" }}>
-                      {value}
-                    </Typography>
-                  )}
-                </Box>
-              );
-            })}
-          </Stack>
-        ) : (
-          <Typography variant="body2" color="textSecondary">
-            Aucune donnée Agent IA enregistrée pour ce prospect.
-          </Typography>
-        )}
-      </ProspectDrawerSection>
-      <ProspectDrawerSection title="Sources de découverte">
-        <Stack direction="row" gap={0.75} flexWrap="wrap">
-          {discoverySources.map((source) => (
-            <Chip
-              key={source.fullLabel}
-              size="small"
-              label={source.fullLabel}
-              sx={{
-                borderRadius: 1,
-                bgcolor: alpha(source.color, 0.1),
-                color: source.color,
-                border: `1px solid ${alpha(source.color, 0.35)}`,
-                fontWeight: 700,
-              }}
-            />
-          ))}
-        </Stack>
-      </ProspectDrawerSection>
-      <ProspectDrawerSection
-        title="Sources"
-        action={
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<InfoIcon />}
-            onClick={() => onSources?.(prospect)}
-            sx={{ minHeight: 30, textTransform: "none", borderRadius: 1, fontWeight: 700 }}
-          >
-            Voir les sources
-          </Button>
-        }
-      >
-        <Typography variant="body2" color="textSecondary">
-          Consultez les URLs et champs de provenance enregistrés pour ce prospect.
-        </Typography>
-      </ProspectDrawerSection>
-    </Stack>
-  );
-};
-ProspectAgentTab.propTypes = {
-  prospect: PropTypes.object.isRequired,
-  onSources: PropTypes.func,
-};
-
-const ProspectDetailsDrawer = ({
-  open,
-  onClose,
-  prospect,
-  companies,
-  onEdit,
-  onDelete,
-  onScore,
-  onSources,
-  scoring,
-}) => {
+const ProspectDetailsDrawer = ({ open, onClose, prospect, companies, onEdit, onDelete }) => {
   const [activeTab, setActiveTab] = useState(0);
   const [showPlanCall, setShowPlanCall] = useState(false);
   const [taskToRecord, setTaskToRecord] = useState(null);
@@ -2695,11 +2186,7 @@ const ProspectDetailsDrawer = ({
     prospect.prospect_company_detail?.name ||
     "Prospect sans entreprise";
   const statColor = STATUS_COLORS[prospect.status] || "#9e9e9e";
-  const score = getProspectScoreValue(prospect);
-  const scoreLabel = hasCalculatedScore(prospect)
-    ? `${score === null ? "-" : score} / 100 · ${getEvaluationLabel(prospect.evaluation)}`
-    : "Score non calculé";
-  const tabs = ["Informations", "Activités", "Qualification", "Agent IA"];
+  const tabs = ["Informations", "Activités"];
 
   const handleCallCreated = () => {
     setShowPlanCall(false);
@@ -2793,28 +2280,6 @@ const ProspectDetailsDrawer = ({
                     bgcolor: alpha(statColor, 0.1),
                     color: statColor,
                     border: `1px solid ${alpha(statColor, 0.35)}`,
-                    fontWeight: 700,
-                  }}
-                />
-                <Chip
-                  label={scoreLabel}
-                  size="small"
-                  sx={{
-                    height: 22,
-                    borderRadius: 1,
-                    fontSize: "0.68rem",
-                    bgcolor: hasCalculatedScore(prospect)
-                      ? alpha(getEvaluationColor(prospect.evaluation), 0.1)
-                      : alpha(THEME.info, 0.08),
-                    color: hasCalculatedScore(prospect)
-                      ? getEvaluationColor(prospect.evaluation)
-                      : THEME.info,
-                    border: `1px solid ${alpha(
-                      hasCalculatedScore(prospect)
-                        ? getEvaluationColor(prospect.evaluation)
-                        : THEME.info,
-                      0.28
-                    )}`,
                     fontWeight: 700,
                   }}
                 />
@@ -2919,21 +2384,6 @@ const ProspectDetailsDrawer = ({
             <ListItemText>Modifier</ListItemText>
           </MenuItem>
           <MenuItem
-            onClick={() => {
-              closeActions();
-              onScore?.(prospect);
-              setActiveTab(2);
-            }}
-            disabled={scoring || !onScore}
-          >
-            <ListItemIcon>
-              {scoring ? <CircularProgress size={18} /> : <AssessmentIcon fontSize="small" />}
-            </ListItemIcon>
-            <ListItemText>
-              {hasCalculatedScore(prospect) ? "Recalculer le score" : "Calculer le score"}
-            </ListItemText>
-          </MenuItem>
-          <MenuItem
             component={prospect.email ? "a" : "li"}
             href={prospect.email ? `mailto:${prospect.email}` : undefined}
             disabled={!prospect.email}
@@ -2994,12 +2444,6 @@ const ProspectDetailsDrawer = ({
               </ProspectDrawerSection>
             </Stack>
           )}
-
-          {activeTab === 2 && (
-            <ProspectQualificationTab prospect={prospect} onScore={onScore} scoring={scoring} />
-          )}
-
-          {activeTab === 3 && <ProspectAgentTab prospect={prospect} onSources={onSources} />}
         </Box>
       </Box>
     </Drawer>
@@ -3013,9 +2457,6 @@ ProspectDetailsDrawer.propTypes = {
   companies: PropTypes.array.isRequired,
   onEdit: PropTypes.func,
   onDelete: PropTypes.func,
-  onScore: PropTypes.func,
-  onSources: PropTypes.func,
-  scoring: PropTypes.bool,
 };
 
 // ==============================
@@ -4158,14 +3599,9 @@ export default function Prospects() {
   const [agentResult, setAgentResult] = useState(null);
   const [agentError, setAgentError] = useState("");
   const [agentOpen, setAgentOpen] = useState(false);
+  const [agentProgressStep, setAgentProgressStep] = useState(0);
   const [lastDiscoveryRun, setLastDiscoveryRun] = useState(null);
   const [reportDownloading, setReportDownloading] = useState(false);
-  const [sourcesOpen, setSourcesOpen] = useState(false);
-  const [sourcesLoading, setSourcesLoading] = useState(false);
-  const [sourcesRows, setSourcesRows] = useState([]);
-  const [sourcesProspect, setSourcesProspect] = useState(null);
-  const [scoringProspectId, setScoringProspectId] = useState(null);
-  const [scoreDetailsProspect, setScoreDetailsProspect] = useState(null);
 
   const [showForm, setShowForm] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -4245,6 +3681,19 @@ export default function Prospects() {
     setHookFilters(hookFilters);
   }, [hookFilters, setHookFilters]);
 
+  useEffect(() => {
+    if (!agentLoading) {
+      setAgentProgressStep(0);
+      return undefined;
+    }
+
+    const timer = setInterval(() => {
+      setAgentProgressStep((current) => Math.min(current + 1, PROSPECTION_AGENT_STEPS.length - 1));
+    }, 1700);
+
+    return () => clearInterval(timer);
+  }, [agentLoading]);
+
   const fetchCompanies = useCallback(async () => {
     try {
       const res = await api.get("/prospect-companies/");
@@ -4262,19 +3711,22 @@ export default function Prospects() {
     }
   }, []);
 
-  const fetchCurrentUser = useCallback(async (tok) => {
-    try {
-      const res = await axios.get(API_USER_ME, { headers: { Authorization: `Bearer ${tok}` } });
-      setCurrentUser(res.data);
-      fetchCompanies();
-      if (["ADMIN", "MANAGER"].includes(res.data.role)) fetchCommercials(tok);
-    } catch (err) {
-      if (err.response?.status === 401) {
-        localStorage.removeItem("token");
-        navigate("/sign-in");
+  const fetchCurrentUser = useCallback(
+    async (tok) => {
+      try {
+        const res = await axios.get(API_USER_ME, { headers: { Authorization: `Bearer ${tok}` } });
+        setCurrentUser(res.data);
+        fetchCompanies();
+        if (["ADMIN", "MANAGER"].includes(res.data.role)) fetchCommercials(tok);
+      } catch (err) {
+        if (err.response?.status === 401) {
+          localStorage.removeItem("token");
+          navigate("/sign-in");
+        }
       }
-    }
-  }, [fetchCommercials, fetchCompanies, navigate]);
+    },
+    [fetchCommercials, fetchCompanies, navigate]
+  );
 
   // ── Init ──
   useEffect(() => {
@@ -4322,49 +3774,14 @@ export default function Prospects() {
   const showSnackbar = (msg, sev = "success") =>
     setSnackbar({ open: true, message: msg, severity: sev });
 
-  const getProspectionErrorMessage = (err, fallback = "Erreur pendant la prospection") => {
+  const getProspectionErrorMessage = (
+    err,
+    fallback = "La recherche n'a pas pu être finalisée."
+  ) => {
     if (err.response?.status === 401) {
       return "Votre session a expiré. Veuillez vous reconnecter.";
     }
-    const data = err.response?.data || {};
-    if (
-      data.error === "MAPS_REQUEST_DENIED" ||
-      data.details?.reason === "API_KEY_SERVICE_BLOCKED" ||
-      data.details?.reason === "MAPS_REQUEST_DENIED"
-    ) {
-      return "Google Maps est indisponible ou mal configuré. Vérifiez Places API (New).";
-    }
-    return data.detail || data.message || err.message || fallback;
-  };
-
-  // ── Stats ──
-  const openScoreDetails = (prospect) => {
-    if (!hasCalculatedScore(prospect)) return;
-    setScoreDetailsProspect(prospect);
-  };
-
-  const handleCalculateScore = async (prospect) => {
-    if (!prospect?.id || scoringProspectId) return;
-    setScoringProspectId(prospect.id);
-    try {
-      const data = await calculateProspectScore(prospect.id);
-      showSnackbar("Score du prospect calcule avec succes.", "success");
-      const scoredProspect = data.prospect || { ...prospect, ...data };
-      setScoreDetailsProspect(scoredProspect);
-      setSelectedProspect((current) =>
-        current?.id === prospect.id ? { ...current, ...scoredProspect } : current
-      );
-      await refresh();
-    } catch (err) {
-      const data = err.response?.data || {};
-      const fallback =
-        err.response?.status === 404
-          ? "Prospect introuvable."
-          : "Erreur pendant le calcul du score.";
-      showSnackbar(data.message || data.detail || fallback, "error");
-    } finally {
-      setScoringProspectId(null);
-    }
+    return `${fallback} Réessayez avec une cible plus précise ou relancez la recherche dans quelques instants.`;
   };
 
   const runAgentFromProspects = async () => {
@@ -4420,32 +3837,6 @@ export default function Prospects() {
       showSnackbar(getProspectionErrorMessage(err, "Rapport PDF indisponible"), "error");
     } finally {
       setReportDownloading(false);
-    }
-  };
-
-  const openProspectSources = async (prospect) => {
-    setSourcesProspect(prospect);
-    setSourcesOpen(true);
-    setSourcesLoading(true);
-    try {
-      const data = await getProspectSources(prospect.id);
-      const sources = data.sources || {};
-      setSourcesRows(
-        Object.entries(sources)
-          .filter(([, value]) => value)
-          .map(([key, value]) => ({
-            id: key,
-            source_type: key.replace("_url", ""),
-            source_title: key,
-            source_snippet: String(value),
-            source_url: String(value).startsWith("http") ? value : "",
-          }))
-      );
-    } catch (err) {
-      setSourcesRows([]);
-      showSnackbar(getProspectionErrorMessage(err, "Sources indisponibles"), "error");
-    } finally {
-      setSourcesLoading(false);
     }
   };
 
@@ -4845,127 +4236,541 @@ export default function Prospects() {
           open={agentOpen}
           onClose={() => !agentLoading && setAgentOpen(false)}
           fullWidth
-          maxWidth="sm"
+          maxWidth="md"
+          PaperProps={{
+            sx: {
+              borderRadius: 4,
+              overflow: "hidden",
+              bgcolor: "#f8fafc",
+              boxShadow: "0 28px 80px rgba(15,23,42,0.28)",
+            },
+          }}
         >
-          <DialogTitle>Recherche de prospects</DialogTitle>
-          <DialogContent dividers>
-            <Stack spacing={2}>
-              <TextField
-                fullWidth
-                multiline
-                minRows={3}
-                label="Décrivez les prospects recherchés"
-                value={agentQuery}
-                onChange={(e) => setAgentQuery(e.target.value)}
-                placeholder="Trouver 5 marques de cosmétique en Tunisie actives en publicité Facebook"
-                disabled={agentLoading}
-                error={Boolean(agentError && !agentQuery.trim())}
-                helperText={agentError && !agentQuery.trim() ? agentError : ""}
-              />
-
-              {agentLoading && (
-                <Alert severity="info" icon={<CircularProgress size={18} />}>
-                  Recherche de prospects en cours...
-                </Alert>
-              )}
-
-              {agentError && agentQuery.trim() && <Alert severity="error">{agentError}</Alert>}
-
-              {agentResult && (
-                <Stack spacing={1.5}>
-                  <Alert severity={agentResult.errors?.length ? "warning" : "success"}>
-                    {discoveryResultMessage(agentResult)} {agentStats.acceptedCount} prospect(s)
-                    valide(s), {agentStats.importedCount} ajouté(s) ou mis à jour dans le CRM.
-                  </Alert>
-                  {agentResult.gemini_fallback_used && (
-                    <Typography variant="caption" color="text.secondary">
-                      Recherche effectuée en mode de secours IA.
+          <DialogTitle
+            sx={{
+              p: 0,
+              background: "linear-gradient(135deg, #7f1d1d 0%, #dc2626 58%, #111827 100%)",
+              color: "white",
+            }}
+          >
+            <Box sx={{ p: { xs: 2.25, md: 3 }, pb: { xs: 2, md: 2.5 } }}>
+              <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
+                <Box>
+                  <Stack direction="row" alignItems="center" gap={1} mb={0.75}>
+                    <TriggerIcon sx={{ fontSize: 20 }} />
+                    <Typography variant="overline" sx={{ opacity: 0.85, letterSpacing: 0 }}>
+                      Agent IA de prospection
                     </Typography>
-                  )}
-                  <Grid container spacing={1}>
-                    {[
-                      ["Résultats bruts", agentStats.rawResultsCount],
-                      ["Prospects valides", agentStats.acceptedCount],
-                      ["Nouveaux prospects", agentStats.newCount],
-                      ["Déjà existants", agentStats.existingCount],
-                      ["Rejetés", agentStats.rejectedCount],
-                      ["Importés", agentStats.importedCount],
-                      ["Échecs import", agentStats.importFailedCount],
-                    ].map(([label, value]) => (
-                      <Grid item xs={6} sm={4} key={label}>
-                        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
-                          <Typography variant="caption" color="text.secondary">
-                            {label}
-                          </Typography>
-                          <Typography variant="h6" fontWeight={800}>
-                            {value}
-                          </Typography>
-                        </Paper>
-                      </Grid>
-                    ))}
-                  </Grid>
-                  {discoverySummarySources(agentResult).length > 0 && (
+                  </Stack>
+                  <Typography variant="h5" fontWeight={900}>
+                    Recherche intelligente de prospects
+                  </Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.82, mt: 0.5 }}>
+                    Décris ta cible. L&apos;agent cherche, vérifie puis synchronise les prospects
+                    dans le CRM.
+                  </Typography>
+                </Box>
+                <IconButton
+                  onClick={() => setAgentOpen(false)}
+                  disabled={agentLoading}
+                  sx={{ color: "white", bgcolor: "rgba(255,255,255,0.12)" }}
+                >
+                  <CloseIcon />
+                </IconButton>
+              </Stack>
+            </Box>
+          </DialogTitle>
+          <DialogContent sx={{ p: { xs: 2, md: 3 }, bgcolor: "#f8fafc" }}>
+            <Grid container spacing={2.25}>
+              <Grid item xs={12} md={7}>
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: 2,
+                    borderRadius: 3,
+                    bgcolor: "white",
+                    borderColor: alpha(THEME.primary, 0.14),
+                  }}
+                >
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    justifyContent="space-between"
+                    mb={1.5}
+                  >
                     <Box>
-                      <Typography variant="caption" color="textSecondary" fontWeight={800}>
-                        Sources utilisées
+                      <Typography variant="subtitle1" fontWeight={900}>
+                        Commande de recherche
                       </Typography>
-                      <Stack direction="row" gap={0.75} flexWrap="wrap" mt={0.75}>
-                        {discoverySummarySources(agentResult).map((source) => (
-                          <Chip
-                            key={source.fullLabel}
-                            size="small"
-                            label={source.fullLabel}
-                            sx={{
-                              borderRadius: 1,
-                              bgcolor: alpha(source.color, 0.1),
-                              color: source.color,
-                              border: `1px solid ${alpha(source.color, 0.35)}`,
-                              fontWeight: 700,
-                            }}
-                          />
-                        ))}
-                      </Stack>
+                      <Typography variant="caption" color="text.secondary">
+                        Le CRM transforme ta demande en prospects exploitables.
+                      </Typography>
                     </Box>
-                  )}
-                  {agentResult.errors?.length > 0 && (
-                    <Alert severity="warning">
-                      {agentResult.errors.slice(0, 3).map(formatDiscoveryMessage).join(" · ")}
-                    </Alert>
-                  )}
-                  {agentResult.report_available && (
-                    <Box display="flex" gap={1} flexWrap="wrap">
-                      <Button
+                    <Chip
+                      size="small"
+                      icon={<CheckCircleIcon />}
+                      label="CRM connecté"
+                      sx={{
+                        bgcolor: alpha(THEME.success, 0.1),
+                        color: THEME.success,
+                        fontWeight: 800,
+                      }}
+                    />
+                  </Stack>
+                  <TextField
+                    fullWidth
+                    multiline
+                    minRows={4}
+                    label="Objectif de prospection"
+                    value={agentQuery}
+                    onChange={(e) => setAgentQuery(e.target.value)}
+                    placeholder="Ex: trouver des ingénieurs électromécaniques sur LinkedIn en Tunisie"
+                    disabled={agentLoading}
+                    error={Boolean(agentError && !agentQuery.trim())}
+                    helperText={
+                      agentError && !agentQuery.trim()
+                        ? agentError
+                        : "Utilise une phrase naturelle: métier, secteur, ville, source ou réseau."
+                    }
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start" sx={{ alignSelf: "flex-start", mt: 1 }}>
+                          <SearchIcon sx={{ color: THEME.primary }} />
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                  <Stack direction="row" gap={1} flexWrap="wrap" mt={1.5}>
+                    <Chip
+                      label="Qualification IA"
+                      size="small"
+                      sx={{
+                        borderRadius: 2,
+                        fontWeight: 800,
+                        bgcolor: alpha(THEME.info, 0.08),
+                        color: THEME.info,
+                      }}
+                    />
+                    <Chip
+                      label="Import CRM automatique"
+                      size="small"
+                      sx={{
+                        borderRadius: 2,
+                        fontWeight: 800,
+                        bgcolor: alpha(THEME.success, 0.1),
+                        color: THEME.success,
+                      }}
+                    />
+                    {PROSPECTION_AGENT_SUGGESTIONS.map((suggestion) => (
+                      <Chip
+                        key={suggestion}
+                        label={suggestion}
+                        onClick={() => !agentLoading && setAgentQuery(suggestion)}
+                        size="small"
                         variant="outlined"
-                        startIcon={<PeopleIcon />}
-                        onClick={() => setAgentOpen(false)}
-                        disabled={!agentStats.hasProspects}
-                        sx={{ textTransform: "none", borderRadius: 1.5 }}
-                      >
-                        Voir les prospects
-                      </Button>
-                      <GradientButton
-                        startIcon={
-                          reportDownloading ? (
-                            <CircularProgress size={16} color="inherit" />
-                          ) : (
-                            <PdfIcon />
-                          )
+                        sx={{
+                          maxWidth: "100%",
+                          borderRadius: 2,
+                          fontWeight: 700,
+                          bgcolor: alpha(THEME.primary, 0.04),
+                          borderColor: alpha(THEME.primary, 0.22),
+                          color: THEME.primaryDark,
+                        }}
+                      />
+                    ))}
+                  </Stack>
+                </Paper>
+
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    mt: 2,
+                    p: 2,
+                    borderRadius: 3,
+                    bgcolor: "white",
+                    borderColor: alpha(agentLoading ? THEME.primary : THEME.success, 0.18),
+                  }}
+                >
+                  <Stack spacing={1.5}>
+                    {PROSPECTION_AGENT_STEPS.map((step, index) => {
+                      const done = agentResult && !agentLoading;
+                      const active = agentLoading && index === agentProgressStep;
+                      const passed = agentLoading && index < agentProgressStep;
+                      return (
+                        <Stack key={step} direction="row" alignItems="center" gap={1.25}>
+                          <Avatar
+                            sx={{
+                              width: 30,
+                              height: 30,
+                              bgcolor:
+                                done || passed
+                                  ? alpha(THEME.success, 0.14)
+                                  : active
+                                  ? alpha(THEME.primary, 0.12)
+                                  : "#eef2f7",
+                              color:
+                                done || passed
+                                  ? THEME.success
+                                  : active
+                                  ? THEME.primary
+                                  : "text.secondary",
+                            }}
+                          >
+                            {active ? (
+                              <CircularProgress size={16} color="inherit" />
+                            ) : done || passed ? (
+                              <CheckCircleIcon sx={{ fontSize: 18 }} />
+                            ) : (
+                              <Typography variant="caption" fontWeight={900}>
+                                {index + 1}
+                              </Typography>
+                            )}
+                          </Avatar>
+                          <Box flex={1}>
+                            <Typography variant="body2" fontWeight={800}>
+                              {step}
+                            </Typography>
+                            <LinearProgress
+                              variant="determinate"
+                              value={done || passed ? 100 : active ? 64 : 0}
+                              sx={{
+                                mt: 0.5,
+                                height: 5,
+                                borderRadius: 99,
+                                bgcolor: "#edf2f7",
+                                "& .MuiLinearProgress-bar": {
+                                  borderRadius: 99,
+                                  bgcolor: done || passed ? THEME.success : THEME.primary,
+                                },
+                              }}
+                            />
+                          </Box>
+                        </Stack>
+                      );
+                    })}
+                  </Stack>
+                </Paper>
+              </Grid>
+
+              <Grid item xs={12} md={5}>
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    height: "100%",
+                    minHeight: 360,
+                    p: 2,
+                    borderRadius: 3,
+                    color: "white",
+                    bgcolor: "#111827",
+                    borderColor: "rgba(255,255,255,0.08)",
+                    position: "relative",
+                    overflow: "hidden",
+                  }}
+                >
+                  <Box
+                    sx={{
+                      position: "absolute",
+                      inset: -40,
+                      background:
+                        "radial-gradient(circle at 20% 20%, rgba(239,68,68,0.24), transparent 32%), radial-gradient(circle at 80% 10%, rgba(34,197,94,0.18), transparent 30%)",
+                    }}
+                  />
+                  <Box sx={{ position: "relative", zIndex: 1 }}>
+                    <Stack direction="row" alignItems="center" justifyContent="space-between">
+                      <Box>
+                        <Typography variant="overline" sx={{ opacity: 0.62, letterSpacing: 0 }}>
+                          Centre de collecte
+                        </Typography>
+                        <Typography variant="h6" fontWeight={900}>
+                          {agentLoading
+                            ? "Détection en cours"
+                            : agentResult
+                            ? "Recherche finalisée"
+                            : "Prêt à prospecter"}
+                        </Typography>
+                      </Box>
+                      <Chip
+                        size="small"
+                        label={
+                          agentLoading
+                            ? "En cours"
+                            : agentStats.hasProspects
+                            ? `${agentStats.acceptedCount} validés`
+                            : "En attente"
                         }
-                        onClick={() => downloadDiscoveryReport(agentResult)}
-                        disabled={reportDownloading}
-                      >
-                        Télécharger le rapport PDF
-                      </GradientButton>
+                        sx={{
+                          bgcolor: agentLoading
+                            ? alpha(THEME.primaryLight, 0.2)
+                            : alpha(THEME.success, 0.18),
+                          color: "white",
+                          fontWeight: 800,
+                        }}
+                      />
+                    </Stack>
+                    <Typography variant="body2" sx={{ mt: 1, opacity: 0.72 }}>
+                      {agentLoading
+                        ? PROSPECTION_AGENT_STEPS[agentProgressStep]
+                        : agentResult
+                        ? "Les profils trouvés sont prêts à être consultés dans le CRM."
+                        : "Lance une recherche pour générer une liste exploitable."}
+                    </Typography>
+
+                    <Box
+                      sx={{
+                        width: 220,
+                        height: 220,
+                        mx: "auto",
+                        my: 2.5,
+                        borderRadius: "50%",
+                        position: "relative",
+                        background:
+                          "repeating-radial-gradient(circle, rgba(255,255,255,0.08) 0 1px, transparent 1px 42px), conic-gradient(from 0deg, rgba(239,68,68,0.5), rgba(34,197,94,0.18), rgba(255,255,255,0.04), rgba(239,68,68,0.5))",
+                        border: "1px solid rgba(255,255,255,0.16)",
+                        boxShadow: "inset 0 0 42px rgba(239,68,68,0.18)",
+                        "@keyframes crmProspectionSweep": {
+                          to: { transform: "rotate(360deg)" },
+                        },
+                        "&:before": {
+                          content: '""',
+                          position: "absolute",
+                          inset: 108,
+                          height: 104,
+                          width: 2,
+                          transformOrigin: "center top",
+                          bgcolor: "rgba(248,113,113,0.85)",
+                          animation: agentLoading
+                            ? "crmProspectionSweep 2.6s linear infinite"
+                            : "none",
+                        },
+                        "&:after": {
+                          content: '""',
+                          position: "absolute",
+                          inset: 96,
+                          borderRadius: "50%",
+                          bgcolor: "#ef4444",
+                          boxShadow: "0 0 24px rgba(239,68,68,0.75)",
+                        },
+                      }}
+                    >
+                      {[
+                        [28, 60, agentStats.acceptedCount],
+                        [62, 24, agentStats.newCount],
+                        [72, 66, agentStats.importedCount],
+                        [38, 78, agentStats.existingCount],
+                      ].map(([left, top, value], index) => (
+                        <Box
+                          key={`${left}-${top}`}
+                          sx={{
+                            position: "absolute",
+                            left: `${left}%`,
+                            top: `${top}%`,
+                            width: value || agentLoading ? 12 : 8,
+                            height: value || agentLoading ? 12 : 8,
+                            borderRadius: "50%",
+                            bgcolor: value || agentLoading ? "#22c55e" : "rgba(255,255,255,0.34)",
+                            border: "2px solid rgba(255,255,255,0.8)",
+                            boxShadow:
+                              value || agentLoading ? "0 0 18px rgba(34,197,94,0.8)" : "none",
+                            opacity: agentResult || agentLoading || index < 2 ? 1 : 0.45,
+                          }}
+                        />
+                      ))}
                     </Box>
-                  )}
-                </Stack>
-              )}
-            </Stack>
+
+                    <Grid container spacing={1}>
+                      {[
+                        ["Analysés", agentStats.rawResultsCount],
+                        ["Exploitables", agentStats.acceptedCount],
+                        ["Ajoutés CRM", agentStats.importedCount],
+                        ["Déjà connus", agentStats.existingCount],
+                      ].map(([label, value]) => (
+                        <Grid item xs={6} key={label}>
+                          <Box
+                            sx={{
+                              p: 1.2,
+                              borderRadius: 2,
+                              bgcolor: "rgba(255,255,255,0.08)",
+                              border: "1px solid rgba(255,255,255,0.1)",
+                            }}
+                          >
+                            <Typography variant="caption" sx={{ opacity: 0.65 }}>
+                              {label}
+                            </Typography>
+                            <Typography variant="h6" fontWeight={900}>
+                              {value}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </Box>
+                </Paper>
+              </Grid>
+
+              <Grid item xs={12}>
+                {agentLoading && (
+                  <Alert severity="info" icon={<CircularProgress size={18} />}>
+                    {PROSPECTION_AGENT_STEPS[agentProgressStep]}...
+                  </Alert>
+                )}
+
+                {agentError && agentQuery.trim() && (
+                  <Alert severity="warning">
+                    <Typography variant="subtitle2" fontWeight={900}>
+                      Recherche non finalisée
+                    </Typography>
+                    <Typography variant="body2">{agentError}</Typography>
+                  </Alert>
+                )}
+
+                {agentResult && (
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      mt: 1.5,
+                      p: 2,
+                      borderRadius: 3,
+                      bgcolor: "white",
+                      borderColor: alpha(THEME.success, 0.22),
+                    }}
+                  >
+                    <Stack spacing={1.5}>
+                      <Box
+                        sx={{
+                          p: 1.75,
+                          borderRadius: 2.5,
+                          bgcolor: agentStats.hasProspects
+                            ? alpha(THEME.success, 0.08)
+                            : alpha(THEME.info, 0.08),
+                          border: `1px solid ${
+                            agentStats.hasProspects
+                              ? alpha(THEME.success, 0.22)
+                              : alpha(THEME.info, 0.22)
+                          }`,
+                        }}
+                      >
+                        <Stack direction="row" gap={1.25} alignItems="flex-start">
+                          <Avatar
+                            sx={{
+                              width: 36,
+                              height: 36,
+                              bgcolor: agentStats.hasProspects
+                                ? alpha(THEME.success, 0.14)
+                                : alpha(THEME.info, 0.14),
+                              color: agentStats.hasProspects ? THEME.success : THEME.info,
+                            }}
+                          >
+                            <CheckCircleIcon />
+                          </Avatar>
+                          <Box>
+                            <Typography variant="subtitle1" fontWeight={900}>
+                              {agentStats.hasProspects
+                                ? "Prospection finalisée"
+                                : "Recherche terminée"}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {discoveryResultMessage(agentResult)} {agentStats.acceptedCount}{" "}
+                              prospect(s) exploitable(s), {agentStats.importedCount} enregistré(s)
+                              dans le CRM.
+                            </Typography>
+                            {agentResult.errors?.length > 0 && (
+                              <Typography variant="caption" color="text.secondary">
+                                Certains résultats incomplets ont été ignorés.
+                              </Typography>
+                            )}
+                          </Box>
+                        </Stack>
+                      </Box>
+                      {agentResult.gemini_fallback_used && (
+                        <Typography variant="caption" color="text.secondary">
+                          La recherche a été finalisée avec le mode de continuité IA.
+                        </Typography>
+                      )}
+                      <Grid container spacing={1}>
+                        {[
+                          ["Analysés", agentStats.rawResultsCount],
+                          ["Exploitables", agentStats.acceptedCount],
+                          ["Nouveaux", agentStats.newCount],
+                          ["Déjà connus", agentStats.existingCount],
+                          ["Incomplets", agentStats.rejectedCount],
+                          ["Ajoutés CRM", agentStats.importedCount],
+                          ["À vérifier", agentStats.importFailedCount],
+                        ].map(([label, value]) => (
+                          <Grid item xs={6} sm={3} md={2.4} key={label}>
+                            <Paper
+                              variant="outlined"
+                              sx={{
+                                p: 1.25,
+                                borderRadius: 2,
+                                bgcolor: "#fbfdff",
+                                borderColor: alpha(THEME.primary, 0.12),
+                              }}
+                            >
+                              <Typography variant="caption" color="text.secondary">
+                                {label}
+                              </Typography>
+                              <Typography variant="h6" fontWeight={900}>
+                                {value}
+                              </Typography>
+                            </Paper>
+                          </Grid>
+                        ))}
+                      </Grid>
+                      {discoverySummarySources(agentResult).length > 0 && (
+                        <Box>
+                          <Typography variant="caption" color="textSecondary" fontWeight={800}>
+                            Sources exploitées
+                          </Typography>
+                          <Stack direction="row" gap={0.75} flexWrap="wrap" mt={0.75}>
+                            {discoverySummarySources(agentResult).map((source) => (
+                              <Chip
+                                key={source.fullLabel}
+                                size="small"
+                                label={source.fullLabel}
+                                sx={{
+                                  borderRadius: 1,
+                                  bgcolor: alpha(source.color, 0.1),
+                                  color: source.color,
+                                  border: `1px solid ${alpha(source.color, 0.35)}`,
+                                  fontWeight: 700,
+                                }}
+                              />
+                            ))}
+                          </Stack>
+                        </Box>
+                      )}
+                    </Stack>
+                  </Paper>
+                )}
+              </Grid>
+            </Grid>
           </DialogContent>
-          <DialogActions>
+          <DialogActions sx={{ px: { xs: 2, md: 3 }, py: 2, bgcolor: "white" }}>
             <Button onClick={() => setAgentOpen(false)} disabled={agentLoading}>
               Annuler
             </Button>
+            {agentResult?.report_available && (
+              <Button
+                variant="outlined"
+                startIcon={<PeopleIcon />}
+                onClick={() => setAgentOpen(false)}
+                disabled={!agentStats.hasProspects}
+                sx={{ textTransform: "none", borderRadius: 1.5 }}
+              >
+                Voir les prospects
+              </Button>
+            )}
+            {agentResult?.report_available && (
+              <GradientButton
+                startIcon={
+                  reportDownloading ? <CircularProgress size={16} color="inherit" /> : <PdfIcon />
+                }
+                onClick={() => downloadDiscoveryReport(agentResult)}
+                disabled={reportDownloading}
+              >
+                Rapport PDF
+              </GradientButton>
+            )}
             <GradientButton
               startIcon={
                 agentLoading ? <CircularProgress size={16} color="inherit" /> : <SearchIcon />
@@ -5407,37 +5212,29 @@ export default function Prospects() {
         {viewMode === "table" && (
           <StyledCard>
             <StyledTableContainer>
-              <Table>
+              <Table aria-label="Tableau des prospects">
                 <colgroup>
-                  <col style={{ width: 220 }} />
-                  <col style={{ width: 280 }} />
-                  <col style={{ width: 120 }} />
-                  <col style={{ width: 140 }} />
-                  <col style={{ width: 180 }} />
-                  <col style={{ width: 150 }} />
-                  <col style={{ width: 160 }} />
+                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "27%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "11%" }} />
                 </colgroup>
                 <StyledTableHead>
                   <TableRow>
                     <TableCell>Prospect</TableCell>
                     <TableCell>Société / Contact</TableCell>
-                    <TableCell align="center">
-                      Score
-                    </TableCell>
-                    <TableCell align="center">
-                      Statut
-                    </TableCell>
+                    <TableCell align="center">Statut</TableCell>
                     <TableCell>Assigné à</TableCell>
                     <TableCell>Source</TableCell>
-                    <TableCell align="center">
-                      Actions
-                    </TableCell>
+                    <TableCell align="center">Actions</TableCell>
                   </TableRow>
                 </StyledTableHead>
                 <TableBody>
                   {prospectsList.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ py: 5 }}>
+                      <TableCell colSpan={6} align="center" sx={{ py: 5 }}>
                         <Box textAlign="center">
                           <PeopleIcon
                             sx={{ fontSize: 48, color: alpha(THEME.primary, 0.3), mb: 2 }}
@@ -5503,9 +5300,6 @@ export default function Prospects() {
                     onArchive={handleArchive}
                     onRestore={handleRestore}
                     onDelete={handleDeleteClick}
-                    onScore={handleCalculateScore}
-                    onScoreDetails={openScoreDetails}
-                    scoring={scoringProspectId === p.id}
                   />
                 </Grid>
               ))}
@@ -5623,101 +5417,7 @@ export default function Prospects() {
           companies={companies}
           onEdit={handleEdit}
           onDelete={handleDeleteClick}
-          onScore={handleCalculateScore}
-          onSources={openProspectSources}
-          scoring={scoringProspectId === selectedProspect?.id}
         />
-
-        <Dialog
-          open={Boolean(scoreDetailsProspect)}
-          onClose={() => setScoreDetailsProspect(null)}
-          fullWidth
-          maxWidth="sm"
-        >
-          <DialogTitle>Details du score</DialogTitle>
-          <DialogContent dividers>
-            {scoreDetailsProspect && (
-              <Stack spacing={2}>
-                <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                  <Typography variant="h6">
-                    {getProspectDisplayName(scoreDetailsProspect)}
-                  </Typography>
-                  <ScoreBadge prospect={scoreDetailsProspect} />
-                  {scoreDetailsProspect.evaluation && (
-                    <StyledChip
-                      size="small"
-                      label={getEvaluationLabel(scoreDetailsProspect.evaluation)}
-                      evaluation={scoreDetailsProspect.evaluation}
-                    />
-                  )}
-                </Box>
-                <Alert severity="info">
-                  {scoreDetailsProspect.score_reasons ||
-                    scoreDetailsProspect.raison_score ||
-                    "Aucun detail de score enregistre."}
-                </Alert>
-              </Stack>
-            )}
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setScoreDetailsProspect(null)}>Fermer</Button>
-          </DialogActions>
-        </Dialog>
-
-        <Dialog open={sourcesOpen} onClose={() => setSourcesOpen(false)} fullWidth maxWidth="md">
-          <DialogTitle>
-            Sources de decouverte - {sourcesProspect ? getProspectDisplayName(sourcesProspect) : ""}
-          </DialogTitle>
-          <DialogContent dividers>
-            {sourcesLoading ? (
-              <Box display="flex" justifyContent="center" py={4}>
-                <CircularProgress />
-              </Box>
-            ) : sourcesRows.length === 0 ? (
-              <Alert severity="info">Aucune source de decouverte enregistree.</Alert>
-            ) : (
-              <Stack spacing={1.25}>
-                {sourcesRows.map((source) => (
-                  <Paper key={source.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
-                    <Stack spacing={0.75}>
-                      <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                        <SourceBadge source={source.source_type} />
-                        <Typography variant="caption">Run {source.run_id || "-"}</Typography>
-                        <Typography variant="caption">{formatDate(source.date)}</Typography>
-                      </Box>
-                      <Typography variant="subtitle2">
-                        {source.source_title || "Sans titre"}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {source.source_snippet || "-"}
-                      </Typography>
-                      <Box display="flex" gap={1} alignItems="center">
-                        <Typography variant="caption">
-                          Confiance: {source.discovery_confidence ?? "-"}
-                        </Typography>
-                        {source.source_url && (
-                          <Button
-                            size="small"
-                            component="a"
-                            href={source.source_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            startIcon={<OpenInNewIcon />}
-                          >
-                            Ouvrir la source
-                          </Button>
-                        )}
-                      </Box>
-                    </Stack>
-                  </Paper>
-                ))}
-              </Stack>
-            )}
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setSourcesOpen(false)}>Fermer</Button>
-          </DialogActions>
-        </Dialog>
 
         <Dialog
           open={deleteDialogOpen}

@@ -1,0 +1,283 @@
+.prospection-workspace {
+  background: #f7f8fa;
+  min-height: calc(100vh - 64px);
+  padding: 24px;
+  color: #111827;
+}
+
+.prospection-header,
+.prospection-search,
+.prospection-panel,
+.prospection-progress,
+.prospection-result-head,
+.prospection-empty,
+.prospection-empty-results,
+.prospection-error,
+.prospection-signal {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 20px;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.05);
+}
+
+.prospection-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.prospection-title {
+  color: #9b0d22;
+}
+
+.prospection-search {
+  width: 100%;
+  height: 100%;
+}
+
+.prospection-search-icon,
+.prospection-stat-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  color: #c8102e;
+  background: #fdeef1;
+  border: 1px solid #f5c6ce;
+  flex: 0 0 auto;
+}
+
+.prospection-empty {
+  text-align: center;
+  max-width: 980px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.prospection-empty-text {
+  max-width: 680px;
+  margin: 8px auto 18px;
+}
+
+.prospection-capability {
+  min-height: 76px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #111827;
+  background: #fbfbfc;
+}
+
+.prospection-capability svg {
+  color: #c8102e;
+}
+
+.prospection-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  color: #6b7280;
+  background: #f9fafb;
+}
+
+.prospection-step span {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #e5e7eb;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.prospection-step.active {
+  color: #9b0d22;
+  border-color: #f5c6ce;
+  background: #fff7f8;
+}
+
+.prospection-step.active span {
+  color: #ffffff;
+  background: #c8102e;
+}
+
+.prospection-signal {
+  height: 100%;
+  min-height: 332px;
+}
+
+.prospection-radar {
+  position: relative;
+  width: min(100%, 260px);
+  aspect-ratio: 1;
+  margin: 0 auto;
+  border-radius: 50%;
+  overflow: hidden;
+  background: radial-gradient(circle at center, rgba(200, 16, 46, 0.08), transparent 56%),
+    linear-gradient(180deg, #ffffff, #fbfbfc);
+  border: 1px solid #e5e7eb;
+}
+
+.prospection-radar::before {
+  content: "";
+  position: absolute;
+  inset: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #9b0d22;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+}
+
+.prospection-radar-ring,
+.prospection-radar-axis,
+.prospection-radar-sweep,
+.prospection-radar-center,
+.prospection-radar-point {
+  position: absolute;
+}
+
+.prospection-radar-ring {
+  border: 1px solid rgba(200, 16, 46, 0.14);
+  border-radius: 50%;
+}
+
+.prospection-radar-ring.ring-one {
+  inset: 16%;
+}
+
+.prospection-radar-ring.ring-two {
+  inset: 34%;
+}
+
+.prospection-radar-axis {
+  background: rgba(17, 24, 39, 0.08);
+}
+
+.prospection-radar-axis.horizontal {
+  height: 1px;
+  left: 8%;
+  right: 8%;
+  top: 50%;
+}
+
+.prospection-radar-axis.vertical {
+  width: 1px;
+  top: 8%;
+  bottom: 8%;
+  left: 50%;
+}
+
+.prospection-radar-sweep {
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(200, 16, 46, 0.2), transparent 32%);
+  opacity: 0.45;
+  transform-origin: center;
+}
+
+.prospection-radar.scanning .prospection-radar-sweep {
+  animation: prospection-radar-spin 3s linear infinite;
+  opacity: 0.85;
+}
+
+.prospection-radar-point {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #d97706;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.14);
+  transform: translate(-50%, -50%);
+  z-index: 4;
+}
+
+.prospection-radar-point.high {
+  background: #059669;
+  box-shadow: 0 0 0 4px rgba(5, 150, 105, 0.16);
+}
+
+.prospection-radar-point.muted {
+  background: #d1d5db;
+  box-shadow: none;
+}
+
+.prospection-mini-metric {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px;
+  min-width: 0;
+  background: #f9fafb;
+}
+
+.prospection-activity-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: #374151;
+}
+
+.prospection-activity-row svg {
+  color: #059669;
+}
+
+.prospection-stat {
+  min-height: 104px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #ffffff;
+}
+
+.prospection-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 18px;
+  height: 100%;
+  background: #ffffff;
+}
+
+.prospection-reason {
+  padding: 12px;
+  border-radius: 8px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+}
+
+.prospection-empty-results {
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .prospection-workspace {
+    padding: 14px;
+  }
+
+  .prospection-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@keyframes prospection-radar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

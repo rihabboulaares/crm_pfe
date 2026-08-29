@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 /* eslint-disable react/prop-types */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
 import {
@@ -42,17 +42,14 @@ import {
   Phone as PhoneIcon,
   Timeline as TimelineIcon,
 } from "@mui/icons-material";
-import {
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip as ChartTooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
+import {
+  getLatestProspectQualification,
+  getProspectQualificationHistory,
+  runProspectQualification,
+} from "services/qualificationApi";
 
 const CRM_RED = {
   main: "#C62828",
@@ -107,6 +104,27 @@ const DOC_TYPES = [
   ["attachment", "Pièce jointe"],
   ["other", "Autre"],
 ];
+
+const QUALIFICATION_STATUS_LABELS = {
+  ENGAGE: "A engager",
+  DEEPEN: "A approfondir",
+  READY_FOR_OPPORTUNITY: "Pret pour une opportunite",
+  NOT_QUALIFIED: "Non qualifie",
+  ANALYSIS_INCOMPLETE: "Analyse incomplete",
+};
+
+const QUALIFICATION_ACTION_LABELS = {
+  ENGAGE_PROSPECT: "Engager le prospect",
+  DEEPEN_DISCOVERY: "Approfondir la decouverte",
+  CREATE_OPPORTUNITY: "Creer une opportunite",
+  DO_NOT_CONTACT: "Ne pas contacter",
+  RETRY_QUALIFICATION: "Relancer la qualification",
+};
+
+const QUALIFICATION_MODE_LABELS = {
+  INITIAL: "Initiale",
+  POST_ENGAGEMENT: "Apres engagement",
+};
 
 function fmtDate(value) {
   if (!value) return "—";
@@ -166,9 +184,12 @@ export default function Prospect360() {
   const [activities, setActivities] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [agents, setAgents] = useState([]);
-  const [scoreHistory, setScoreHistory] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
   const [engagement, setEngagement] = useState([]);
+  const [qualification, setQualification] = useState(null);
+  const [qualificationHistory, setQualificationHistory] = useState([]);
+  const [qualificationLoading, setQualificationLoading] = useState(false);
+  const [qualificationError, setQualificationError] = useState("");
   const [activityForm, setActivityForm] = useState({
     activity_type: "commercial_note",
     channel: "other",
@@ -185,27 +206,46 @@ export default function Prospect360() {
   const prospect = data?.prospect;
   const summary = data?.summary || {};
   const company = prospect?.prospect_company_detail || {};
-  const score = summary.score ?? prospect?.score_ia ?? 0;
+  const qualificationScore = qualification?.score ?? null;
+  const displayedScore = qualificationScore ?? 0;
 
-  const chartData = useMemo(
-    () =>
-      [...scoreHistory].reverse().map((item) => ({
-        date: new Date(item.created_at).toLocaleDateString("fr-FR"),
-        score: item.new_score,
-      })),
-    [scoreHistory]
-  );
+  const loadQualification = async () => {
+    setQualificationError("");
+    try {
+      const [latest, history] = await Promise.allSettled([
+        getLatestProspectQualification(id),
+        getProspectQualificationHistory(id),
+      ]);
+      if (latest.status === "fulfilled") {
+        setQualification(latest.value.data);
+      } else if (latest.reason?.response?.status === 404) {
+        setQualification(null);
+      } else {
+        throw latest.reason;
+      }
+      if (history.status === "fulfilled") {
+        setQualificationHistory(history.value.data || []);
+      } else {
+        throw history.reason;
+      }
+    } catch (err) {
+      setQualification(null);
+      setQualificationHistory([]);
+      setQualificationError(
+        err.response?.data?.detail || "Impossible de charger la qualification IA."
+      );
+    }
+  };
 
   const loadAll = async () => {
     setLoading(true);
     setError("");
     try {
-      const [details, acts, docs, runs, scoring, recs, logs] = await Promise.all([
+      const [details, acts, docs, runs, recs, logs] = await Promise.all([
         api.get(`/prospects/${id}/details/`),
         api.get(`/prospects/${id}/activity-stream/`),
         api.get(`/prospects/${id}/documents/`),
         api.get(`/prospects/${id}/agent-runs/`),
-        api.get(`/prospects/${id}/score-history/`),
         api.get(`/prospects/${id}/recommendations/`),
         api.get(`/prospects/${id}/engagement/`),
       ]);
@@ -213,9 +253,9 @@ export default function Prospect360() {
       setActivities(acts.data || []);
       setDocuments(docs.data || []);
       setAgents(runs.data || []);
-      setScoreHistory(scoring.data || []);
       setRecommendations(recs.data || []);
       setEngagement(logs.data || []);
+      await loadQualification();
     } catch (err) {
       setError(err.response?.data?.detail || "Impossible de charger le dossier prospect.");
     } finally {
@@ -257,6 +297,24 @@ export default function Prospect360() {
   const setRecommendationStatus = async (recommendationId, status) => {
     await api.post(`/prospects/${id}/recommendations/${recommendationId}/status/`, { status });
     await loadAll();
+  };
+
+  const runQualification = async () => {
+    setQualificationLoading(true);
+    setQualificationError("");
+    try {
+      const response = await runProspectQualification(id);
+      setQualification(response.data);
+      await loadQualification();
+    } catch (err) {
+      setQualificationError(
+        err.response?.data?.message ||
+          err.response?.data?.detail ||
+          "La qualification IA n'a pas pu etre executee."
+      );
+    } finally {
+      setQualificationLoading(false);
+    }
   };
 
   if (loading) {
@@ -353,10 +411,12 @@ export default function Prospect360() {
                 </Grid>
                 <Grid item xs={12} md={5}>
                   <Stack spacing={1}>
-                    <Typography fontWeight={900}>Score : {score || 0}/100</Typography>
+                    <Typography fontWeight={900}>
+                      Qualification IA : {displayedScore || 0}/100
+                    </Typography>
                     <LinearProgress
                       variant="determinate"
-                      value={Math.min(score || 0, 100)}
+                      value={Math.min(displayedScore || 0, 100)}
                       sx={{
                         height: 10,
                         borderRadius: 8,
@@ -365,11 +425,19 @@ export default function Prospect360() {
                       }}
                     />
                     <Typography variant="body2" color="text.secondary">
-                      Priorité : {summary.priority || "—"} · Dernière activité :{" "}
+                      Statut :{" "}
+                      {qualification?.status
+                        ? QUALIFICATION_STATUS_LABELS[qualification.status] || qualification.status
+                        : summary.priority || "A qualifier"}{" "}
+                      · Dernière activité :{" "}
                       {summary.last_interaction_title || "Aucune"}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Prochaine action : {summary.next_action || "À définir"}
+                      Action recommandée :{" "}
+                      {qualification?.recommended_action
+                        ? QUALIFICATION_ACTION_LABELS[qualification.recommended_action] ||
+                          qualification.recommended_action
+                        : summary.next_action || "A definir"}
                     </Typography>
                   </Stack>
                 </Grid>
@@ -380,8 +448,12 @@ export default function Prospect360() {
               <Grid item xs={6} md={2}>
                 <KpiCard
                   label="Score"
-                  value={`${score || 0}/100`}
-                  sub={prospect.evaluation || "Lead"}
+                  value={qualification ? `${displayedScore || 0}/100` : "--/100"}
+                  sub={
+                    qualification?.qualification_mode
+                      ? QUALIFICATION_MODE_LABELS[qualification.qualification_mode]
+                      : "Qualification"
+                  }
                   icon={<ScoreIcon />}
                 />
               </Grid>
@@ -438,7 +510,7 @@ export default function Prospect360() {
                     "Engagement",
                     "Documents",
                     "Agents IA",
-                    "Scoring",
+                    "Qualification IA",
                   ].map((label) => (
                     <Tab key={label} label={label} />
                   ))}
@@ -478,7 +550,13 @@ export default function Prospect360() {
                 )}
                 {tab === 5 && <AgentRunsPanel runs={agents} />}
                 {tab === 6 && (
-                  <ScoringPanel history={scoreHistory} chartData={chartData} score={score || 0} />
+                  <QualificationPanel
+                    latest={qualification}
+                    history={qualificationHistory}
+                    loading={qualificationLoading}
+                    error={qualificationError}
+                    onRun={runQualification}
+                  />
                 )}
               </CardContent>
             </Card>
@@ -679,13 +757,6 @@ function TimelineList({ items }) {
             {item.created_by_name && (
               <Chip label={`Ajouté par ${item.created_by_name}`} size="small" />
             )}
-            {item.score_change && (
-              <Chip
-                label={`Score ${item.score_change.previous_score} → ${item.score_change.new_score}`}
-                size="small"
-                color="success"
-              />
-            )}
           </Stack>
         </Paper>
       ))}
@@ -855,53 +926,183 @@ function AgentRunsPanel({ runs }) {
   );
 }
 
-function ScoringPanel({ history, chartData, score }) {
+function SignalList({ title, items, empty = "Aucun signal renseigne." }) {
   return (
-    <Grid container spacing={2}>
-      <Grid item xs={12} md={6}>
-        <Paper
-          elevation={0}
-          sx={{ p: 2, border: `1px solid ${CRM_RED.border}`, borderRadius: 2, height: 260 }}
-        >
-          <Typography fontWeight={900} mb={1}>
-            Évolution du score actuel : {score}/100
-          </Typography>
-          {chartData.length ? (
-            <ResponsiveContainer width="100%" height="85%">
-              <LineChart data={chartData}>
-                <XAxis dataKey="date" />
-                <YAxis domain={[0, 100]} />
-                <ChartTooltip />
-                <Line type="monotone" dataKey="score" stroke={CRM_RED.main} strokeWidth={3} dot />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <EmptyState title="Aucun historique de score." />
-          )}
-        </Paper>
-      </Grid>
-      <Grid item xs={12} md={6}>
+    <Paper elevation={0} sx={{ p: 2, border: `1px solid ${CRM_RED.border}`, borderRadius: 2 }}>
+      <Typography fontWeight={900} mb={1}>
+        {title}
+      </Typography>
+      {items?.length ? (
+        <Stack spacing={0.8}>
+          {items.map((item, index) => (
+            <Typography key={`${title}-${index}`} variant="body2" color="text.secondary">
+              - {item}
+            </Typography>
+          ))}
+        </Stack>
+      ) : (
+        <Typography variant="body2" color="text.secondary">
+          {empty}
+        </Typography>
+      )}
+    </Paper>
+  );
+}
+
+function QualificationPanel({ latest, history, loading, error, onRun }) {
+  const statusLabel = latest?.status
+    ? QUALIFICATION_STATUS_LABELS[latest.status] || latest.status
+    : "Non qualifie";
+  const actionLabel = latest?.recommended_action
+    ? QUALIFICATION_ACTION_LABELS[latest.recommended_action] || latest.recommended_action
+    : "A determiner";
+  const modeLabel = latest?.qualification_mode
+    ? QUALIFICATION_MODE_LABELS[latest.qualification_mode] || latest.qualification_mode
+    : "Initiale";
+
+  return (
+    <Stack spacing={2}>
+      {error && <Alert severity="warning">{error}</Alert>}
+
+      <Paper
+        elevation={0}
+        sx={{
+          p: 2.5,
+          border: `1px solid ${CRM_RED.border}`,
+          borderRadius: 2,
+          bgcolor: "#fff",
+        }}
+      >
+        <Grid container spacing={2} alignItems="center">
+          <Grid item xs={12} md={4}>
+            <Typography variant="overline" color="text.secondary" fontWeight={900}>
+              Agent IA de qualification
+            </Typography>
+            <Typography variant="h4" fontWeight={900} color={CRM_RED.dark}>
+              {latest ? `${latest.score}/100` : "--/100"}
+            </Typography>
+            <LinearProgress
+              variant="determinate"
+              value={latest ? Math.min(latest.score || 0, 100) : 0}
+              sx={{
+                mt: 1,
+                height: 10,
+                borderRadius: 8,
+                bgcolor: CRM_RED.soft,
+                "& .MuiLinearProgress-bar": { bgcolor: CRM_RED.main },
+              }}
+            />
+            <Typography variant="caption" color="text.secondary" fontWeight={800}>
+              Confiance {latest?.confidence ?? 0}% · {modeLabel}
+            </Typography>
+          </Grid>
+          <Grid item xs={12} md={5}>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap mb={1}>
+              <Chip label={statusLabel} sx={{ borderRadius: 1, fontWeight: 900 }} />
+              <Chip
+                label={latest?.opportunity_ready ? "Opportunite possible" : "Pas encore pret"}
+                sx={{
+                  borderRadius: 1,
+                  fontWeight: 900,
+                  bgcolor: latest?.opportunity_ready ? "#E8F5E9" : CRM_RED.soft,
+                  color: latest?.opportunity_ready ? "#1B5E20" : CRM_RED.dark,
+                }}
+              />
+            </Stack>
+            <Typography fontWeight={900}>{actionLabel}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {latest?.summary ||
+                "Lancez l'agent pour qualifier ce prospect avec les donnees CRM disponibles."}
+            </Typography>
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <Button
+              fullWidth
+              variant="contained"
+              startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <AgentIcon />}
+              disabled={loading}
+              onClick={onRun}
+              sx={{ bgcolor: CRM_RED.main, "&:hover": { bgcolor: CRM_RED.dark } }}
+            >
+              {latest ? "Requalifier" : "Qualifier"}
+            </Button>
+          </Grid>
+        </Grid>
+      </Paper>
+
+      {!latest ? (
+        <EmptyState title="Aucune qualification IA enregistree pour ce prospect." />
+      ) : (
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={4}>
+            <SignalList title="Forces detectees" items={latest.strengths} />
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <SignalList title="Risques" items={latest.risks} />
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <SignalList title="Informations manquantes" items={latest.missing_information} />
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <SignalList title="Besoins detectes" items={latest.detected_needs} />
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <SignalList title="Signaux d'achat" items={latest.buying_signals} />
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <SignalList title="Objections" items={latest.objections} />
+          </Grid>
+        </Grid>
+      )}
+
+      <Paper elevation={0} sx={{ p: 2, border: `1px solid ${CRM_RED.border}`, borderRadius: 2 }}>
+        <Typography fontWeight={900} mb={1}>
+          Historique de qualification
+        </Typography>
         {!history.length ? (
-          <EmptyState title="Aucune variation de score." />
+          <Typography variant="body2" color="text.secondary">
+            Aucun historique disponible.
+          </Typography>
         ) : (
           <Stack spacing={1}>
             {history.map((item) => (
               <Paper
                 key={item.id}
                 elevation={0}
-                sx={{ p: 1.5, border: `1px solid ${CRM_RED.border}`, borderRadius: 2 }}
+                sx={{ p: 1.5, border: "1px solid #eee", borderRadius: 2, bgcolor: "#fff" }}
               >
-                <Typography fontWeight={900}>
-                  {item.previous_score} → {item.new_score}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {fmtDate(item.created_at)} · {item.reason || "Variation score"}
-                </Typography>
+                <Stack
+                  direction={{ xs: "column", md: "row" }}
+                  spacing={1}
+                  justifyContent="space-between"
+                  alignItems={{ xs: "flex-start", md: "center" }}
+                >
+                  <Box>
+                    <Typography fontWeight={900}>
+                      {item.score}/100 ·{" "}
+                      {QUALIFICATION_STATUS_LABELS[item.status] || item.status || "Statut inconnu"}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {fmtDate(item.created_at)} ·{" "}
+                      {QUALIFICATION_MODE_LABELS[item.qualification_mode] ||
+                        item.qualification_mode}
+                    </Typography>
+                  </Box>
+                  <Chip
+                    label={
+                      item.score_delta === null || item.score_delta === undefined
+                        ? "Premier calcul"
+                        : `${item.score_delta > 0 ? "+" : ""}${item.score_delta} pts`
+                    }
+                    size="small"
+                    sx={{ borderRadius: 1, fontWeight: 900 }}
+                  />
+                </Stack>
               </Paper>
             ))}
           </Stack>
         )}
-      </Grid>
-    </Grid>
+      </Paper>
+    </Stack>
   );
 }

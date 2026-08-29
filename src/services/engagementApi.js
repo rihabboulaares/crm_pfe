@@ -1,4 +1,4 @@
-import axios from "axios";
+﻿import axios from "axios";
 
 const api = axios.create({ baseURL: "/api/engagement" });
 const salesApi = axios.create({ baseURL: "/api/sales" });
@@ -17,8 +17,6 @@ salesApi.interceptors.request.use((config) => {
 
 export const getEngagementDashboard = () => api.get("/dashboard/");
 
-export const launchEngagementAgent = (payload = {}) => api.post("/launch/", payload);
-
 export const getEngagementProspects = (params = {}) => api.get("/prospects/", { params });
 
 export const getEmailConnections = () => api.get("/connections/email/");
@@ -32,38 +30,26 @@ export const disconnectEmail = (provider = "") =>
 
 export const testEmailConnection = () => api.post("/connections/email/test/");
 
-export const prepareEngagementMessage = (prospectId) =>
-  api.post(`/prospects/${prospectId}/prepare/`, { scrape: true });
-
-export const saveEngagementMessage = (prospectId, payload) =>
-  api.patch(`/prospects/${prospectId}/message/`, payload);
-
-export const sendEngagementMessage = (prospectId, payload) =>
-  api.post(`/prospects/${prospectId}/send/`, payload);
-
-export const rejectEngagementMessage = (prospectId, payload = {}) =>
-  api.post(`/prospects/${prospectId}/reject/`, payload);
+export const startInitialEngagementPlan = (prospectId) =>
+  api.post(`/prospects/${prospectId}/initial-plan/`, {});
 
 export const getEngagementLogs = (prospectId) => api.get(`/prospects/${prospectId}/logs/`);
 
-export const analyzeSocialProfile = (prospectId) =>
-  api.post(`/prospects/${prospectId}/analyze-social/`, {});
+export const getInteractionOptions = () => api.get("/interactions/options/");
 
-export const markEngagementReplied = (prospectId) =>
-  api.post(`/prospects/${prospectId}/mark-replied/`);
+export const getInteractions = (prospectId) => api.get(`/prospects/${prospectId}/interactions/`);
 
-export const checkEngagementReply = (prospectId) =>
-  api.post(`/prospects/${prospectId}/check-reply/`);
+export const recordInteraction = (prospectId, payload) =>
+  api.post(`/prospects/${prospectId}/interactions/`, payload);
+
+export const analyzeInteraction = (prospectId, interactionId) =>
+  api.post(`/prospects/${prospectId}/interactions/${interactionId}/analyze/`, {});
+
+export const continueInteraction = (prospectId, interactionId) =>
+  api.post(`/prospects/${prospectId}/interactions/${interactionId}/continue/`, {});
 
 export const createFollowUpTask = (prospectId, payload = {}) =>
   api.post(`/prospects/${prospectId}/create-follow-up-task/`, payload);
-
-export const startSocialLogin = (platform) => api.post("/social-login/", { platform });
-
-export const checkSocialSession = (platform) =>
-  api.get("/social-session/check/", { params: { platform } });
-
-export const resetSocialSession = (platform) => api.post("/social-session/reset/", { platform });
 
 export const getProspectTasks = (prospectId) => salesApi.get(`/prospects/${prospectId}/tasks/`);
 

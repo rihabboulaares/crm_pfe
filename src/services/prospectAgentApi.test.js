@@ -1,7 +1,7 @@
 import api from "./salesApi";
 import {
-  calculateProspectScore,
   getDiscoveryReportBlob,
+  normalizeProspectionResult,
   runDiscovery,
   runProspectDiscovery,
 } from "./prospectAgentApi";
@@ -40,14 +40,6 @@ describe("prospectAgentApi", () => {
     });
   });
 
-  it("calls the real score endpoint for one prospect", async () => {
-    api.post.mockResolvedValueOnce({ data: { success: true, score: 75 } });
-
-    await calculateProspectScore(12);
-
-    expect(api.post).toHaveBeenCalledWith("/api/prospects/12/score/");
-  });
-
   it("downloads the report from the discovery response URL", async () => {
     api.get.mockResolvedValueOnce({ data: new Blob(["pdf"]) });
 
@@ -56,5 +48,23 @@ describe("prospectAgentApi", () => {
     expect(api.get).toHaveBeenCalledWith("/api/agent/prospect/7/report/", {
       responseType: "blob",
     });
+  });
+
+  it("normalizes current and legacy discovery response formats", () => {
+    const result = normalizeProspectionResult({
+      found: 2,
+      imported_count: 1,
+      prospect_companies: [{ nom: "Sofrecom", ville: "Tunis", score_ia: 87 }],
+      prospects: [{ first_name: "Amal", last_name: "Trabelsi", job_title: "DRH" }],
+      tool_history: [{ tool: "serper_linkedin" }, { tool: "maps_search" }],
+      brain_mode: "gemini",
+      stop_reason: "completed",
+    });
+
+    expect(result.total).toBe(2);
+    expect(result.companies[0].displayName).toBe("Sofrecom");
+    expect(result.persons[0].displayName).toBe("Amal Trabelsi");
+    expect(result.sources).toEqual(["linkedin", "maps"]);
+    expect(result.raw.brain_mode).toBe("gemini");
   });
 });
