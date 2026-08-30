@@ -72,20 +72,14 @@ def record_agent_run(
 def ensure_default_recommendation(prospect):
     if ProspectRecommendation.objects.filter(prospect=prospect, status="pending").exists():
         return None
-    score = getattr(getattr(prospect, "prospect_company", None), "score_ia", 0) or 0
     if prospect.last_reply_text:
         title = "Envoyer une présentation commerciale"
         reason = "Le prospect a répondu et une action de suivi est recommandée."
         priority = "high"
         recommendation_type = "send_presentation"
-    elif score >= 70:
-        title = "Lancer Engagement Agent"
-        reason = "Score élevé et potentiel commercial détecté."
-        priority = "high"
-        recommendation_type = "follow_up"
     else:
-        title = "Compléter les informations du prospect"
-        reason = "Le dossier manque encore de signaux pour prioriser l'engagement."
+        title = "Qualifier le prospect"
+        reason = "Lancez l'agent de qualification pour analyser le potentiel avec les donnees CRM disponibles."
         priority = "medium"
         recommendation_type = "qualify"
     recommendation = ProspectRecommendation.objects.create(

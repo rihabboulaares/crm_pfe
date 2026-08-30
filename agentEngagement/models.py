@@ -1,5 +1,7 @@
 from django.db import models
 
+from .token_crypto import decrypt_token, encrypt_token
+
 
 class UserEmailConnection(models.Model):
     PROVIDER_GMAIL = "gmail"
@@ -42,18 +44,16 @@ class UserEmailConnection(models.Model):
         return f"{self.email} ({self.provider})"
 
     def get_access_token(self):
-        return self.access_token
+        return decrypt_token(self.access_token)
 
     def set_access_token(self, value):
-        # Centralized hook for future token encryption/decryption.
-        self.access_token = value or ""
+        self.access_token = encrypt_token(value)
 
     def get_refresh_token(self):
-        return self.refresh_token
+        return decrypt_token(self.refresh_token)
 
     def set_refresh_token(self, value):
-        # Centralized hook for future token encryption/decryption.
-        self.refresh_token = value or ""
+        self.refresh_token = encrypt_token(value)
 
 
 class EngagementLog(models.Model):

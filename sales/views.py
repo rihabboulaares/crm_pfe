@@ -547,8 +547,6 @@ class ProspectViewSet(viewsets.ModelViewSet):
             prospect=prospect,
             status__in=["pending", "ready", "in_progress", "todo"],
         ).order_by("due_date", "created_at").first()
-        company = prospect.prospect_company
-        score = company.score_ia if company else None
         contact_methods = sum(
             1
             for value in [
@@ -563,8 +561,8 @@ class ProspectViewSet(viewsets.ModelViewSet):
         )
         last_engagement = prospect.engagement_logs.first()
         summary = {
-            "score": score,
-            "priority": "Haute" if (score or 0) >= 70 or prospect.evaluation == "hot" else "Moyenne" if (score or 0) >= 35 else "Basse",
+            "score": None,
+            "priority": "Haute" if prospect.last_reply_text else "Moyenne",
             "contact_methods": contact_methods,
             "activities_count": prospect.prospect_activities.count(),
             "documents_count": prospect.documents.count(),
