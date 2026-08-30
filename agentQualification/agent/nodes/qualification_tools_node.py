@@ -80,6 +80,13 @@ def make_qualification_tools_node(tools):
             except Exception as exc:
                 logger.exception("Qualification tool failed tool=%s prospect=%s", tool_name, state.get("prospect_id"))
                 next_state["errors"] = (next_state.get("errors") or []) + [f"{tool_name}:{exc}"]
+                observations = dict(next_state.get("observations") or {})
+                observations[tool_name] = {
+                    "error": str(exc),
+                    "status": "failed",
+                }
+                next_state["observations"] = observations
+                next_state["tool_call_count"] = (next_state.get("tool_call_count") or 0) + 1
                 output_messages.append(
                     ToolMessage(
                         content=f"Erreur outil {tool_name}: {exc}",

@@ -23,6 +23,7 @@ def build_qualification_prompt(state):
         "qualification_mode": state.get("qualification_mode"),
         "prospect": state.get("prospect"),
         "company": state.get("company"),
+        "qualification_target": state.get("qualification_target"),
         "prospect360": state.get("prospect360"),
         "profile_signals": state.get("profile_signals"),
         "interactions": state.get("interactions"),
@@ -48,4 +49,3 @@ Schéma attendu :
 Données CRM :
 {json.dumps(payload, ensure_ascii=False, default=str)[:14000]}
 """.strip()
-

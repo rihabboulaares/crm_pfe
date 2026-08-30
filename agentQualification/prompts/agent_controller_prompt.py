@@ -34,8 +34,10 @@ Règles strictes :
 
 Avant finalisation, vérifie autant que possible :
 - profil du prospect ;
+- cible commerciale issue de la prospection ou du contexte CRM ;
 - contexte entreprise ;
-- historique d'engagement.
+- historique d'engagement ;
+- qualification précédente si elle existe.
 
 Tu peux finaliser en répondant sans outil quand le contexte est suffisant.
 Réponds alors avec une phrase courte contenant FINALIZE_QUALIFICATION.

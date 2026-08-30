@@ -9,7 +9,16 @@ from agentQualification.prompts.agent_controller_prompt import build_agent_contr
 
 logger = logging.getLogger("agentQualification.agent")
 
-MAX_TOOL_CALLS = 8
+MAX_TOOL_CALLS = 10
+
+REQUIRED_OBSERVATIONS = [
+    "get_prospect_profile",
+    "get_qualification_target",
+    "get_company_context",
+    "get_prospect360",
+    "get_engagement_history",
+    "get_previous_qualification",
+]
 
 
 class QualificationAgentUnavailable(Exception):
@@ -55,6 +64,27 @@ def initialize_node(state):
     return state
 
 
+def _next_required_observation(state, allowed_tools):
+    observations = state.get("observations") or {}
+    for tool_name in REQUIRED_OBSERVATIONS:
+        if tool_name in allowed_tools and tool_name not in observations:
+            return tool_name
+    return None
+
+
+def _required_tool_message(tool_name):
+    return AIMessage(
+        content=f"OBSERVE_REQUIRED_CONTEXT: {tool_name}",
+        tool_calls=[
+            {
+                "name": tool_name,
+                "args": {},
+                "id": f"qualification-required-{tool_name}",
+            }
+        ],
+    )
+
+
 def make_qualification_agent_node(tools):
     allowed_tools = {item.name for item in tools}
 
@@ -73,6 +103,21 @@ def make_qualification_agent_node(tools):
                 "messages": [
                     AIMessage(content="FINALIZE_QUALIFICATION: limite d'outils atteinte.")
                 ],
+            }
+
+        required_tool = _next_required_observation(state, allowed_tools)
+        if required_tool:
+            trace = (state.get("agent_trace") or []) + [
+                {
+                    "step": len(state.get("agent_trace") or []) + 1,
+                    "action": required_tool,
+                    "reason": "required_context",
+                }
+            ]
+            return {
+                "agent_next": "tools",
+                "agent_trace": trace,
+                "messages": [_required_tool_message(required_tool)],
             }
 
         prompt = build_agent_controller_prompt(state, sorted(allowed_tools))

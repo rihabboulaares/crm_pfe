@@ -9,6 +9,7 @@ from agentQualification.agent.tools.engagement_history_tool import (
     extract_engagement_interactions,
     list_engagement_logs,
 )
+from agentQualification.agent.qualification_target import resolve_qualification_target
 from agentQualification.agent.tools.prospect_tool import serialize_prospect_for_qualification
 from agentQualification.agent.tools.qualification_history_tool import serialize_latest_qualification
 
@@ -33,6 +34,11 @@ def build_qualification_tools(context: QualificationToolContext):
     def get_company_context() -> dict | None:
         """Récupère le contexte de l'entreprise liée au prospect courant."""
         return serialize_company(prospect.prospect_company)
+
+    @tool
+    def get_qualification_target() -> dict:
+        """Récupère la cible commerciale à utiliser pour qualifier le prospect courant."""
+        return resolve_qualification_target(prospect=prospect, user=context.user)
 
     @tool
     def get_prospect360() -> dict:
@@ -68,6 +74,7 @@ def build_qualification_tools(context: QualificationToolContext):
 
     return [
         get_prospect_profile,
+        get_qualification_target,
         get_company_context,
         get_prospect360,
         get_engagement_history,
