@@ -1,14 +1,8 @@
 // src/hooks/useCalendarEvents.js
 import { useState, useCallback } from "react";
-import axios from "axios";
+import { createApiClient } from "../services/axiosConfig";
 
-// ── Instance axios avec token JWT automatique ─────────────────────────────────
-const authAxios = axios.create();
-authAxios.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
+const authAxios = createApiClient("");
 
 // ── Endpoints ─────────────────────────────────────────────────────────────────
 const API = "/api/calendar-events/";

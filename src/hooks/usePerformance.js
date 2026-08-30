@@ -1,13 +1,8 @@
 // src/hooks/usePerformance.js
 import { useState, useEffect, useCallback } from "react";
-import axios from "axios";
+import { createApiClient } from "../services/axiosConfig";
 
-const api = axios.create({ baseURL: "/api/sales" });
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
+const api = createApiClient("/api/sales");
 
 export function useMyKPI(year, month) {
   const [data, setData] = useState(null);

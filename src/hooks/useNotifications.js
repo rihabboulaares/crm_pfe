@@ -1,12 +1,8 @@
 // src/hooks/useNotifications.js
 import { useState, useEffect, useCallback, useRef } from "react";
-import axios from "axios";
+import { createApiClient } from "../services/axiosConfig";
 
-const API = "/api/notifications";
-
-const authHeader = () => ({
-  headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-});
+const api = createApiClient("/api/notifications");
 
 // ── Hook notifications ────────────────────────────────────────────
 export function useNotifications(pollInterval = 30000) {
@@ -17,7 +13,7 @@ export function useNotifications(pollInterval = 30000) {
 
   const fetchCount = useCallback(async () => {
     try {
-      const { data } = await axios.get(`${API}/count/`, authHeader());
+      const { data } = await api.get("/count/");
       setUnreadCount(data.unread || 0);
     } catch {
       /* silencieux */
@@ -27,7 +23,7 @@ export function useNotifications(pollInterval = 30000) {
   const fetchNotifications = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await axios.get(`${API}/`, authHeader());
+      const { data } = await api.get("/");
       setNotifications(data);
       setUnreadCount(data.filter((n) => !n.is_read).length);
     } catch {
@@ -39,7 +35,7 @@ export function useNotifications(pollInterval = 30000) {
 
   const markRead = useCallback(async (ids = null) => {
     try {
-      await axios.post(`${API}/mark-read/`, ids ? { ids } : {}, authHeader());
+      await api.post("/mark-read/", ids ? { ids } : {});
       setNotifications((prev) =>
         prev.map((n) => (!ids || ids.includes(n.id) ? { ...n, is_read: true } : n))
       );
@@ -53,7 +49,7 @@ export function useNotifications(pollInterval = 30000) {
 
   const deleteNotif = useCallback(async (id) => {
     try {
-      await axios.delete(`${API}/${id}/delete/`, authHeader());
+      await api.delete(`/${id}/delete/`);
       setNotifications((prev) => {
         const wasUnread = prev.find((n) => n.id === id && !n.is_read);
         if (wasUnread) setUnreadCount((c) => Math.max(0, c - 1));
@@ -101,7 +97,7 @@ export function useHistory(entityType, action, search, page, refreshKey) {
           action: action || "",
           search: search || "",
         });
-        const { data } = await axios.get(`${API}/history/?${params}`, authHeader());
+        const { data } = await api.get(`/history/?${params}`);
         if (!cancelled) {
           setLogs(data.results || []);
           setTotal(data.total || 0);

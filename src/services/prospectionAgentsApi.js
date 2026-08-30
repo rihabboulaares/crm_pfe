@@ -1,4 +1,6 @@
-const API_BASE = process.env.REACT_APP_API_BASE_URL || "";
+import { API_BASE_URL, getAuthToken } from "./axiosConfig";
+
+const API_BASE = API_BASE_URL;
 
 function buildUrl(path) {
   const normalizedPath = `/${String(path || "").replace(/^\/+/, "")}`;
@@ -7,11 +9,7 @@ function buildUrl(path) {
 }
 
 function authHeaders() {
-  const token =
-    window.localStorage.getItem("accessToken") ||
-    window.localStorage.getItem("access_token") ||
-    window.localStorage.getItem("token") ||
-    window.localStorage.getItem("access");
+  const token = getAuthToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

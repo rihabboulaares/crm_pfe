@@ -11,7 +11,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
-import axios from "axios";
+import { createApiClient } from "../services/axiosConfig";
 import {
   Box,
   Chip,
@@ -51,12 +51,7 @@ import {
 } from "@mui/icons-material";
 
 const API_BASE_URL = "/api/sales";
-const api = axios.create({ baseURL: API_BASE_URL });
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
+const api = createApiClient(API_BASE_URL);
 
 const THEME = {
   primary: "#d32f2f",

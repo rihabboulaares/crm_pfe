@@ -1,14 +1,9 @@
 // src/services/calendarSyncService.js
-import axios from "axios";
+import { createApiClient } from "../services/axiosConfig";
 
 const API_CALENDAR_URL = "/api/calendar-events/";
 
-const api = axios.create({ baseURL: API_CALENDAR_URL });
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
+const api = createApiClient(API_CALENDAR_URL);
 
 /**
  * Crée un événement calendrier à partir d'une tâche

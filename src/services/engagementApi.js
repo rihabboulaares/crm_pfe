@@ -1,19 +1,6 @@
-﻿import axios from "axios";
-
-const api = axios.create({ baseURL: "/api/engagement" });
-const salesApi = axios.create({ baseURL: "/api/sales" });
-
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
-
-salesApi.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
+﻿import { createApiClient } from "./axiosConfig";
+const api = createApiClient("/api/engagement");
+const salesApi = createApiClient("/api/sales");
 
 export const getEngagementDashboard = () => api.get("/dashboard/");
 

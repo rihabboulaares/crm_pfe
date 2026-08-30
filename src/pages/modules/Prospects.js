@@ -1,4 +1,4 @@
-﻿/* eslint-disable prettier/prettier */
+/* eslint-disable prettier/prettier */
 // src/pages/modules/Prospects.jsx — pagination BACKEND
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -127,72 +127,14 @@ import {
   discoverySummarySources,
   normalizeProspectSources,
 } from "../../utils/prospectSources";
-
-const SOURCE_CONFIG = {
-  google_maps: { label: "Google Maps", color: "#d32f2f" },
-  maps_search: { label: "Google Maps", color: "#d32f2f" },
-  linkedin: { label: "LinkedIn", color: "#0077b5" },
-  serper_linkedin: { label: "LinkedIn", color: "#0077b5" },
-  instagram: { label: "Instagram", color: "#e1306c" },
-  serper_instagram: { label: "Instagram", color: "#e1306c" },
-  facebook: { label: "Facebook", color: "#1877f2" },
-  serper_facebook: { label: "Facebook", color: "#1877f2" },
-  meta_ads_library: { label: "Meta Ads", color: "#5e35b1" },
-  ads_library_search: { label: "Meta Ads", color: "#5e35b1" },
-  serper_general: { label: "IA", color: "#546e7a" },
-  web: { label: "Web", color: "#c62828" },
-  other: { label: "Autre", color: "#6d4c41" },
-  commercial: { label: "Commercial", color: "#b71c1c" },
-  agent_prospection: { label: "Agent de prospection", color: "#8e0000" },
-};
-
-const PROFILE_STATUS_CONFIG = {
-  running: { label: "En cours", color: "#f9a825" },
-  completed: { label: "Analyse", color: "#2e7d32" },
-  partial: { label: "Partiel", color: "#ef6c00" },
-  failed: { label: "Echec", color: "#c62828" },
-  completed_without_sources: { label: "Sans sources", color: "#607d8b" },
-};
-
-const getProfileStatus = (prospect) => {
-  const status = prospect?.profile_analysis_status;
-  return PROFILE_STATUS_CONFIG[status] || { label: "Non analyse", color: "#78909c" };
-};
-
-const PROSPECT_SOURCE_OPTIONS = [
-  ["google_maps", "Google Maps"],
-  ["linkedin", "LinkedIn"],
-  ["instagram", "Instagram"],
-  ["facebook", "Facebook"],
-  ["web", "Web"],
-  ["other", "Autre"],
-];
-
-const TASK_TYPE_OPTIONS = [
-  ["classic", "Tache classique"],
-  ["call", "Appel"],
-  ["linkedin_message", "Message LinkedIn"],
-  ["email", "Email"],
-  ["facebook_message", "Message Facebook"],
-  ["instagram_message", "Message Instagram"],
-  ["follow_up", "Relance"],
-  ["meeting", "RDV"],
-  ["note", "Note"],
-  ["other", "Autre"],
-];
-
-const getProspectDisplayName = (prospect) =>
-  [prospect?.first_name, prospect?.last_name].filter(Boolean).join(" ").trim() || "Sans nom";
-
-const getProspectInitials = (prospect) => {
-  const name = getProspectDisplayName(prospect);
-  return name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
-};
+import {
+  PROSPECT_SOURCE_OPTIONS,
+  SOURCE_CONFIG,
+  TASK_TYPE_OPTIONS,
+  getProfileStatus,
+  getProspectDisplayName,
+  getProspectInitials,
+} from "./prospects/prospectDisplay";
 
 const SourceBadge = ({ source }) => {
   const cfg =
@@ -4460,11 +4402,12 @@ export default function Prospects() {
                     minHeight: 360,
                     p: 2,
                     borderRadius: 3,
-                    color: "white",
-                    bgcolor: "#111827",
-                    borderColor: "rgba(255,255,255,0.08)",
+                    color: "#24324b",
+                    bgcolor: "#ffffff",
+                    borderColor: alpha(THEME.primary, 0.14),
                     position: "relative",
                     overflow: "hidden",
+                    boxShadow: "0 18px 45px rgba(148, 40, 40, 0.08)",
                   }}
                 >
                   <Box
@@ -4472,16 +4415,19 @@ export default function Prospects() {
                       position: "absolute",
                       inset: -40,
                       background:
-                        "radial-gradient(circle at 20% 20%, rgba(239,68,68,0.24), transparent 32%), radial-gradient(circle at 80% 10%, rgba(34,197,94,0.18), transparent 30%)",
+                        "radial-gradient(circle at 18% 12%, rgba(211,47,47,0.1), transparent 34%), radial-gradient(circle at 88% 18%, rgba(46,125,50,0.1), transparent 28%)",
                     }}
                   />
                   <Box sx={{ position: "relative", zIndex: 1 }}>
                     <Stack direction="row" alignItems="center" justifyContent="space-between">
                       <Box>
-                        <Typography variant="overline" sx={{ opacity: 0.62, letterSpacing: 0 }}>
+                        <Typography
+                          variant="overline"
+                          sx={{ color: "text.secondary", letterSpacing: 0, fontWeight: 800 }}
+                        >
                           Centre de collecte
                         </Typography>
-                        <Typography variant="h6" fontWeight={900}>
+                        <Typography variant="h6" fontWeight={900} color="text.primary">
                           {agentLoading
                             ? "Détection en cours"
                             : agentResult
@@ -4500,14 +4446,17 @@ export default function Prospects() {
                         }
                         sx={{
                           bgcolor: agentLoading
-                            ? alpha(THEME.primaryLight, 0.2)
+                            ? alpha(THEME.warning, 0.14)
                             : alpha(THEME.success, 0.18),
-                          color: "white",
+                          color: agentLoading ? "#b45309" : THEME.success,
+                          border: `1px solid ${
+                            agentLoading ? alpha(THEME.warning, 0.28) : alpha(THEME.success, 0.28)
+                          }`,
                           fontWeight: 800,
                         }}
                       />
                     </Stack>
-                    <Typography variant="body2" sx={{ mt: 1, opacity: 0.72 }}>
+                    <Typography variant="body2" sx={{ mt: 1 }} color="text.secondary">
                       {agentLoading
                         ? PROSPECTION_AGENT_STEPS[agentProgressStep]
                         : agentResult
@@ -4524,9 +4473,10 @@ export default function Prospects() {
                         borderRadius: "50%",
                         position: "relative",
                         background:
-                          "repeating-radial-gradient(circle, rgba(255,255,255,0.08) 0 1px, transparent 1px 42px), conic-gradient(from 0deg, rgba(239,68,68,0.5), rgba(34,197,94,0.18), rgba(255,255,255,0.04), rgba(239,68,68,0.5))",
-                        border: "1px solid rgba(255,255,255,0.16)",
-                        boxShadow: "inset 0 0 42px rgba(239,68,68,0.18)",
+                          "repeating-radial-gradient(circle, rgba(211,47,47,0.16) 0 1px, transparent 1px 42px), conic-gradient(from 0deg, rgba(211,47,47,0.24), rgba(46,125,50,0.2), rgba(25,118,210,0.08), rgba(211,47,47,0.24))",
+                        border: `1px solid ${alpha(THEME.primary, 0.16)}`,
+                        boxShadow:
+                          "inset 0 0 36px rgba(211,47,47,0.08), 0 16px 36px rgba(36,50,75,0.08)",
                         "@keyframes crmProspectionSweep": {
                           to: { transform: "rotate(360deg)" },
                         },
@@ -4537,7 +4487,7 @@ export default function Prospects() {
                           height: 104,
                           width: 2,
                           transformOrigin: "center top",
-                          bgcolor: "rgba(248,113,113,0.85)",
+                          bgcolor: alpha(THEME.primary, 0.72),
                           animation: agentLoading
                             ? "crmProspectionSweep 2.6s linear infinite"
                             : "none",
@@ -4547,8 +4497,8 @@ export default function Prospects() {
                           position: "absolute",
                           inset: 96,
                           borderRadius: "50%",
-                          bgcolor: "#ef4444",
-                          boxShadow: "0 0 24px rgba(239,68,68,0.75)",
+                          bgcolor: THEME.primary,
+                          boxShadow: `0 0 24px ${alpha(THEME.primary, 0.35)}`,
                         },
                       }}
                     >
@@ -4567,10 +4517,12 @@ export default function Prospects() {
                             width: value || agentLoading ? 12 : 8,
                             height: value || agentLoading ? 12 : 8,
                             borderRadius: "50%",
-                            bgcolor: value || agentLoading ? "#22c55e" : "rgba(255,255,255,0.34)",
-                            border: "2px solid rgba(255,255,255,0.8)",
+                            bgcolor: value || agentLoading ? THEME.success : alpha("#64748b", 0.26),
+                            border: "2px solid #ffffff",
                             boxShadow:
-                              value || agentLoading ? "0 0 18px rgba(34,197,94,0.8)" : "none",
+                              value || agentLoading
+                                ? `0 0 16px ${alpha(THEME.success, 0.45)}`
+                                : "none",
                             opacity: agentResult || agentLoading || index < 2 ? 1 : 0.45,
                           }}
                         />
@@ -4589,14 +4541,14 @@ export default function Prospects() {
                             sx={{
                               p: 1.2,
                               borderRadius: 2,
-                              bgcolor: "rgba(255,255,255,0.08)",
-                              border: "1px solid rgba(255,255,255,0.1)",
+                              bgcolor: alpha("#f8fafc", 0.92),
+                              border: `1px solid ${alpha("#94a3b8", 0.2)}`,
                             }}
                           >
-                            <Typography variant="caption" sx={{ opacity: 0.65 }}>
+                            <Typography variant="caption" color="text.secondary">
                               {label}
                             </Typography>
-                            <Typography variant="h6" fontWeight={900}>
+                            <Typography variant="h6" fontWeight={900} color="text.primary">
                               {value}
                             </Typography>
                           </Box>

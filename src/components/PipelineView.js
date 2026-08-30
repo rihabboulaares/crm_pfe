@@ -1,6 +1,6 @@
 // components/PipelineView.js
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import axios from "axios";
+import { createApiClient } from "../services/axiosConfig";
 
 // ─────────────────────────────────────────────────────────
 // CONSTANTS & HELPERS
@@ -36,12 +36,7 @@ const timeBarColor = (pct, status) => {
   return "#10B981";
 };
 
-const API = axios.create({ baseURL: "/api/sales/" });
-API.interceptors.request.use((cfg) => {
-  const token = localStorage.getItem("access_token");
-  if (token) cfg.headers.Authorization = `Bearer ${token}`;
-  return cfg;
-});
+const API = createApiClient("/api/sales/");
 
 // ─────────────────────────────────────────────────────────
 // SUB-COMPONENTS

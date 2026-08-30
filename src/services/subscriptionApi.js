@@ -1,42 +1,9 @@
-import axios from "axios";
-
+import { createApiClient } from "./axiosConfig";
 const API_BASE = process.env.REACT_APP_API_BASE_URL || "/api";
+const baseURL = API_BASE.endsWith("/api") ? API_BASE : `${API_BASE.replace(/\/$/, "")}/api`;
 
-const publicApi = axios.create({
-  baseURL: API_BASE.endsWith("/api") ? API_BASE : `${API_BASE.replace(/\/$/, "")}/api`,
-  headers: {
-    "Content-Type": "application/json",
-  },
-});
-
-publicApi.interceptors.request.use((config) => {
-  if (config.headers) {
-    delete config.headers.Authorization;
-    delete config.headers.authorization;
-  }
-  return config;
-});
-
-const api = axios.create({
-  baseURL: API_BASE.endsWith("/api") ? API_BASE : `${API_BASE.replace(/\/$/, "")}/api`,
-  headers: {
-    "Content-Type": "application/json",
-  },
-});
-
-api.interceptors.request.use((config) => {
-  const token =
-    localStorage.getItem("token") ||
-    localStorage.getItem("access") ||
-    localStorage.getItem("access_token") ||
-    localStorage.getItem("accessToken");
-
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-
-  return config;
-});
+const publicApi = createApiClient(baseURL, { authenticated: false });
+const api = createApiClient(baseURL);
 
 export const getSubscriptionPlans = async () => {
   const response = await publicApi.get("/subscriptions/plans/");
