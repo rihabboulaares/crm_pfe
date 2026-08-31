@@ -66,6 +66,8 @@ import { useTrackActivity } from "../pages/superadmin/Marketingwidgets";
 
 const MEDIA_URL = "http://127.0.0.1:8000";
 const API_BASE = "http://127.0.0.1:8000/api/users";
+const API_USER_PROFILE = `${API_BASE}/users/me/`;
+const API_CHANGE_PASSWORD = `${API_BASE}/users/change_password/`;
 
 // â”TNDâ”TNDâ”TND PALETTE â”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TNDâ”TND
 const R = {
@@ -266,11 +268,13 @@ const MemberCard = styled(Box)(() => ({
 
 const StatPill = styled(Box)(({ color }) => ({
   flex: 1,
+  minWidth: 86,
   textAlign: "center",
-  padding: "14px 10px",
+  padding: "14px 12px",
   borderRadius: 14,
   background: alpha(color, 0.07),
   border: `1px solid ${alpha(color, 0.14)}`,
+  overflow: "hidden",
 }));
 
 const SectionDivider = ({ label }) => (
@@ -358,7 +362,7 @@ function buildTabs(role) {
   const t = [{ id: "info", label: "Profil", icon: <PersonIcon /> }];
   if (role === "ADMIN") {
     t.push({ id: "company", label: "Entreprise", icon: <BusinessIcon /> });
-    t.push({ id: "teams", label: "equipes", icon: <GroupIcon /> });
+    t.push({ id: "teams", label: "Équipes", icon: <GroupIcon /> });
   } else {
     t.push({ id: "teams", label: "Mon équipe", icon: <GroupIcon /> });
   }
@@ -483,7 +487,7 @@ export default function Profile() {
     try {
       const fd = new FormData();
       fd.append("profile_picture", file);
-      await axios.put(`${API_BASE}/me/`, fd, {
+      await axios.put(API_USER_PROFILE, fd, {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "multipart/form-data" },
       });
       show("Photo mise à jour !");
@@ -510,7 +514,7 @@ export default function Profile() {
   const handleSaveProfile = async () => {
     setSaving(true);
     try {
-      await axios.put(`${API_BASE}/me/`, formData, auth);
+      await axios.put(API_USER_PROFILE, formData, auth);
       show("Profil mis à jour !");
       setFormEdit(false);
       fetchAll();
@@ -529,7 +533,7 @@ export default function Profile() {
     setSaving(true);
     try {
       await axios.put(
-        `${API_BASE}/change_password/`,
+        API_CHANGE_PASSWORD,
         { old_password: pwdData.old, new_password: pwdData.new },
         auth
       );
@@ -687,10 +691,12 @@ export default function Profile() {
                   color: N[400],
                   textTransform: "uppercase",
                   letterSpacing: 0.8,
+                  lineHeight: 1.1,
+                  whiteSpace: "nowrap",
                   mt: 0.4,
                 }}
               >
-                Ã‰quipes
+                Équipes
               </Typography>
             </StatPill>
             <StatPill color="#2563eb">
@@ -704,6 +710,8 @@ export default function Profile() {
                   color: N[400],
                   textTransform: "uppercase",
                   letterSpacing: 0.8,
+                  lineHeight: 1.1,
+                  whiteSpace: "nowrap",
                   mt: 0.4,
                 }}
               >
@@ -726,13 +734,15 @@ export default function Profile() {
                 <Typography
                   sx={{
                     fontSize: 10,
-                    fontWeight: 700,
-                    color: N[400],
-                    textTransform: "uppercase",
-                    letterSpacing: 0.8,
-                    mt: 0.4,
-                  }}
-                >
+                  fontWeight: 700,
+                  color: N[400],
+                  textTransform: "uppercase",
+                  letterSpacing: 0.8,
+                  lineHeight: 1.1,
+                  whiteSpace: "nowrap",
+                  mt: 0.4,
+                }}
+              >
                   Plan actif
                 </Typography>
               </StatPill>
@@ -1292,11 +1302,11 @@ export default function Profile() {
           {teams.length > 1 && role === "ADMIN" && (
             <FormControl fullWidth size="small" sx={{ mb: 2.5 }}>
               <InputLabel sx={{ "&.Mui-focused": { color: R[600] } }}>
-                Ã‰quipe sélectionnée
+                Équipe sélectionnée
               </InputLabel>
               <Select
                 value={selectedTeam?.id || ""}
-                label="Ã‰quipe sélectionnée"
+                label="Équipe sélectionnée"
                 sx={{
                   borderRadius: 2,
                   "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: R[600] },
@@ -1666,7 +1676,7 @@ export default function Profile() {
               {/* Right: quick stats */}
               <Stack direction="row" spacing={1.5}>
                 {[
-                  { val: teams.length, lbl: "Ã‰quipes", color: "rgba(255,255,255,0.2)" },
+                  { val: teams.length, lbl: "Équipes", color: "rgba(255,255,255,0.2)" },
                   { val: members.length, lbl: "Collègues", color: "rgba(255,255,255,0.15)" },
                 ].map((s) => (
                   <Box
@@ -1883,7 +1893,7 @@ export default function Profile() {
                 value={teamForm.name}
                 size="small"
                 onChange={(e) => setTeamForm({ name: e.target.value })}
-                placeholder="Ex: Ã‰quipe Paris, Ã‰quipe Sud..."
+                placeholder="Ex: Équipe Paris, Équipe Sud..."
                 sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
               />
             </DialogContent>

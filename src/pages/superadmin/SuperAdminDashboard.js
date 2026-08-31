@@ -49,6 +49,7 @@ import {
   Refresh as RefreshIcon,
   Dashboard as DashboardIcon,
   Campaign as CampaignIcon,
+  SmartToy,
 } from "@mui/icons-material";
 import {
   AreaChart,
@@ -292,6 +293,16 @@ export default function SuperAdminDashboard() {
     totalSubs > 0 ? Math.round(((stats?.active_subscriptions || 0) / totalSubs) * 100) : 0;
   const hasAlerts =
     (stats?.trial_subscriptions || 0) > 0 || (stats?.expired_subscriptions || 0) > 0;
+  const supervisionAlerts = stats?.supervision_alerts || [];
+  const recentActivities = stats?.recent_user_activities || [];
+  const recentAgentRuns = stats?.recent_agent_runs || [];
+  const fmtDateTime = (value) =>
+    value ? new Date(value).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—";
+  const alertPalette = {
+    error: T.red,
+    warning: T.amber,
+    info: T.blue,
+  };
 
   // ── Marketing data helpers ────────────────────────────────────
   const mkt = marketingData;
@@ -406,6 +417,196 @@ export default function SuperAdminDashboard() {
               )}
             </Stack>
           )}
+
+          {/* Centre supervision */}
+          <Grid container spacing={3} mb={3}>
+            <Grid item xs={12} md={4}>
+              <Card
+                sx={{
+                  borderRadius: 3,
+                  p: 3,
+                  bgcolor: "white",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+                  height: "100%",
+                }}
+              >
+                <Stack direction="row" alignItems="center" spacing={1.2} mb={2}>
+                  <NotificationsActive sx={{ color: T.red }} />
+                  <Typography variant="h6" sx={{ fontWeight: 700, color: T.n800 }}>
+                    Points à surveiller
+                  </Typography>
+                </Stack>
+                <Stack spacing={1.2}>
+                  {supervisionAlerts.length > 0 ? (
+                    supervisionAlerts.map((item) => {
+                      const color = alertPalette[item.severity] || T.blue;
+                      return (
+                        <Box
+                          key={`${item.title}-${item.message}`}
+                          sx={{
+                            p: 1.5,
+                            borderRadius: 2,
+                            bgcolor: alpha(color, 0.08),
+                            border: `1px solid ${alpha(color, 0.22)}`,
+                          }}
+                        >
+                          <Typography variant="body2" sx={{ fontWeight: 700, color }}>
+                            {item.title}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: T.n500 }}>
+                            {item.message}
+                          </Typography>
+                        </Box>
+                      );
+                    })
+                  ) : (
+                    <Alert severity="success" sx={{ borderRadius: 2 }}>
+                      Aucun point critique détecté.
+                    </Alert>
+                  )}
+                </Stack>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} md={4}>
+              <Card
+                sx={{
+                  borderRadius: 3,
+                  p: 3,
+                  bgcolor: "white",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+                  height: "100%",
+                }}
+              >
+                <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2}>
+                  <Stack direction="row" alignItems="center" spacing={1.2}>
+                    <AppsIcon sx={{ color: T.blue }} />
+                    <Typography variant="h6" sx={{ fontWeight: 700, color: T.n800 }}>
+                      Activité utilisateurs
+                    </Typography>
+                  </Stack>
+                  <Chip
+                    size="small"
+                    label={`${stats?.active_users_today || 0} actifs aujourd'hui`}
+                    sx={{ bgcolor: alpha(T.green, 0.1), color: T.green, fontWeight: 600 }}
+                  />
+                </Stack>
+                <Stack spacing={1.3}>
+                  {recentActivities.length > 0 ? (
+                    recentActivities.slice(0, 5).map((activity) => (
+                      <Box key={activity.id}>
+                        <Stack direction="row" justifyContent="space-between" gap={1}>
+                          <Box>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: T.n800 }}>
+                              {activity.username || activity.email || "Utilisateur"}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: T.n500 }}>
+                              {activity.module_label} · {activity.company_name || "Sans entreprise"}
+                            </Typography>
+                          </Box>
+                          <Typography variant="caption" sx={{ color: T.n500, whiteSpace: "nowrap" }}>
+                            {fmtDateTime(activity.created_at)}
+                          </Typography>
+                        </Stack>
+                        <Divider sx={{ mt: 1.2 }} />
+                      </Box>
+                    ))
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      Aucune activité récente.
+                    </Typography>
+                  )}
+                </Stack>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} md={4}>
+              <Card
+                sx={{
+                  borderRadius: 3,
+                  p: 3,
+                  bgcolor: "white",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+                  height: "100%",
+                }}
+              >
+                <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2}>
+                  <Stack direction="row" alignItems="center" spacing={1.2}>
+                    <SmartToy sx={{ color: T.purple }} />
+                    <Typography variant="h6" sx={{ fontWeight: 700, color: T.n800 }}>
+                      Agents IA récents
+                    </Typography>
+                  </Stack>
+                  <Chip
+                    size="small"
+                    label={`${stats?.ai_failed_runs || 0} échecs`}
+                    sx={{
+                      bgcolor: alpha(stats?.ai_failed_runs ? T.red : T.green, 0.1),
+                      color: stats?.ai_failed_runs ? T.red : T.green,
+                      fontWeight: 600,
+                    }}
+                  />
+                </Stack>
+                <Stack spacing={1.3}>
+                  {recentAgentRuns.length > 0 ? (
+                    recentAgentRuns.slice(0, 5).map((run) => (
+                      <Box key={run.id}>
+                        <Stack direction="row" justifyContent="space-between" gap={1}>
+                          <Box>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: T.n800 }}>
+                              {run.agent_type}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: T.n500 }}>
+                              {run.company_name || "Sans entreprise"} · {run.launched_by || "Système"}
+                            </Typography>
+                          </Box>
+                          <Chip
+                            size="small"
+                            label={run.status}
+                            sx={{
+                              height: 22,
+                              bgcolor:
+                                run.status === "success"
+                                  ? alpha(T.green, 0.12)
+                                  : run.status === "failed"
+                                  ? alpha(T.red, 0.12)
+                                  : alpha(T.blue, 0.12),
+                              color:
+                                run.status === "success"
+                                  ? T.green
+                                  : run.status === "failed"
+                                  ? T.red
+                                  : T.blue,
+                              fontSize: 11,
+                              fontWeight: 700,
+                            }}
+                          />
+                        </Stack>
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            color: T.n500,
+                            display: "block",
+                            mt: 0.3,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {run.query || run.error_message || fmtDateTime(run.started_at)}
+                        </Typography>
+                        <Divider sx={{ mt: 1.2 }} />
+                      </Box>
+                    ))
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      Aucun agent exécuté récemment.
+                    </Typography>
+                  )}
+                </Stack>
+              </Card>
+            </Grid>
+          </Grid>
 
           {/* KPIs ligne 1 */}
           <Grid container spacing={3} mb={3}>

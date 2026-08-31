@@ -428,6 +428,11 @@ const loadGoogleMapsScript = (apiKey) => {
   if (googleMapsLoaderPromise) return googleMapsLoaderPromise;
 
   googleMapsLoaderPromise = new Promise((resolve, reject) => {
+    window.gm_authFailure = () => {
+      googleMapsLoaderPromise = null;
+      reject(new Error("Clé Google Maps invalide ou projet Google supprimé"));
+    };
+
     const existing = document.querySelector('script[data-google-maps="crm-dashboard"]');
     if (existing) {
       existing.addEventListener("load", () => resolve(window.google.maps));
@@ -579,58 +584,59 @@ function GeoProspects({ prospects = [] }) {
   useEffect(() => {
     if (!mapsReady || !mapRef.current || !window.google?.maps) return;
 
-    const googleMaps = window.google.maps;
-    const defaultCenter = { lat: 34.0, lng: 9.5 };
+    try {
+      const googleMaps = window.google.maps;
+      const defaultCenter = { lat: 34.0, lng: 9.5 };
 
-    if (!mapInstanceRef.current) {
-      mapInstanceRef.current = new googleMaps.Map(mapRef.current, {
-        center: defaultCenter,
-        zoom: 6,
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: true,
-        clickableIcons: false,
-        styles: [
-          { featureType: "poi.business", stylers: [{ visibility: "off" }] },
-          { featureType: "transit", stylers: [{ visibility: "off" }] },
-        ],
-      });
-      infoWindowRef.current = new googleMaps.InfoWindow();
-    }
+      if (!mapInstanceRef.current) {
+        mapInstanceRef.current = new googleMaps.Map(mapRef.current, {
+          center: defaultCenter,
+          zoom: 6,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: true,
+          clickableIcons: false,
+          styles: [
+            { featureType: "poi.business", stylers: [{ visibility: "off" }] },
+            { featureType: "transit", stylers: [{ visibility: "off" }] },
+          ],
+        });
+        infoWindowRef.current = new googleMaps.InfoWindow();
+      }
 
-    markersRef.current.forEach((marker) => marker.setMap(null));
-    markersRef.current = [];
+      markersRef.current.forEach((marker) => marker.setMap(null));
+      markersRef.current = [];
 
-    if (!visibleProspects.length) return;
+      if (!visibleProspects.length) return;
 
-    const bounds = new googleMaps.LatLngBounds();
+      const bounds = new googleMaps.LatLngBounds();
 
-    visibleProspects.forEach((p) => {
-      const position = { lat: p.coordinates.lat, lng: p.coordinates.lng };
-      const title = getProspectName(p);
-      const marker = new googleMaps.Marker({
-        position,
-        map: mapInstanceRef.current,
-        title,
-        animation: googleMaps.Animation.DROP,
-        icon: {
-          path: googleMaps.SymbolPath.CIRCLE,
-          fillColor: p.coordinates.source === "exact" ? C.red : C.blue,
-          fillOpacity: 0.95,
-          strokeColor: "#ffffff",
-          strokeWeight: 2,
-          scale: p.coordinates.source === "exact" ? 8 : 7,
-        },
-      });
+      visibleProspects.forEach((p) => {
+        const position = { lat: p.coordinates.lat, lng: p.coordinates.lng };
+        const title = getProspectName(p);
+        const marker = new googleMaps.Marker({
+          position,
+          map: mapInstanceRef.current,
+          title,
+          animation: googleMaps.Animation.DROP,
+          icon: {
+            path: googleMaps.SymbolPath.CIRCLE,
+            fillColor: p.coordinates.source === "exact" ? C.red : C.blue,
+            fillOpacity: 0.95,
+            strokeColor: "#ffffff",
+            strokeWeight: 2,
+            scale: p.coordinates.source === "exact" ? 8 : 7,
+          },
+        });
 
-      marker.addListener("click", () => {
-        const source = p.source || p.origin || p.channel || "Non précisée";
-        const score = p.ai_score ?? p.score ?? p.relevance ?? null;
-        const city = p.city || p.ville || p.region || p.country || "—";
-        const owner =
-          p.assigned_to_detail?.username || p.owner?.username || p.created_by_name || "—";
+        marker.addListener("click", () => {
+          const source = p.source || p.origin || p.channel || "Non précisée";
+          const score = p.ai_score ?? p.score ?? p.relevance ?? null;
+          const city = p.city || p.ville || p.region || p.country || "—";
+          const owner =
+            p.assigned_to_detail?.username || p.owner?.username || p.created_by_name || "—";
 
-        infoWindowRef.current.setContent(`
+          infoWindowRef.current.setContent(`
           <div style="min-width:220px;font-family:Arial,sans-serif">
             <div style="font-weight:800;font-size:14px;color:#111827;margin-bottom:6px">${title}</div>
             <div style="font-size:12px;color:#4b5563;margin-bottom:4px"><b>Ville :</b> ${city}</div>
@@ -654,16 +660,20 @@ function GeoProspects({ prospects = [] }) {
             </div>
           </div>
         `);
-        infoWindowRef.current.open({ anchor: marker, map: mapInstanceRef.current });
+          infoWindowRef.current.open({ anchor: marker, map: mapInstanceRef.current });
+        });
+
+        markersRef.current.push(marker);
+        bounds.extend(position);
       });
 
-      markersRef.current.push(marker);
-      bounds.extend(position);
-    });
-
-    mapInstanceRef.current.fitBounds(bounds);
-    if (visibleProspects.length === 1) {
-      mapInstanceRef.current.setZoom(13);
+      mapInstanceRef.current.fitBounds(bounds);
+      if (visibleProspects.length === 1) {
+        mapInstanceRef.current.setZoom(13);
+      }
+    } catch (error) {
+      setMapError(error.message || "Google Maps indisponible");
+      setMapsReady(false);
     }
   }, [mapsReady, visibleProspects]);
 

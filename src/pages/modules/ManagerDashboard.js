@@ -473,6 +473,7 @@ AiCenter.defaultProps = { prospects: [], tasks: [], opportunities: [] };
 
 function GeoProspectsMap({ prospects }) {
   const [selected, setSelected] = useState(null);
+  const [mapLoadError, setMapLoadError] = useState(false);
   const apiKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
   const mappedProspects = prospects
     .map((p) => ({ ...p, lat: Number(p.latitude || p.lat), lng: Number(p.longitude || p.lng) }))
@@ -492,12 +493,12 @@ function GeoProspectsMap({ prospects }) {
     ? { lat: mappedProspects[0].lat, lng: mappedProspects[0].lng }
     : { lat: 36.8065, lng: 10.1815 };
 
-  if (!apiKey) {
+  if (!apiKey || mapLoadError) {
     return (
       <Box>
         <Alert severity="warning" sx={{ borderRadius: 2, mb: 2, fontSize: 13 }}>
-          Clé Google Maps manquante. Ajoute REACT_APP_GOOGLE_MAPS_API_KEY dans le fichier .env du
-          frontend puis redémarre npm start.
+          Google Maps n&apos;est pas configuré avec une clé valide. Le CRM affiche le résumé par
+          ville sans bloquer le tableau de bord.
         </Alert>
         <CityFallback cities={fallbackByCity} />
       </Box>
@@ -518,7 +519,7 @@ function GeoProspectsMap({ prospects }) {
 
   return (
     <Box>
-      <LoadScript googleMapsApiKey={apiKey}>
+      <LoadScript googleMapsApiKey={apiKey} onError={() => setMapLoadError(true)}>
         <GoogleMap
           mapContainerStyle={{ width: "100%", height: 360, borderRadius: 16 }}
           center={center}

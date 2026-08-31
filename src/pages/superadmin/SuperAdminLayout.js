@@ -132,6 +132,11 @@ const NAV_SECTIONS = [
         path: "/superadmin/agents",
       },
       {
+        label: "Monitoring",
+        icon: <FactCheck />,
+        path: "/superadmin/monitoring",
+      },
+      {
         label: "Audit Logs",
         icon: <FactCheck />,
         path: "/superadmin/logs",
