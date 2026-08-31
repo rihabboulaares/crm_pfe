@@ -10,8 +10,6 @@ export const getEmailConnections = () => api.get("/connections/email/");
 
 export const connectGoogleEmail = () => api.post("/connections/gmail/connect/");
 
-export const connectMicrosoftEmail = () => api.post("/connections/microsoft/connect/");
-
 export const disconnectEmail = (provider = "") =>
   api.post("/connections/email/disconnect/", provider ? { provider } : {});
 

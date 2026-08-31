@@ -52,7 +52,6 @@ import {
   getEngagementProspects,
   getProspectTasks,
   connectGoogleEmail,
-  connectMicrosoftEmail,
   disconnectEmail,
   getEmailConnections,
   testEmailConnection,
@@ -602,10 +601,10 @@ function EngagementDashboard() {
     setEmailConnection(res.data?.active || { connected: false });
   };
 
-  const handleEmailConnect = async (provider) => {
-    setBusyAction(`email-${provider}`);
+  const handleEmailConnect = async () => {
+    setBusyAction("email-gmail");
     try {
-      const res = provider === "gmail" ? await connectGoogleEmail() : await connectMicrosoftEmail();
+      const res = await connectGoogleEmail();
       if (res.data?.authorization_url) {
         window.open(res.data.authorization_url, "_blank", "noopener,noreferrer");
       }
@@ -792,7 +791,7 @@ function EngagementDashboard() {
                   ? `${emailConnection.display_name || "Compte email"} - ${
                       emailConnection.email
                     } (${emailConnection.provider})`
-                  : "Connecte Gmail ou Microsoft pour envoyer les messages préparés par l'agent."}
+                  : "Connecte Gmail pour envoyer les messages préparés par l'agent."}
               </Typography>
             </Stack>
             <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ rowGap: 1 }}>
@@ -800,19 +799,10 @@ function EngagementDashboard() {
                 size="small"
                 variant="outlined"
                 disabled={Boolean(busyAction)}
-                onClick={() => handleEmailConnect("gmail")}
+                onClick={handleEmailConnect}
                 sx={{ textTransform: "none" }}
               >
                 Connecter Gmail
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                disabled={Boolean(busyAction)}
-                onClick={() => handleEmailConnect("microsoft")}
-                sx={{ textTransform: "none" }}
-              >
-                Connecter Microsoft
               </Button>
               <Button
                 size="small"

@@ -85,6 +85,7 @@ import PaginationBar from "../../components/PaginationBar";
 // ==============================
 const API_BASE_URL = "/api/sales";
 const API_USER = "/api/users/me/";
+const API_ASSIGNABLE_USERS = "/api/users/assignable-users/";
 
 const api = axios.create({ baseURL: API_BASE_URL });
 api.interceptors.request.use((config) => {
@@ -191,6 +192,17 @@ const StatsCard = styled(Card)(() => ({
 // UTILS
 // ==============================
 const getInitials = (first, last) => `${first?.[0] || ""}${last?.[0] || ""}`.toUpperCase();
+const getUserLabel = (user) =>
+  [user?.username, user?.email && `(${user.email})`].filter(Boolean).join(" ");
+const getApiErrorMessage = (error) => {
+  const data = error?.response?.data;
+  if (!data) return "Erreur lors de l'enregistrement";
+  if (typeof data === "string") return data;
+  const firstValue = Object.values(data)[0];
+  if (Array.isArray(firstValue)) return firstValue[0] || "Erreur lors de l'enregistrement";
+  if (typeof firstValue === "string") return firstValue;
+  return data.detail || data.error || "Erreur lors de l'enregistrement";
+};
 const formatDate = (d) =>
   d
     ? new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
@@ -432,12 +444,15 @@ export default function Contacts() {
 
   const [currentUser, setCurrentUser] = useState(null);
   const [accounts, setAccounts] = useState([]);
+  const [prospectCompanies, setProspectCompanies] = useState([]);
+  const [commercials, setCommercials] = useState([]);
   const [message, setMessage] = useState({ text: "", type: "success" });
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [contactToDelete, setContactToDelete] = useState(null);
   const [selectedContact, setSelectedContact] = useState(null);
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState(null);
+  const [selectedProspectCompany, setSelectedProspectCompany] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -458,6 +473,7 @@ export default function Contacts() {
     city: "",
     country: "",
     account: null,
+    assigned_to: "",
   });
   const [contextMenu, setContextMenu] = useState(null);
   const [contextContactId, setContextContactId] = useState(null);
@@ -506,6 +522,8 @@ export default function Contacts() {
       const res = await axios.get(API_USER, { headers: { Authorization: `Bearer ${tok}` } });
       setCurrentUser(res.data);
       fetchAccounts();
+      fetchProspectCompanies();
+      fetchCommercials(tok);
     } catch (err) {
       if (err.response?.status === 401) {
         localStorage.removeItem("token");
@@ -519,6 +537,26 @@ export default function Contacts() {
       const res = await api.get("/accounts/");
       setAccounts(Array.isArray(res.data) ? res.data : res.data?.results || []);
     } catch {}
+  };
+
+  const fetchProspectCompanies = async () => {
+    try {
+      const res = await api.get("/prospect-companies/");
+      setProspectCompanies(Array.isArray(res.data) ? res.data : res.data?.results || []);
+    } catch {
+      setProspectCompanies([]);
+    }
+  };
+
+  const fetchCommercials = async (tok = localStorage.getItem("token")) => {
+    try {
+      const res = await axios.get(API_ASSIGNABLE_USERS, {
+        headers: { Authorization: `Bearer ${tok}` },
+      });
+      setCommercials(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      setCommercials([]);
+    }
   };
 
   const showNotification = (text, type = "success") => {
@@ -548,8 +586,18 @@ export default function Contacts() {
       phone: contact.phone || "",
       city: contact.city || "",
       country: contact.country || "",
+      assigned_to: contact.assigned_to || "",
     });
     setSelectedAccount(contact.account || null);
+    setSelectedProspectCompany(
+      contact.account?.name
+        ? prospectCompanies.find(
+            (company) =>
+              String(company.name || "").toLowerCase() ===
+              String(contact.account.name || "").toLowerCase()
+          ) || null
+        : null
+    );
     setSelectedContactId(contact.id);
     setIsEditing(true);
     setShowForm(true);
@@ -570,8 +618,12 @@ export default function Contacts() {
         phone: contactData.phone || null,
         city: contactData.city || null,
         country: contactData.country || null,
-        account: selectedAccount?.id || null,
+        account_id: selectedAccount?.id || null,
+        prospect_company_id: selectedProspectCompany?.id || null,
       };
+      if (isAdminOrManager && contactData.assigned_to) {
+        payload.assigned_to = contactData.assigned_to;
+      }
       if (isEditing && selectedContactId) {
         await api.put(`/contacts/${selectedContactId}/`, payload);
         showNotification("Contact modifié avec succès");
@@ -581,8 +633,8 @@ export default function Contacts() {
       }
       resetForm();
       refresh();
-    } catch {
-      showNotification("Erreur lors de l'enregistrement", "error");
+    } catch (err) {
+      showNotification(getApiErrorMessage(err), "error");
     }
   };
 
@@ -595,8 +647,10 @@ export default function Contacts() {
       phone: "",
       city: "",
       country: "",
+      assigned_to: "",
     });
     setSelectedAccount(null);
+    setSelectedProspectCompany(null);
     setIsEditing(false);
     setSelectedContactId(null);
     setShowForm(false);
@@ -1506,10 +1560,13 @@ export default function Contacts() {
                       Société
                     </Typography>
                     <Autocomplete
-                      options={accounts}
+                      options={prospectCompanies}
                       getOptionLabel={(o) => o.name || ""}
-                      value={selectedAccount}
-                      onChange={(e, val) => setSelectedAccount(val)}
+                      value={selectedProspectCompany}
+                      onChange={(e, val) => {
+                        setSelectedProspectCompany(val);
+                        if (val) setSelectedAccount(null);
+                      }}
                       size="small"
                       renderInput={(params) => (
                         <TextField {...params} placeholder="Sélectionner une société" />
@@ -1517,6 +1574,40 @@ export default function Contacts() {
                     />
                   </Card>
                 </Grid>
+                {isAdminOrManager && (
+                  <Grid item xs={12}>
+                    <Card variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
+                      <Typography
+                        variant="h6"
+                        sx={{ color: THEME.primary, mb: 2, fontWeight: 600 }}
+                      >
+                        Assignation
+                      </Typography>
+                      <FormControl fullWidth size="small">
+                        <InputLabel>Commercial responsable</InputLabel>
+                        <Select
+                          value={contactData.assigned_to || ""}
+                          label="Commercial responsable"
+                          onChange={(e) =>
+                            setContactData({ ...contactData, assigned_to: e.target.value })
+                          }
+                        >
+                          <MenuItem value="">
+                            <em>Non assigné</em>
+                          </MenuItem>
+                          {commercials.map((commercial) => (
+                            <MenuItem key={commercial.id} value={commercial.id}>
+                              {getUserLabel(commercial)}
+                            </MenuItem>
+                          ))}
+                          {!commercials.length && (
+                            <MenuItem disabled>Aucun commercial disponible</MenuItem>
+                          )}
+                        </Select>
+                      </FormControl>
+                    </Card>
+                  </Grid>
+                )}
               </Grid>
               <Box sx={{ mt: 4, display: "flex", justifyContent: "flex-end", gap: 2 }}>
                 <Button
