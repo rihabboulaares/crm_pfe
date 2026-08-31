@@ -93,6 +93,58 @@ class SuperAdminStatsView(APIView):
             companies_by_plan[row["plan__name"] or "sans plan"] = row["count"]
         ai_runs = AIAgentRun.objects.all()
         avg_rating = AppRating.objects.aggregate(v=Avg("rating"))["v"] or 0
+        active_users_today = UserActivity.objects.filter(created_at__date=today).values("user").distinct().count()
+        active_users_week = UserActivity.objects.filter(
+            created_at__date__gte=today - timedelta(days=7)
+        ).values("user").distinct().count()
+        module_labels = dict(UserActivity.MODULE_CHOICES)
+        recent_user_activities = [
+            {
+                "id": activity.id,
+                "module": activity.module,
+                "module_label": module_labels.get(activity.module, activity.module),
+                "action": activity.action,
+                "created_at": activity.created_at,
+                "username": activity.user.username if activity.user else "",
+                "email": activity.user.email if activity.user else "",
+                "company_name": activity.user.company.name if activity.user and activity.user.company else "",
+            }
+            for activity in UserActivity.objects.select_related("user", "user__company").order_by("-created_at")[:8]
+        ]
+        recent_agent_runs = [
+            {
+                "id": run.id,
+                "agent_type": run.agent_type,
+                "status": run.status,
+                "query": run.query or "",
+                "company_name": run.company.name if run.company else "",
+                "launched_by": run.launched_by.username if run.launched_by else "",
+                "started_at": run.started_at,
+                "finished_at": run.finished_at,
+                "duration_seconds": run.duration_seconds,
+                "error_message": run.error_message or "",
+            }
+            for run in ai_runs.select_related("company", "launched_by").order_by("-started_at")[:8]
+        ]
+        supervision_alerts = []
+        if data_expired := subs.filter(is_active=False).count():
+            supervision_alerts.append({
+                "severity": "error",
+                "title": "Abonnements expirés",
+                "message": f"{data_expired} entreprise(s) nécessitent une action commerciale.",
+            })
+        if failed_runs := ai_runs.filter(status="failed").count():
+            supervision_alerts.append({
+                "severity": "warning",
+                "title": "Runs IA échoués",
+                "message": f"{failed_runs} exécution(s) d'agent sont en échec.",
+            })
+        if new_feedbacks := UserFeedback.objects.filter(status="new").count():
+            supervision_alerts.append({
+                "severity": "info",
+                "title": "Feedbacks à traiter",
+                "message": f"{new_feedbacks} retour(s) utilisateur attendent une revue.",
+            })
 
         data = {
             "total_companies":          Company.objects.count(),
@@ -119,6 +171,11 @@ class SuperAdminStatsView(APIView):
             "ai_messages_generated":    ai_runs.aggregate(v=Sum("messages_generated"))["v"] or 0,
             "ai_messages_sent":         ai_runs.aggregate(v=Sum("messages_sent"))["v"] or 0,
             "ai_replies_detected":      ai_runs.aggregate(v=Sum("replies_detected"))["v"] or 0,
+            "active_users_today":       active_users_today,
+            "active_users_week":        active_users_week,
+            "recent_user_activities":   recent_user_activities,
+            "recent_agent_runs":        recent_agent_runs,
+            "supervision_alerts":       supervision_alerts,
         }
 
         return Response(SuperAdminStatsSerializer(data).data)
@@ -626,17 +683,20 @@ class TrackActivityView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        module = request.data.get("module")
-        action = request.data.get("action", "")
+        module = str(request.data.get("module") or "").strip().lower()
+        action = str(request.data.get("action") or "").strip()
 
         valid_modules = [m[0] for m in UserActivity.MODULE_CHOICES]
-        if not module or module not in valid_modules:
-            return Response({"error": "Module invalide"}, status=400)
+        if not module:
+            return Response({"error": "Module manquant"}, status=400)
+        if module not in valid_modules:
+            action = action or f"visited_{module}"
+            module = "other"
 
         UserActivity.objects.create(
             user=request.user,
             module=module,
-            action=action,
+            action=action[:100],
         )
         return Response({"message": "Activité enregistrée"})
 

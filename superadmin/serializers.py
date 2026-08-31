@@ -425,6 +425,11 @@ class SuperAdminStatsSerializer(serializers.Serializer):
     ai_messages_generated    = serializers.IntegerField()
     ai_messages_sent         = serializers.IntegerField()
     ai_replies_detected      = serializers.IntegerField()
+    active_users_today       = serializers.IntegerField()
+    active_users_week        = serializers.IntegerField()
+    recent_user_activities   = serializers.ListField()
+    recent_agent_runs        = serializers.ListField()
+    supervision_alerts       = serializers.ListField()
 
 
 class AIAgentRunSerializer(serializers.ModelSerializer):

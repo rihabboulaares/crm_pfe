@@ -95,7 +95,14 @@ class UserActivity(models.Model):
         ("tasks",         "Tâches"),
         ("contacts",      "Contacts"),
         ("accounts",      "Comptes"),
+        ("campaigns",     "Campagnes"),
+        ("profile",       "Profil"),
+        ("engagement",    "Agent d'engagement"),
+        ("qualification", "Agent de qualification"),
+        ("agent_crm",     "Agent CRM"),
+        ("superadmin",    "Super Admin"),
         ("dashboard",     "Dashboard"),
+        ("other",         "Autre"),
     ]
 
     user = models.ForeignKey(
