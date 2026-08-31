@@ -66,7 +66,7 @@ ENGAGEMENT_STATUSES = [
     "rejected",
 ]
 
-EMAIL_PROVIDERS = {UserEmailConnection.PROVIDER_GMAIL, UserEmailConnection.PROVIDER_MICROSOFT}
+EMAIL_PROVIDERS = {UserEmailConnection.PROVIDER_GMAIL}
 
 
 def normalize_status(status_value):
@@ -550,13 +550,6 @@ class EmailConnectView(APIView):
                     missing.append("GOOGLE_CLIENT_SECRET")
                 if not settings.GOOGLE_REDIRECT_URI:
                     missing.append("GOOGLE_REDIRECT_URI")
-            if provider == UserEmailConnection.PROVIDER_MICROSOFT:
-                if not settings.MICROSOFT_CLIENT_ID:
-                    missing.append("MICROSOFT_CLIENT_ID")
-                if not settings.MICROSOFT_CLIENT_SECRET:
-                    missing.append("MICROSOFT_CLIENT_SECRET")
-                if not settings.MICROSOFT_REDIRECT_URI:
-                    missing.append("MICROSOFT_REDIRECT_URI")
             return Response(
                 {
                     "success": False,

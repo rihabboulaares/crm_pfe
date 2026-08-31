@@ -583,6 +583,12 @@ class ContactSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
     )
+    prospect_company_id = serializers.PrimaryKeyRelatedField(
+        queryset=ProspectCompany.objects.all(),
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
     assigned_to_name = serializers.SerializerMethodField()
 
     class Meta:
@@ -590,7 +596,7 @@ class ContactSerializer(serializers.ModelSerializer):
         fields = [
             "id", "first_name", "last_name", "title", "email", "phone",
             "city", "country",
-            "account", "account_id",
+            "account", "account_id", "prospect_company_id",
             "assigned_to", "assigned_to_name",
             "company", "created_at",
         ]
@@ -600,6 +606,92 @@ class ContactSerializer(serializers.ModelSerializer):
         if obj.assigned_to:
             return obj.assigned_to.username
         return None
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        crm_company = getattr(getattr(request, "user", None), "company", None)
+
+        account = attrs.get("account")
+        if account and crm_company and account.company_id != crm_company.id:
+            raise serializers.ValidationError(
+                {"account_id": "Cette société n'appartient pas à votre entreprise."}
+            )
+
+        prospect_company = attrs.get("prospect_company_id")
+        if prospect_company and crm_company and prospect_company.company_id != crm_company.id:
+            raise serializers.ValidationError(
+                {"prospect_company_id": "Cette société prospect n'appartient pas à votre entreprise."}
+            )
+
+        assigned_to = attrs.get("assigned_to")
+        if assigned_to:
+            if assigned_to.role != "COMMERCIAL":
+                raise serializers.ValidationError(
+                    {"assigned_to": "Un contact ne peut être assigné qu'à un commercial."}
+                )
+            if crm_company and assigned_to.company_id != crm_company.id:
+                raise serializers.ValidationError(
+                    {"assigned_to": "Ce commercial n'appartient pas à votre entreprise."}
+                )
+
+        return attrs
+
+    def _account_from_prospect_company(self, prospect_company, crm_company, user):
+        if not prospect_company:
+            return None
+
+        account = Account.objects.filter(
+            name__iexact=prospect_company.name,
+            company=crm_company,
+        ).first()
+        if account:
+            return account
+
+        from users.models import Team
+
+        team = user.teams.first() or Team.objects.filter(company=crm_company).first()
+        if not team:
+            raise serializers.ValidationError(
+                {"prospect_company_id": "Impossible de créer un compte sans équipe CRM."}
+            )
+
+        return Account.objects.create(
+            name=prospect_company.name,
+            industry=prospect_company.industry or "",
+            phone=prospect_company.phone or "",
+            email=prospect_company.email or "",
+            city=prospect_company.city or "",
+            country=prospect_company.country or "",
+            company=crm_company,
+            team=team,
+            created_by=user,
+        )
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        crm_company = getattr(user, "company", None)
+        prospect_company = validated_data.pop("prospect_company_id", None)
+        if prospect_company and not validated_data.get("account"):
+            validated_data["account"] = self._account_from_prospect_company(
+                prospect_company,
+                crm_company,
+                user,
+            )
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        crm_company = getattr(user, "company", None)
+        prospect_company = validated_data.pop("prospect_company_id", None)
+        if prospect_company:
+            validated_data["account"] = self._account_from_prospect_company(
+                prospect_company,
+                crm_company,
+                user,
+            )
+        return super().update(instance, validated_data)
 
 
 # -----------------------

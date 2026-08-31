@@ -15,23 +15,12 @@ Required environment variables:
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=http://localhost:8000/api/engagement/connections/gmail/callback/
-
-MICROSOFT_CLIENT_ID=
-MICROSOFT_CLIENT_SECRET=
-MICROSOFT_TENANT_ID=common
-MICROSOFT_REDIRECT_URI=http://localhost:8000/api/engagement/connections/microsoft/callback/
 ```
 
-Google OAuth scopes:
+Gmail OAuth scopes:
 
 ```text
 openid email profile
-```
-
-Microsoft OAuth scopes:
-
-```text
-offline_access User.Read
 ```
 
 The token fields are centralized behind `UserEmailConnection.get_*_token` and `set_*_token`
