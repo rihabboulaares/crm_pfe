@@ -796,18 +796,26 @@ class OpportunityViewSet(viewsets.ModelViewSet):
                 account = _get_or_create_account_from_prospect_company(
                     prospect.prospect_company, crm_company
                 )
-                contact, created = Contact.objects.get_or_create(
+                contact = Contact.objects.filter(
                     email=prospect.email,
-                    defaults={
-                        "first_name":  prospect.first_name or "",
-                        "last_name":   prospect.last_name  or "",
-                        "title":       prospect.title      or "",
-                        "phone":       prospect.phone      or "",
-                        "company":     crm_company,
-                        "account":     account,
-                        "assigned_to": prospect.assigned_to,
-                    },
-                )
+                    company=crm_company,
+                ).first()
+                created = contact is None
+                if created:
+                    contact = Contact(
+                        first_name=prospect.first_name or "",
+                        last_name=prospect.last_name or "",
+                        title=prospect.title or "",
+                        email=prospect.email,
+                        phone=prospect.phone or "",
+                        company=crm_company,
+                        account=account,
+                        assigned_to=prospect.assigned_to,
+                    )
+                    contact._creation_source = "opportunity_won"
+                    contact._source_opportunity_id = opportunity.pk
+                    contact._source_prospect_id = prospect.pk
+                    contact.save()
                 if not created:
                     fields = []
                     if contact.account is None and account:

@@ -328,28 +328,43 @@ def contact_post_save(sender, instance, created, **kwargs):
     name     = f"{instance.first_name} {instance.last_name}"
 
     if created:
+        creation_source = getattr(instance, "_creation_source", "manual")
+        source_opportunity_id = getattr(instance, "_source_opportunity_id", None)
+        source_prospect_id = getattr(instance, "_source_prospect_id", None)
+        from_won_opportunity = creation_source == "opportunity_won"
+        description = (
+            f"Contact « {name} » créé depuis une opportunité gagnée"
+            if from_won_opportunity
+            else f"Contact « {name} » créé manuellement"
+        )
         create_history_and_notifications(
             actor=actor, action="create", entity_type="contact",
             entity_id=instance.pk, entity_name=name,
-            description=f"Contact « {name} » créé",
+            description=description,
             new_value={"email": getattr(instance,"email",""), "phone": getattr(instance,"phone","")},
             affected_users=affected, company=company,
         )
         safe_record_business_event(
-            event_type="opportunity_created",
-            category="opportunity",
-            title=f"Opportunité créée : {name}",
-            description=f"Opportunité « {name} » créée",
+            event_type="commercial_activity_created",
+            category="commercial",
+            title=f"Contact créé : {name}",
+            description=description,
             severity="success",
-            source_type="opportunity",
+            source_type="opportunity" if from_won_opportunity else "manual",
             source_name="CRM",
-            source_id=instance.pk,
+            source_id=source_opportunity_id or instance.pk,
             user=actor,
             company=company,
-            related_object_type="opportunity",
+            related_object_type="contact",
             related_object_id=instance.pk,
-            status=instance.stage,
-            metadata={"stage": instance.stage, "amount": str(getattr(instance, "amount", 0))},
+            status="won" if from_won_opportunity else "",
+            metadata={
+                "creation_source": creation_source,
+                "source_opportunity_id": source_opportunity_id,
+                "source_prospect_id": source_prospect_id,
+                "email": getattr(instance, "email", ""),
+                "phone": getattr(instance, "phone", ""),
+            },
         )
     else:
         old = getattr(instance, "_pre_save_state", None)
