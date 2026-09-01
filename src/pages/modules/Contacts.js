@@ -194,14 +194,33 @@ const StatsCard = styled(Card)(() => ({
 const getInitials = (first, last) => `${first?.[0] || ""}${last?.[0] || ""}`.toUpperCase();
 const getUserLabel = (user) =>
   [user?.username, user?.email && `(${user.email})`].filter(Boolean).join(" ");
+
+const isTechnicalErrorMessage = (message = "") =>
+  /traceback|attributeerror|typeerror|referenceerror|exception|\.py\b|<html|doctype|stack trace/i.test(
+    message
+  ) || message.length > 220;
+
+const formatErrorValue = (value) => {
+  if (!value) return "";
+  if (Array.isArray(value)) return formatErrorValue(value[0]);
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    return (
+      formatErrorValue(value.detail) ||
+      formatErrorValue(value.message) ||
+      formatErrorValue(value.error) ||
+      formatErrorValue(Object.values(value)[0])
+    );
+  }
+  return String(value);
+};
+
 const getApiErrorMessage = (error) => {
   const data = error?.response?.data;
-  if (!data) return "Erreur lors de l'enregistrement";
-  if (typeof data === "string") return data;
-  const firstValue = Object.values(data)[0];
-  if (Array.isArray(firstValue)) return firstValue[0] || "Erreur lors de l'enregistrement";
-  if (typeof firstValue === "string") return firstValue;
-  return data.detail || data.error || "Erreur lors de l'enregistrement";
+  const fallback = "L'opération n'a pas pu être finalisée. Veuillez réessayer.";
+  const message = formatErrorValue(data || error?.message).trim();
+  if (!message || isTechnicalErrorMessage(message)) return fallback;
+  return message;
 };
 const formatDate = (d) =>
   d
